@@ -198,6 +198,28 @@ class AppTests(unittest.TestCase):
         state = c('me')[1]['state']
         self.assertEqual((state['orders'], state['bookings']), ([], []))
 
+    def test_profile_avatar_and_old_database_migration(self):
+        c, _, _, _ = self.staff()
+        png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII='
+        url = c('upload', {'data': png})[1]['url']
+        self.assertEqual(c('profile', {'name': 'Pic Owner', 'avatar': 'https://evil.example/x.png'})[0], 400)
+        body = c('profile', {'name': 'Pic Owner', 'avatar': url})[1]
+        self.assertEqual((body['user']['avatar'], body['team'][0]['avatar']), (url, url))
+        self.assertEqual(c('profile', {'name': 'Pic Owner'})[1]['user']['avatar'], url)  # unchanged when omitted
+        photos = [url] * 40
+        self.assertEqual(self.act(c, 'config', {'group': 'profile', 'values': {'city': 'Addis Ababa', 'address': '', 'mapUrl': '', 'photos': photos}})[0], 200)
+        if not s.db.POSTGRES:
+            import sqlite3
+            old = Path(self.temp.name) / 'old.sqlite'
+            con = sqlite3.connect(old)
+            con.execute('CREATE TABLE users(id TEXT PRIMARY KEY,tenant TEXT NOT NULL,name TEXT NOT NULL,email TEXT UNIQUE NOT NULL,password TEXT NOT NULL,recovery TEXT NOT NULL,role TEXT NOT NULL)')
+            con.execute("INSERT INTO users VALUES('u','t','Old','old@example.com','x','y','Owner')")
+            con.commit()
+            s.db.migrate(con)
+            self.assertEqual(con.execute('SELECT avatar FROM users').fetchone()[0], '')
+            s.db.migrate(con)  # idempotent
+            con.close()
+
     def test_csrf_and_upload_validation(self):
         c, _, _, _ = self.staff()
         self.assertEqual(c('profile', {'name': 'Altered'}, 'https://attacker.invalid')[0], 401)

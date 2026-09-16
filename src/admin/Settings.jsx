@@ -1,29 +1,25 @@
 import React, { useEffect, useRef, useState } from 'react';
 import ImageUpload from '../shared/ImageUpload';
+import { api, readFileAsBase64 } from '../shared/api';
 import { copyText, ErrorText, Field, Icon, Toggle } from '../shared/ui';
 
-const SECTIONS = [
-  ['workspace', 'Workspace', 'venue'],
-  ['profile', 'Location & photos', 'download'],
-  ['theme', 'Appearance', 'theme'],
-  ['ticketing', 'Ticketing', 'ticket'],
-  ['ordering', 'Table ordering', 'table'],
-  ['categories', 'Menu categories', 'menu'],
-  ['tax', 'VAT', 'chart'],
-  ['tips', 'Tips', 'money'],
-  ['payments', 'Payments', 'wallet'],
-  ['notifications', 'Notifications', 'bell'],
-  ['support', 'Help & support', 'support'],
-  ['legal', 'Terms & privacy', 'edit'],
+const GROUPS = [
+  ['Organization', [['profile', 'Profile'], ['theme', 'Appearance']]],
+  ['Sales', [['ticketing', 'Tickets'], ['payments', 'Payments'], ['tax', 'VAT']]],
+  ['Food & drinks', [['ordering', 'Table ordering'], ['categories', 'Menu categories'], ['tips', 'Tips']]],
+  ['Guests', [['notifications', 'Notifications'], ['support', 'Help & support'], ['legal', 'Terms & privacy']]],
 ];
+const SECTIONS = GROUPS.flatMap(([, items]) => items);
 const CURRENCIES = ['ETB', 'USD', 'EUR', 'KES', 'NGN', 'GHS', 'RWF', 'UGX'];
 const SWATCHES = ['#E61E32', '#000000', '#1A4DB3', '#0F7B5F', '#7A3FC4', '#B4540A', '#C2185B', '#37474F'];
 
 export default function Settings({ ctx }) {
-  const [section, setSection] = useState(() => new URLSearchParams(location.search).get('section') || 'workspace');
+  const initial = new URLSearchParams(location.search).get('section');
+  const [section, setSection] = useState(SECTIONS.some(([id]) => id === initial) ? initial : initial === 'workspace' ? 'profile' : 'profile');
   const [dirty, setDirty] = useState(false);
   function choose(id) {
-    if (dirty && !confirm('You have unsaved changes in this section. Leave without saving?')) return;
+    if (id === section) return;
+    if (dirty && !confirm('You have unsaved changes. Leave without saving?')) return;
     setDirty(false);
     setSection(id);
     history.replaceState(null, '', '/admin?page=Settings&section=' + id);
@@ -33,18 +29,29 @@ export default function Settings({ ctx }) {
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);
   }, [dirty]);
-  const Section = { workspace: Workspace, profile: Profile, categories: Categories, tax: Tax, theme: Theme, ticketing: Ticketing, ordering: Ordering, tips: Tips, payments: Payments, notifications: Notifications, support: Support, legal: Legal }[section] || Workspace;
-  const title = SECTIONS.find(s => s[0] === section)?.[1] || 'Workspace';
+  const Section = { profile: OrgProfile, categories: Categories, tax: Tax, theme: Theme, ticketing: Ticketing, ordering: Ordering, tips: Tips, payments: Payments, notifications: Notifications, support: Support, legal: Legal }[section];
+  const title = SECTIONS.find(([id]) => id === section)[1];
   return (
     <div className="settings-layout">
       <nav className="settings-nav" aria-label="Settings sections">
-        {SECTIONS.map(([id, label, icon]) => (
-          <button key={id} className={section === id ? 'active' : ''} aria-current={section === id ? 'page' : undefined} onClick={() => choose(id)}>
-            <Icon name={icon} />{label}
-          </button>
-        ))}
+        <label className="settings-select">
+          <span className="visually-hidden">Settings section</span>
+          <select value={section} onChange={e => choose(e.target.value)}>
+            {GROUPS.map(([group, items]) => <optgroup key={group} label={group}>{items.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</optgroup>)}
+          </select>
+        </label>
+        <div className="settings-links">
+          {GROUPS.map(([group, items]) => (
+            <div key={group} className="settings-group">
+              <span className="navlabel">{group}</span>
+              {items.map(([id, label]) => (
+                <button key={id} className={section === id ? 'active' : ''} aria-current={section === id ? 'page' : undefined} onClick={() => choose(id)}>{label}</button>
+              ))}
+            </div>
+          ))}
+        </div>
       </nav>
-      <section className="card settings-section" aria-label={title}>
+      <section className="settings-section" aria-label={title}>
         <Section key={section} ctx={ctx} setDirty={setDirty} dirty={dirty} />
       </section>
     </div>
@@ -72,7 +79,7 @@ function useDraft(initial, setDirty) {
 
 function SaveBar({ form, onSave, note }) {
   return (
-    <div className="savebar">
+    <div className={'savebar' + (form.changed ? ' dirty' : '')}>
       <span className="hint">{form.changed ? <><span className="unsaved" />Unsaved changes</> : note || 'All changes saved'}</span>
       <div className="row">
         {form.changed && <button type="button" onClick={form.reset} disabled={form.busy}>Discard</button>}
@@ -97,7 +104,17 @@ function useSaver(ctx, form) {
 }
 
 function Head({ title, children }) {
-  return <div><h2>{title}</h2><p style={{ marginTop: 4 }}>{children}</p></div>;
+  return <header className="settings-head"><h2>{title}</h2>{children && <p>{children}</p>}</header>;
+}
+
+/** Groups related fields inside a settings page. */
+function Block({ title, hint, children }) {
+  return (
+    <section className="settings-block">
+      {(title || hint) && <div className="settings-block-head">{title && <h3>{title}</h3>}{hint && <p>{hint}</p>}</div>}
+      {children}
+    </section>
+  );
 }
 
 function Locked({ ctx }) {
@@ -106,70 +123,125 @@ function Locked({ ctx }) {
 
 // ---------------------------------------------------------------- sections
 
-function Workspace({ ctx, setDirty }) {
+function OrgProfile({ ctx, setDirty }) {
   const { state } = ctx;
-  const form = useDraft({ name: state.name, description: state.description, currency: state.currency }, setDirty);
-  const save = useSaver(ctx, form);
+  const initial = {
+    name: state.name, description: state.description, currency: state.currency, logo: state.settings.theme.logo,
+    ...state.settings.profile,
+  };
+  const form = useDraft(initial, setDirty);
+  const d = form.draft;
   const link = ctx.guestLink();
   const hasSales = state.bookings.length + state.orders.length > 0;
+  async function saveAll() {
+    form.setBusy(true);
+    form.setError('');
+    try {
+      if (d.name !== state.name || d.description !== state.description || d.currency !== state.currency) {
+        await ctx.action('settings', { name: d.name, description: d.description, currency: d.currency }, { quiet: true });
+      }
+      const p = state.settings.profile;
+      if (d.city !== p.city || d.address !== p.address || d.mapUrl !== p.mapUrl || JSON.stringify(d.photos) !== JSON.stringify(p.photos)) {
+        await ctx.action('config', { group: 'profile', values: { city: d.city, address: d.address, mapUrl: d.mapUrl, photos: d.photos } }, { quiet: true });
+      }
+      if (d.logo !== state.settings.theme.logo) {
+        await ctx.action('config', { group: 'theme', values: { ...state.settings.theme, logo: d.logo } }, { quiet: true });
+      }
+      ctx.toast('Profile saved');
+    } catch (e) {
+      form.setError(e.message);
+    } finally {
+      form.setBusy(false);
+    }
+  }
+  const move = (i, delta) => { const p = [...d.photos]; [p[i], p[i + delta]] = [p[i + delta], p[i]]; form.set('photos', p); };
   return (
     <>
-      <Head title="Workspace">The organization name, description and currency guests see.</Head>
-      <Field label="Organization name" value={form.draft.name} maxLength={80} onChange={e => form.set('name', e.target.value)} required />
-      <Field label="About your organization"><textarea value={form.draft.description} maxLength={500} onChange={e => form.set('description', e.target.value)} /></Field>
-      <Field label="Currency" hint={hasSales ? 'Changing currency does not convert existing bookings and orders.' : 'Prices are shown to guests in this currency.'}>
-        <select value={form.draft.currency} onChange={e => form.set('currency', e.target.value)}>{CURRENCIES.map(c => <option key={c}>{c}</option>)}</select>
-      </Field>
-      <ErrorText>{form.error}</ErrorText>
-      <SaveBar form={form} onSave={() => save('settings', form.draft)} />
-      <hr />
-      <div className="stack">
-        <h3>Public guest link</h3>
-        <p className="small">Share this with your audience. Table QR codes open the same guest app with the table already selected.</p>
-        <div className="row">
-          <input readOnly value={link} aria-label="Public guest link" onFocus={e => e.target.select()} />
-          <button onClick={async () => ctx.toast(await copyText(link) ? 'Link copied' : 'Select and copy the link')}><Icon name="copy" />Copy</button>
-        </div>
-      </div>
-    </>
-  );
-}
-
-function Profile({ ctx, setDirty }) {
-  const form = useDraft(ctx.state.settings.profile, setDirty);
-  const save = useSaver(ctx, form);
-  const d = form.draft;
-  return (
-    <>
-      <Head title="Location & photos">Where guests find you, and photos shown on your organizer page.</Head>
+      <Head title="Profile">How your organization appears to guests.</Head>
       <Locked ctx={ctx} />
-      <div className="formrow">
-        <Field label="City" value={d.city} maxLength={80} onChange={e => form.set('city', e.target.value)} disabled={!ctx.canManage} />
-        <Field label="Address" placeholder="e.g. Bole Road, near Edna Mall" value={d.address} maxLength={200} onChange={e => form.set('address', e.target.value)} disabled={!ctx.canManage} />
-      </div>
-      <Field label="Map link (optional)" placeholder="https://maps.google.com/…" value={d.mapUrl} maxLength={500} onChange={e => form.set('mapUrl', e.target.value)} disabled={!ctx.canManage}
-        hint="Guests can open directions from your organizer page." />
-      <div className="stack">
-        <div className="row spread"><h3>Photos</h3><span className="hint">{d.photos.length}/12 · the first photo is your cover on the organizer list</span></div>
+      <Block title="Basics">
+        <div className="profile-basics">
+          <ImageUpload label="Logo" square value={d.logo} onChange={v => form.set('logo', v)} />
+          <div className="form grow">
+            <Field label="Organization name" value={d.name} maxLength={80} onChange={e => form.set('name', e.target.value)} disabled={!ctx.canManage} required />
+            <Field label="About" hint="One or two sentences guests see on your page."><textarea value={d.description} maxLength={500} onChange={e => form.set('description', e.target.value)} disabled={!ctx.canManage} /></Field>
+          </div>
+        </div>
+        <Field label="Currency" hint={hasSales ? 'Changing currency does not convert existing bookings and orders.' : undefined}>
+          <select value={d.currency} onChange={e => form.set('currency', e.target.value)} disabled={!ctx.canManage} style={{ maxWidth: 200 }}>{CURRENCIES.map(c => <option key={c}>{c}</option>)}</select>
+        </Field>
+      </Block>
+      <Block title="Location" hint="Guests get an “Open in Google Maps” button on your page.">
+        <div className="formrow">
+          <Field label="City" value={d.city} maxLength={80} onChange={e => form.set('city', e.target.value)} disabled={!ctx.canManage} />
+          <Field label="Address" placeholder="e.g. Bole Road, near Edna Mall" value={d.address} maxLength={200} onChange={e => form.set('address', e.target.value)} disabled={!ctx.canManage} />
+        </div>
+        <Field label="Google Maps link (optional)" placeholder="https://maps.app.goo.gl/…" value={d.mapUrl} maxLength={500} onChange={e => form.set('mapUrl', e.target.value)} disabled={!ctx.canManage}
+          hint="Leave empty to search your address on Google Maps automatically." />
+      </Block>
+      <Block title={`Photos${d.photos.length ? ` · ${d.photos.length}` : ''}`} hint="Add as many as you like. The first photo is your cover.">
         <div className="photogrid">
           {d.photos.map((url, i) => (
             <figure key={url + i} className="photo">
               <img src={url} alt={`Photo ${i + 1}`} />
+              {i === 0 && <figcaption>Cover</figcaption>}
               {ctx.canManage && (
                 <div className="photo-actions">
-                  {i > 0 && <button type="button" onClick={() => { const p = [...d.photos]; [p[i - 1], p[i]] = [p[i], p[i - 1]]; form.set('photos', p); }} aria-label="Move earlier">‹</button>}
-                  <button type="button" onClick={() => form.set('photos', d.photos.filter((_, j) => j !== i))} aria-label="Remove photo">×</button>
+                  {i > 0 && <button type="button" onClick={() => move(i, -1)} aria-label={`Move photo ${i + 1} earlier`} title="Move earlier">‹</button>}
+                  {i < d.photos.length - 1 && <button type="button" onClick={() => move(i, 1)} aria-label={`Move photo ${i + 1} later`} title="Move later">›</button>}
+                  <button type="button" onClick={() => form.set('photos', d.photos.filter((_, j) => j !== i))} aria-label={`Remove photo ${i + 1}`} title="Remove">×</button>
                 </div>
               )}
-              {i === 0 && <figcaption>Cover</figcaption>}
             </figure>
           ))}
-          {ctx.canManage && d.photos.length < 12 && <ImageUpload key={d.photos.length} label="Add photo" square value="" onChange={url => url && form.set('photos', [...d.photos, url])} />}
+          {ctx.canManage && <MultiUpload onUploaded={urls => form.setDraft(prev => ({ ...prev, photos: [...prev.photos, ...urls] }))} />}
         </div>
-      </div>
+      </Block>
+      <Block title="Guest link" hint="Share it anywhere. Table QR codes open the same page with the table selected.">
+        <div className="row">
+          <input readOnly value={link} aria-label="Public guest link" onFocus={e => e.target.select()} />
+          <button onClick={async () => ctx.toast(await copyText(link) ? 'Link copied' : 'Select and copy the link')}><Icon name="copy" />Copy</button>
+        </div>
+      </Block>
       <ErrorText>{form.error}</ErrorText>
-      {ctx.canManage && <SaveBar form={form} onSave={() => save('config', { group: 'profile', values: d })} />}
+      {ctx.canManage && <SaveBar form={form} onSave={saveAll} />}
     </>
+  );
+}
+
+/** Upload several photos at once; reports each finished URL to the parent. */
+function MultiUpload({ onUploaded }) {
+  const [progress, setProgress] = useState(null);
+  const [error, setError] = useState('');
+  async function pick(e) {
+    const files = [...e.target.files];
+    e.target.value = '';
+    if (!files.length) return;
+    setError('');
+    const urls = [];
+    for (let i = 0; i < files.length; i++) {
+      setProgress(`${i + 1} / ${files.length}`);
+      const file = files[i];
+      if (file.size > 5000000) { setError(`${file.name} is larger than 5 MB and was skipped.`); continue; }
+      try {
+        urls.push((await api('upload', { data: await readFileAsBase64(file) })).url);
+      } catch (err) {
+        setError(`${file.name}: ${err.message}`);
+      }
+    }
+    setProgress(null);
+    if (urls.length) onUploaded(urls);
+  }
+  return (
+    <div className="photo add-photo">
+      <label className="upload square">
+        <Icon name="add" />
+        <b>{progress ? `Uploading ${progress}` : 'Add photos'}</b>
+        <small>Select several</small>
+        <input type="file" multiple accept="image/png,image/jpeg,image/webp" aria-label="Add photos" disabled={!!progress} onChange={pick} />
+      </label>
+      {error && <p className="error small" role="alert">{error}</p>}
+    </div>
   );
 }
 
@@ -261,11 +333,11 @@ function Theme({ ctx, setDirty }) {
   const { state } = ctx;
   const form = useDraft(state.settings.theme, setDirty);
   const save = useSaver(ctx, form);
-  const { accent, mode, adminMode, logo, cover } = form.draft;
+  const { accent, mode, adminMode } = form.draft;
   const validHex = /^#[0-9a-f]{6}$/i.test(accent);
   return (
     <>
-      <Head title="Appearance">Brand your guest app and dashboard. Both use your accent color.</Head>
+      <Head title="Appearance">Colors and light or black mode. Your logo and photos are in Profile.</Head>
       <Locked ctx={ctx} />
       <div className="grid-2" style={{ gridTemplateColumns: '1fr auto' }}>
         <div className="form">
@@ -300,10 +372,7 @@ function Theme({ ctx, setDirty }) {
             </div>
             <small className="hint">Applies to everyone on your team after you save.</small>
           </div>
-          <div className="row wrap" style={{ alignItems: 'flex-start', gap: 16 }}>
-            <ImageUpload label="Logo" square value={logo} onChange={v => form.set('logo', v)} />
-            <div className="grow" style={{ minWidth: 220 }}><ImageUpload label="Guest app cover" value={cover} onChange={v => form.set('cover', v)} hint="Wide image, shown at the top of your events" /></div>
-          </div>
+
         </div>
         <Preview name={state.name} theme={form.draft} />
       </div>

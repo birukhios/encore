@@ -19,7 +19,7 @@ else:
 
 SCHEMA = '''
 CREATE TABLE IF NOT EXISTS tenants(id TEXT PRIMARY KEY,name TEXT NOT NULL,state TEXT NOT NULL,version INTEGER DEFAULT 0);
-CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY,tenant TEXT NOT NULL REFERENCES tenants(id),name TEXT NOT NULL,email TEXT UNIQUE NOT NULL,password TEXT NOT NULL,recovery TEXT NOT NULL,role TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY,tenant TEXT NOT NULL REFERENCES tenants(id),name TEXT NOT NULL,email TEXT UNIQUE NOT NULL,password TEXT NOT NULL,recovery TEXT NOT NULL,role TEXT NOT NULL,avatar TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY,"user" TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,expires INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS invites(token TEXT PRIMARY KEY,tenant TEXT NOT NULL REFERENCES tenants(id),email TEXT NOT NULL,role TEXT NOT NULL,expires INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS audit(id {serial} PRIMARY KEY,tenant TEXT,"user" TEXT,action TEXT,created INTEGER);
@@ -107,6 +107,16 @@ def create_schema(c):
         c.executescript(SCHEMA.format(serial='BIGSERIAL', blob='BYTEA'))
     else:
         c.executescript('PRAGMA journal_mode=WAL;' + SCHEMA.format(serial='INTEGER', blob='BLOB'))
+
+
+def migrate(c):
+    """Additive column migrations for databases created by earlier versions."""
+    if POSTGRES:
+        c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar TEXT NOT NULL DEFAULT ''")
+    else:
+        columns = {r[1] for r in c.execute('PRAGMA table_info(users)')}
+        if 'avatar' not in columns:
+            c.execute("ALTER TABLE users ADD COLUMN avatar TEXT NOT NULL DEFAULT ''")
 
 
 def describe():

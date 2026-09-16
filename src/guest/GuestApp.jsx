@@ -19,7 +19,8 @@ function readUrl() {
 
 export default function GuestApp() {
   const initial = useMemo(readUrl, []);
-  const [tenant, setTenant] = useState(initial.tenant || store.get('encore_tenant', ''));
+  // The URL decides which venue is open: "/" is always the Encore home page.
+  const [tenant, setTenant] = useState(initial.tenant);
   const [workspaces, setWorkspaces] = useState(null);
   const [data, setData] = useState(null);
   const [loadError, setLoadError] = useState('');
@@ -44,7 +45,6 @@ export default function GuestApp() {
 
   useEffect(() => {
     if (!workspaces) return;
-    if (!tenant && workspaces.length === 1) setTenant(workspaces[0].id);
     if (tenant && !workspaces.some(w => w.id === tenant)) { setTenant(''); store.set('encore_tenant', ''); }
   }, [workspaces]);
 
@@ -102,7 +102,12 @@ export default function GuestApp() {
     window.scrollTo({ top: 0 });
   }
   useEffect(() => {
-    const pop = () => setView(readUrl().view || 'events');
+    const pop = () => {
+      const url = readUrl();
+      if (!url.tenant) { setTenant(''); return; }
+      setTenant(url.tenant);
+      setView(url.view || 'events');
+    };
     window.addEventListener('popstate', pop);
     history.replaceState({ view }, '', location.href);
     return () => window.removeEventListener('popstate', pop);
@@ -169,6 +174,16 @@ export default function GuestApp() {
     toast('Signed out');
   }
 
+  function goHome() {
+    setSheet(null);
+    setTable(null);
+    setData(null);
+    setTenant('');
+    store.set('encore_tenant', '');
+    history.pushState({ view: 'home' }, '', '/');
+    window.scrollTo({ top: 0 });
+  }
+
   const ctx = {
     tenant, data, guest, records, myEvents, notifications, table, cart, tip, view,
     setCart, setTip, go, requireAuth, selectTable, clearTable, startCheckout, toast, setSheet,
@@ -179,7 +194,7 @@ export default function GuestApp() {
   // ------------------------------------------------------------ render
   if (!workspaces && !loadError) return <div className="loading"><Spinner />Opening Encore…</div>;
   const modeToggleCorner = <div style={{ position: 'fixed', top: 12, right: 12, zIndex: 50 }}><ModeToggle /></div>;
-  if (!tenant) return <>{modeToggleCorner}<Directory workspaces={workspaces || []} error={loadError} onPick={id => { setTenant(id); go('events', { replace: true }); }} /></>;
+  if (!tenant) return <>{modeToggleCorner}<Directory workspaces={workspaces || []} error={loadError} onPick={id => { setTenant(id); setView('events'); history.pushState({ view: 'events' }, '', '/?tenant=' + encodeURIComponent(id)); window.scrollTo({ top: 0 }); }} /></>;
   if (!data) {
     return loadError
       ? <div className="directory"><p className="error errorbar" role="alert">{loadError}<button onClick={() => loadPublic()}>Try again</button></p><button onClick={() => { setTenant(''); store.set('encore_tenant', ''); }}>Choose another organizer</button></div>
@@ -193,9 +208,12 @@ export default function GuestApp() {
   return (
     <div className="guest-app">
       <header className="guest-top">
-        <button className="org" onClick={() => go('events')} aria-label={data.name + ' home'}>
-          {data.settings.theme.logo ? <img src={data.settings.theme.logo} alt="" /> : <span className="brandmark"><Icon name="brand" /></span>}
-          <span className="grow" style={{ minWidth: 0 }}><small>{data.demo ? 'DEMO · NO REAL PAYMENTS' : 'LIVE WITH ENCORE'}</small><b>{data.name}</b></span>
+        <button className="home-link" onClick={goHome} aria-label="Encore home — all venues" title="All venues">
+          <span className="brandmark"><Icon name="brand" /></span>
+        </button>
+        <button className="org" onClick={() => go('events')} aria-label={data.name + ' page'}>
+          {data.settings.theme.logo && <img src={data.settings.theme.logo} alt="" />}
+          <span className="grow" style={{ minWidth: 0 }}><small>{data.demo ? 'DEMO · NO REAL PAYMENTS' : '‹ ALL VENUES · ENCORE'}</small><b>{data.name}</b></span>
         </button>
         <nav className="topnav" aria-label="Guest navigation">
           {TABS.map(([id, label, icon]) => (
@@ -229,7 +247,7 @@ export default function GuestApp() {
 
       {sheet?.type === 'booking' && <BookingSheet ctx={ctx} event={sheet.event} onClose={() => setSheet(null)} />}
       {sheet?.type === 'scan' && <TableScan ctx={ctx} onClose={() => setSheet(null)} />}
-      {sheet?.type === 'account' && <Account ctx={ctx} setGuest={setGuest} signOut={signOut} onClose={() => setSheet(null)} switchOrganizer={() => { setSheet(null); setTenant(''); store.set('encore_tenant', ''); history.replaceState(null, '', '/'); }} />}
+      {sheet?.type === 'account' && <Account ctx={ctx} setGuest={setGuest} signOut={signOut} onClose={() => setSheet(null)} switchOrganizer={goHome} />}
       {sheet?.type === 'receipt' && <ReceiptModal ctx={ctx} receipt={sheet.receipt} onClose={() => { setSheet(null); if (view !== 'tickets') go('tickets'); }} />}
       {sheet?.type === 'checkout' && (
         <AfroPayCheckout quote={sheet.quote} payload={sheet.payload} venueEnabled={sheet.payload.kind === 'menu' && data.settings.payments.venue}

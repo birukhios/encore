@@ -1,7 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { api, money as formatMoney, timeAgo } from '../shared/api';
 import { applyTheme } from '../shared/theme';
-import { Icon, ModeToggle, Modal, Spinner, usePolling, useToast } from '../shared/ui';
+import { Avatar, Icon, ModeToggle, Modal, Spinner, usePolling, useToast } from '../shared/ui';
 import Auth from './Auth';
 import { Bookings, Events, Menu, Orders, Overview, Profile, Tables, Team } from './pages';
 import Settings from './Settings';
@@ -9,14 +9,20 @@ import Settings from './Settings';
 const PAGES = {
   Overview: { icon: 'grid', title: 'Every detail. One place.', sub: 'Your events, your guests, and everything in between.' },
   Events: { icon: 'calendar', sub: 'Create, publish, and shape your next live experience.' },
-  Bookings: { icon: 'ticket', sub: 'Take payment at the door, scan tickets and check guests in.' },
+  Bookings: { icon: 'ticket', sub: 'Tickets sold online. Scan or type a reference to check guests in.' },
   Tables: { icon: 'table', sub: 'A place for every guest. A QR code for every table.' },
   Menu: { icon: 'menu', sub: 'Food and drinks, served at the concerts you choose.' },
   Orders: { icon: 'wallet', sub: 'Keep every order moving, from kitchen to table.' },
   Team: { icon: 'team', sub: 'The people who make the night happen.' },
-  Settings: { icon: 'settings', sub: 'Configure every part of your workspace.' },
-  Profile: { icon: 'team', sub: 'Your personal account and security.' },
+  Settings: { icon: 'settings', sub: 'Your organization, sales and guest experience.' },
+  Profile: { icon: 'team', title: 'Your profile', sub: 'Your photo, name and password.' },
 };
+
+const NAV_GROUPS = [
+  ['Run the night', ['Overview', 'Orders', 'Bookings']],
+  ['Set up', ['Events', 'Menu', 'Tables']],
+  ['Workspace', ['Team', 'Settings']],
+];
 
 export const ROLE_PAGES = {
   Owner: ['Overview', 'Events', 'Bookings', 'Tables', 'Menu', 'Orders', 'Team', 'Settings'],
@@ -35,6 +41,9 @@ export default function AdminApp() {
   const [bannerError, setBannerError] = useState('');
   const [intent, setIntent] = useState(null);
   const [toast, toastNode] = useToast();
+  // Latest workspace version, so back-to-back saves never send a stale version.
+  const versionRef = useRef(0);
+  useEffect(() => { if (session) versionRef.current = session.version; }, [session?.version]);
 
   useEffect(() => {
     api('me').then(me => { if (me?.user) setSession(me); }).catch(() => {}).finally(() => setLoading(false));
@@ -80,7 +89,8 @@ export default function AdminApp() {
       matches: (...fields) => !search || fields.join(' ').toLowerCase().includes(search.toLowerCase()),
       async action(op, data, { quiet } = {}) {
         try {
-          const result = await api('action', { op, data, version: session.version });
+          const result = await api('action', { op, data, version: versionRef.current });
+          versionRef.current = result.version;
           setSession(result);
           if (!quiet) toast('Changes saved');
           return result;
@@ -109,31 +119,35 @@ export default function AdminApp() {
     <div className="admin-app">
       {navOpen && <div className="scrim" onClick={() => setNavOpen(false)} />}
       <aside className={'sidebar' + (navOpen ? ' open' : '')} aria-label="Workspace navigation">
-        <span className="brand"><span className="brandmark"><Icon name="brand" /></span>encore<span className="dot">.</span></span>
-        <div className="workspace-card">
-          {state.settings.theme.logo ? <img src={state.settings.theme.logo} alt="" /> : <span className="avatar">{state.name[0]}</span>}
-          <div className="grow">
-            <b>{state.name}</b>
-            <span className="badge neutral">{role}</span>
-          </div>
+        <div className="side-brand">
+          {state.settings.theme.logo ? <img className="side-logo" src={state.settings.theme.logo} alt="" /> : <span className="brandmark"><Icon name="brand" /></span>}
+          <span className="grow" style={{ minWidth: 0 }}>
+            <b className="side-org">{state.name}</b>
+            <small className="side-role">{role}{session.demo ? ' · Demo' : ''}</small>
+          </span>
+          <button className="icon-btn menu-toggle ghost" aria-label="Close navigation" onClick={() => setNavOpen(false)}>×</button>
         </div>
-        <span className="navlabel">MANAGE</span>
         <nav className="nav">
-          {pages.map(name => (
-            <button key={name} className={current === name ? 'active' : ''} aria-current={current === name ? 'page' : undefined} onClick={() => go(name)}>
-              <Icon name={PAGES[name].icon} />
-              <span>{name}</span>
-              {name === 'Orders' && activeOrders > 0 && <span className="count" aria-label={activeOrders + ' active orders'}>{activeOrders}</span>}
-            </button>
-          ))}
+          {NAV_GROUPS.map(([label, names]) => {
+            const visible = names.filter(n => pages.includes(n));
+            return visible.length ? (
+              <div className="nav-group" key={label}>
+                <span className="navlabel">{label}</span>
+                {visible.map(name => (
+                  <button key={name} className={current === name ? 'active' : ''} aria-current={current === name ? 'page' : undefined} onClick={() => go(name)}>
+                    <Icon name={PAGES[name].icon} />
+                    <span>{name}</span>
+                    {name === 'Orders' && activeOrders > 0 && <span className="count" aria-label={activeOrders + ' active orders'}>{activeOrders}</span>}
+                  </button>
+                ))}
+              </div>
+            ) : null;
+          })}
         </nav>
-        <div className="sidebar-foot">
-          <button className="userbutton" onClick={() => go('Profile')}>
-            <span className="avatar">{session.user.name[0]}</span>
-            <span className="grow"><b>{session.user.name}</b><small>{session.user.email}</small></span>
-            <Icon name="next" />
-          </button>
-        </div>
+        <button className={'side-user' + (current === 'Profile' ? ' active' : '')} onClick={() => go('Profile')}>
+          <Avatar name={session.user.name} src={session.user.avatar} size={34} />
+          <span className="grow" style={{ minWidth: 0 }}><b>{session.user.name}</b><small>{session.user.email}</small></span>
+        </button>
       </aside>
 
       <div className="shell">
@@ -146,10 +160,11 @@ export default function AdminApp() {
             </div>
           ) : <div className="grow" />}
           <div className="row">
-            {session.demo && <span className="badge warning" title="Sign-in codes are shown on screen and payments are simulated">Demo mode</span>}
+            {session.demo && <span className="badge warning demo-badge" title="Sign-in codes are shown on screen and payments are simulated">Demo</span>}
             <ModeToggle />
             <button className="icon-btn" onClick={refresh} aria-label="Refresh workspace"><Icon name="refresh" /></button>
             <Notifications unread={session.unread} onRead={refresh} go={go} />
+            <button className="avatar-btn" aria-label="Your profile" onClick={() => go('Profile')}><Avatar name={session.user.name} src={session.user.avatar} size={36} /></button>
           </div>
         </header>
         <main className="main" id="main">

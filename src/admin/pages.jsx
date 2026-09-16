@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { api, dateTime, shortDate } from '../shared/api';
+import { api, dateTime, readFileAsBase64, shortDate } from '../shared/api';
 import ImageUpload from '../shared/ImageUpload';
 import QR from '../shared/QR';
 import Scanner from '../shared/Scanner';
-import { copyText, Empty, ErrorText, Field, Icon, Modal, Toggle } from '../shared/ui';
+import { Avatar, copyText, Empty, ErrorText, Field, Icon, Modal, Toggle } from '../shared/ui';
 
 export function PageActions({ children }) {
   const [node, setNode] = useState(null);
@@ -48,11 +48,10 @@ export function Overview({ ctx }) {
     ['Create your first event', state.events.some(e => e.published), 'Events'],
     ['Add food & drinks', state.menu.length > 0, 'Menu'],
     ['Set up table QR codes', state.tables.length > 0, 'Tables'],
-    ['Brand your guest app', !!(cfg.theme.logo || cfg.theme.cover || cfg.theme.accent !== '#E61E32'), 'Settings'],
+    ['Add your logo, location & photos', !!(cfg.theme.logo && (cfg.profile.address || cfg.profile.city) && cfg.profile.photos.length), 'Settings'],
     ['Add help & support contacts', !!(cfg.support.email || cfg.support.phone), 'Settings'],
     ['Publish your terms', !!cfg.legal.terms, 'Settings'],
     ['Set up VAT and TIN', cfg.tax.regime === 'none' || !!cfg.tax.tin, 'Settings'],
-    ['Add your location & photos', !!(cfg.profile.address || cfg.profile.photos.length), 'Settings'],
   ];
   return (
     <>
@@ -607,7 +606,7 @@ export function Team({ ctx }) {
         <div className="list">
           {session.team.map(m => (
             <div className="listrow" key={m.id}>
-              <span className="avatar">{m.name[0]}</span>
+              <Avatar name={m.name} src={m.avatar} />
               <div className="grow"><b>{m.name}{m.id === session.user.id && <span className="muted"> (you)</span>}</b><small>{m.email}</small></div>
               <span className="badge neutral">{m.role}</span>
               {role === 'Owner' && m.role !== 'Owner' && <button className="ghost danger-text" onClick={() => remove(m)} disabled={busy}>Remove</button>}
@@ -652,21 +651,42 @@ export function Profile({ ctx }) {
   const { session } = ctx;
   const profile = useRunner();
   const password = useRunner();
+  const [name, setName] = useState(session.user.name);
+  const saveProfile = patch => profile.run(async () => {
+    ctx.setSession(await api('profile', { name, avatar: session.user.avatar, ...patch }));
+    ctx.toast(patch.avatar !== undefined ? (patch.avatar ? 'Photo updated' : 'Photo removed') : 'Profile updated');
+  });
   return (
     <div className="grid-2">
-      <section className="card">
-        <div className="row" style={{ marginBottom: 18 }}>
-          <span className="avatar lg">{session.user.name[0]}</span>
-          <div><h2>{session.user.name}</h2><p>{session.user.role} · {session.state.name}</p></div>
+      <section className="card stack lg">
+        <div className="profile-card">
+          <label className="avatar-upload" title="Change photo">
+            <Avatar name={session.user.name} src={session.user.avatar} size={88} />
+            <span className="avatar-upload-badge"><Icon name="pencil" size="sm" /></span>
+            <input type="file" accept="image/png,image/jpeg,image/webp" aria-label="Upload profile photo" disabled={profile.busy}
+              onChange={async e => {
+                const file = e.target.files[0];
+                e.target.value = '';
+                if (!file) return;
+                if (file.size > 5000000) return profile.setError('Choose a photo smaller than 5 MB.');
+                const { url } = await profile.run(async () => api('upload', { data: await readFileAsBase64(file) })) || {};
+                if (url) saveProfile({ avatar: url });
+              }} />
+          </label>
+          <div className="grow">
+            <h2>{session.user.name}</h2>
+            <p>{session.user.role} · {session.state.name}</p>
+            {session.user.avatar && <button className="linklike small" onClick={() => saveProfile({ avatar: '' })} disabled={profile.busy}>Remove photo</button>}
+          </div>
         </div>
-        <form className="form" onSubmit={e => { e.preventDefault(); const v = Object.fromEntries(new FormData(e.currentTarget)); profile.run(async () => { ctx.setSession(await api('profile', v)); ctx.toast('Profile updated'); }); }}>
-          <Field label="Full name" name="name" defaultValue={session.user.name} maxLength={100} required />
+        <form className="form" onSubmit={e => { e.preventDefault(); saveProfile({}); }}>
+          <Field label="Full name" value={name} onChange={e => setName(e.target.value)} maxLength={100} required />
           <Field label="Email address" value={session.user.email} readOnly hint="Contact your workspace owner to change your sign-in email." />
           <ErrorText>{profile.error}</ErrorText>
-          <div className="row"><button className="primary" disabled={profile.busy}>Save profile</button></div>
+          <div className="row"><button className="primary" disabled={profile.busy || !name.trim() || name === session.user.name}>Save name</button></div>
         </form>
         <hr />
-        <button onClick={async () => { try { await api('signout', {}); } finally { location.assign('/admin/signin'); } }}>Sign out</button>
+        <button className="ghost danger-text" style={{ justifySelf: 'start' }} onClick={async () => { try { await api('signout', {}); } finally { location.assign('/admin/signin'); } }}>Sign out</button>
       </section>
       <section className="card">
         <h2>Password & security</h2>

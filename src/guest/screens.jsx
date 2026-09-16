@@ -132,7 +132,7 @@ export function Directory({ workspaces, error, onPick }) {
 export function EventsScreen({ ctx }) {
   const { data, money, setSheet, myEvents } = ctx;
   const profile = data.settings.profile;
-  const cover = data.settings.theme.cover || profile.photos[0];
+  const cover = profile.photos[0] || data.settings.theme.cover;
   const events = [...data.events].sort((a, b) => a.date.localeCompare(b.date));
   const ticketing = data.settings.ticketing;
   const [photo, setPhoto] = useState(null);
@@ -714,7 +714,7 @@ export function Account({ ctx, setGuest, signOut, onClose, switchOrganizer }) {
         <Link icon="support" label="Help & support" onClick={() => open('help')} />
         <Link icon="edit" label="Terms & conditions" onClick={() => open('terms')} />
         <Link icon="edit" label="Privacy" onClick={() => open('privacy')} />
-        <Link icon="venue" label="Choose another organizer" onClick={switchOrganizer} />
+        <Link icon="brand" label="Encore home · all venues" onClick={switchOrganizer} />
       </div>
       {guest && <button className="ghost danger-text" onClick={signOut}>Sign out</button>}
     </Modal>

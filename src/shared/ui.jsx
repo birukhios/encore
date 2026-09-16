@@ -29,6 +29,15 @@ export function ModeToggle({ onChange }) {
   );
 }
 
+export function Avatar({ name = '', src, size = 36, className = '' }) {
+  const initials = name.trim().split(/\s+/).slice(0, 2).map(p => p[0]).join('') || '?';
+  return (
+    <span className={'avatar ' + className} style={{ width: size, height: size, fontSize: Math.max(11, size * 0.38) }} aria-hidden={!src}>
+      {src ? <img src={src} alt={name} /> : initials}
+    </span>
+  );
+}
+
 export function Field({ label, hint, children, ...props }) {
   return (
     <label className="field">

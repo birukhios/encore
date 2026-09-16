@@ -70,6 +70,7 @@ def init():
     UPLOADS.mkdir(parents=True, exist_ok=True)
     with conn() as c:
         db.create_schema(c)
+        db.migrate(c)
         now = int(time.time())
         c.execute('DELETE FROM sessions WHERE expires<?', (now,))
         c.execute('DELETE FROM guest_sessions WHERE expires<?', (now,))
@@ -334,10 +335,10 @@ class AdminHandler(BaseHandler):
 
     def bundle(self, c, u):
         row, s = read_tenant(c, u['tenant'])
-        team = [dict(r) for r in c.execute('SELECT id,name,email,role FROM users WHERE tenant=?', (u['tenant'],))]
+        team = [dict(r) for r in c.execute('SELECT id,name,email,role,avatar FROM users WHERE tenant=? ORDER BY name', (u['tenant'],))]
         sms_status = {'provider': 'demo', 'delivers': False, 'label': 'Demo mode: sign-in codes are shown on screen, no SMS is sent'} if DEMO else sms.status()
         unread = c.execute("SELECT COUNT(*) FROM notifications WHERE tenant=? AND audience='staff' AND read=0", (u['tenant'],)).fetchone()[0]
-        return {'user': {k: u[k] for k in ['id', 'name', 'email', 'role', 'tenant']}, 'state': s, 'version': row['version'], 'team': team,
+        return {'user': {k: u.get(k, '') for k in ['id', 'name', 'email', 'role', 'tenant', 'avatar']}, 'state': s, 'version': row['version'], 'team': team,
                 'paymentReady': DEMO, 'demo': DEMO, 'sms': sms_status, 'guestOrigin': GUEST_ORIGIN, 'unread': unread,
                 'ratings': rating_summary(c, u['tenant'], recent=5)}
 
@@ -390,7 +391,7 @@ class AdminHandler(BaseHandler):
                 c.execute('INSERT INTO tenants(id,name,state) VALUES(?,?,?)', (tenant, team, json.dumps(domain.blank(team))))
             recovery = uid()
             u = {'id': uid(), 'tenant': tenant, 'name': name, 'email': mail, 'role': role}
-            c.execute('INSERT INTO users VALUES(?,?,?,?,?,?,?)', (u['id'], tenant, name, mail, password(pw), digest(recovery), role))
+            c.execute('INSERT INTO users(id,tenant,name,email,password,recovery,role) VALUES(?,?,?,?,?,?,?)', (u['id'], tenant, name, mail, password(pw), digest(recovery), role))
             token = uid() + uid()
             c.execute('INSERT INTO sessions VALUES(?,?,?)', (digest(token), u['id'], int(time.time()) + ADMIN_SESSION_DAYS * 86400))
             out = self.bundle(c, u)
@@ -405,8 +406,9 @@ class AdminHandler(BaseHandler):
             return self.send({'ok': True}, cookie=self.cookie('', 0))
         if path == '/api/profile':
             name = text(v.get('name'), 100)
-            c.execute('UPDATE users SET name=? WHERE id=?', (name, u['id']))
-            u['name'] = name
+            avatar = domain.clean_image(v.get('avatar', u.get('avatar', '')))
+            c.execute('UPDATE users SET name=?,avatar=? WHERE id=?', (name, avatar, u['id']))
+            u.update(name=name, avatar=avatar)
             return self.send(self.bundle(c, u))
         if path == '/api/password':
             if not verify(text(v.get('current'), 200), u['password']):

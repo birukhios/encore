@@ -282,8 +282,8 @@ def configure(s, group, v):
                    hours=text(v.get('hours'), 120, False), faq=clean_faq)
     elif group == 'profile':
         photos = v.get('photos', [])
-        if not isinstance(photos, list) or len(photos) > 12:
-            raise ValueError('Add up to 12 photos.')
+        if not isinstance(photos, list) or len(photos) > 500:
+            raise ValueError('That is a lot of photos — keep it under 500.')
         map_url = text(v.get('mapUrl'), 500, False)
         if map_url and not re.match(r'https://', map_url):
             raise ValueError('The map link must start with https://')
