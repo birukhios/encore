@@ -62,29 +62,34 @@ class JourneyTests(test_server.AppTests):
         self.assertEqual(Client(self.admin.server_port)('signup', [])[0], 400)
         self.assertEqual(Client(self.guest.server_port)('guest/otp', [])[0], 400)
 
-    def test_venue_booking_capacity_receipt_and_checkin(self):
+    def test_online_booking_capacity_and_receipt(self):
         b, c, e = self.catalog()
         tenant = b['user']['tenant']
         g, _ = self.guest_client()
-        payload = {'tenant': tenant, 'kind': 'booking', 'event': e['id'], 'qty': 2, 'paid': True, 'total': 1}
-        self.assertEqual(Client(self.guest.server_port)('order', payload)[0], 401)
-        status, rec = g('order', payload)
-        self.assertEqual(status, 201)
-        self.assertFalse(rec['paid'])
-        self.assertEqual(rec['total'], 2100)
-        self.assertEqual(g('order', payload)[0], 400)
+        payload = {'tenant': tenant, 'kind': 'booking', 'event': e['id'], 'qty': 2, 'paid': False, 'total': 1}
+        s.DEMO = True
+        try:
+            self.assertEqual(Client(self.guest.server_port)('checkout', payload)[0], 401)
+            status, rec = g('checkout', payload)
+            self.assertEqual(status, 201)
+            self.assertEqual((rec['total'], rec['paid']), (2100, True))
+            self.assertEqual(g('checkout', payload)[0], 400)  # sold out
+        finally:
+            s.DEMO = False
         path = 'receipt?tenant=' + tenant + '&ref=' + rec['ref'] + '&token='
         self.assertEqual(g(path + 'wrong')[0], 404)
         self.assertEqual(Client(self.guest.server_port)(path + rec['token'])[0], 200)
-        booking = c('me')[1]['state']['bookings'][0]
-        self.assertEqual(self.act(c, 'checkin', {'id': booking['id']})[0], 400)
 
     def test_concurrent_booking_never_oversells(self):
         b, _, e = self.catalog()
         guests = [self.guest_client()[0] for _ in range(2)]
         p = {'tenant': b['user']['tenant'], 'kind': 'booking', 'event': e['id'], 'qty': 2}
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            statuses = list(pool.map(lambda g: g('order', p)[0], guests))
+        s.DEMO = True
+        try:
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                statuses = list(pool.map(lambda g: g('checkout', p)[0], guests))
+        finally:
+            s.DEMO = False
         self.assertEqual(sorted(statuses), [201, 400])
 
 

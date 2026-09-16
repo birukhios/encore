@@ -232,7 +232,7 @@ export default function GuestApp() {
       {sheet?.type === 'account' && <Account ctx={ctx} setGuest={setGuest} signOut={signOut} onClose={() => setSheet(null)} switchOrganizer={() => { setSheet(null); setTenant(''); store.set('encore_tenant', ''); history.replaceState(null, '', '/'); }} />}
       {sheet?.type === 'receipt' && <ReceiptModal ctx={ctx} receipt={sheet.receipt} onClose={() => { setSheet(null); if (view !== 'tickets') go('tickets'); }} />}
       {sheet?.type === 'checkout' && (
-        <AfroPayCheckout quote={sheet.quote} payload={sheet.payload} venueEnabled={data.settings.payments.venue}
+        <AfroPayCheckout quote={sheet.quote} payload={sheet.payload} venueEnabled={sheet.payload.kind === 'menu' && data.settings.payments.venue}
           onClose={() => setSheet(null)} onBack={() => setSheet(sheet.previous)}
           demo={data.demo} onPay={payload => placeAtVenue(payload, 'checkout')} onVenue={placeAtVenue} />
       )}

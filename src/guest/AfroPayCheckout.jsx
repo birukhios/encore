@@ -2,6 +2,14 @@ import React, { useState } from 'react';
 import { money } from '../shared/api';
 
 const WALLETS = [['telebirr', 'Telebirr'], ['cbe-birr', 'CBE Birr'], ['mpesa', 'M-PESA'], ['awash-birr', 'Awash Birr']];
+const LOGO_TYPES = ['png', 'svg', 'webp', 'jpg'];
+
+/** Shows /wallets/<id>.<ext> when the organizer has added the official logo file, otherwise the wallet name. */
+function WalletLogo({ id, name }) {
+  const [attempt, setAttempt] = useState(0);
+  if (attempt >= LOGO_TYPES.length) return <span>{name}</span>;
+  return <img className="wallet-logo" src={`/wallets/${id}.${LOGO_TYPES[attempt]}`} alt={name} onError={() => setAttempt(a => a + 1)} />;
+}
 
 /** Provider-styled review screen. Online payment fails closed on the server; the venue option creates an unpaid reservation. */
 export default function AfroPayCheckout({ quote, payload, onBack, onClose, onPay, onVenue, venueEnabled = true, demo = false }) {
@@ -48,7 +56,7 @@ export default function AfroPayCheckout({ quote, payload, onBack, onClose, onPay
         <form onSubmit={pay}>
           {demo
             ? <p className="notice" role="status"><b>Demo mode.</b> Paying online simulates a successful wallet payment — no money moves and no wallet is contacted.</p>
-            : <p className="notice" role="status">Online wallet payments are not available yet, so no payment will be taken here.{venueEnabled ? ' You can reserve now and pay at the venue.' : ''}</p>}
+            : <p className="notice" role="status">Online wallet payments are not available yet, so no payment will be taken here.{venueEnabled ? ' You can order now and pay at your table.' : ' Tickets can only be paid online.'}</p>}
           <h2 style={{ marginTop: 22 }}>Review your {booking ? 'booking' : 'order'}</h2>
           <div className="afro-lines">
             {quote.lines.map((line, i) => <div key={i}><span>{line.qty} × {line.name}</span><b>{amount(line.total)}</b></div>)}
@@ -59,8 +67,8 @@ export default function AfroPayCheckout({ quote, payload, onBack, onClose, onPay
           </div>
           {venueEnabled && (
             <div className="venue-option">
-              <p>Reserve now and pay {booking ? 'at the entrance' : 'when your order arrives'}. {booking ? 'Your tickets are confirmed right away; staff mark them paid when you pay.' : 'Your order is confirmed right away; staff mark it paid when you pay.'}</p>
-              <button type="button" className="afro-venue" disabled={venueBusy} onClick={venue}>{venueBusy ? 'Reserving…' : `Reserve · pay ${amount(quote.total)} at the venue`}</button>
+              <p>Order now and pay staff when your order arrives. Your order is confirmed right away; staff mark it paid when you pay.</p>
+              <button type="button" className="afro-venue" disabled={venueBusy} onClick={venue}>{venueBusy ? 'Placing order…' : `Order · pay ${amount(quote.total)} at my table`}</button>
             </div>
           )}
           {error && <p className="error" role="alert" style={{ marginTop: 16 }}>{error}</p>}
@@ -70,7 +78,7 @@ export default function AfroPayCheckout({ quote, payload, onBack, onClose, onPay
               {WALLETS.map(([id, name]) => (
                 <label key={id} className={wallet === id ? 'chosen' : ''}>
                   <input type="radio" name="wallet" value={id} checked={wallet === id} onChange={() => setWallet(id)} />
-                  <span>{name}</span>
+                  <WalletLogo id={id} name={name} />
                 </label>
               ))}
             </div>

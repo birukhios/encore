@@ -9,6 +9,9 @@ import hmac
 import re
 import secrets
 import time
+from decimal import Decimal, InvalidOperation
+from fractions import Fraction
+from urllib.parse import quote
 
 CURRENCIES = ['ETB', 'USD', 'EUR', 'KES', 'NGN', 'GHS', 'RWF', 'UGX']
 SETTLEMENT_METHODS = ['Cash', 'Card at venue', 'Bank transfer']
@@ -20,7 +23,7 @@ DEFAULT_SETTINGS = {
     'theme': {'accent': '#E61E32', 'mode': 'light', 'adminMode': 'light', 'logo': '', 'cover': ''},
     'ticketing': {'enabled': True, 'maxPerOrder': 6, 'showRemaining': False},
     'ordering': {'enabled': True, 'requireScan': True, 'ticketHoldersOnly': True, 'eventMenus': True},
-    'tips': {'enabled': True, 'presets': [5, 10, 15, 20], 'custom': True},
+    'tips': {'enabled': True, 'unit': 'amount', 'presets': [20, 50, 100], 'custom': True},
     'payments': {'venue': True},
     'notifications': {'smsBookings': True, 'smsOrderReady': True, 'staffNewOrders': True},
     'support': {'email': '', 'phone': '', 'hours': '', 'faq': []},
@@ -28,12 +31,11 @@ DEFAULT_SETTINGS = {
     # Organization profile shown to guests: location and a photo gallery.
     'profile': {'city': 'Addis Ababa', 'address': '', 'mapUrl': '', 'photos': []},
     'menu': {'categories': ['Food', 'Drinks']},
-    # Ethiopian indirect tax. VAT: 15% standard rate for VAT-registered businesses.
-    # TOT (turnover tax): for businesses not registered for VAT. Rates must be confirmed by the organizer.
-    'tax': {'regime': 'vat', 'vatRate': 15, 'totRate': 10, 'pricesIncludeTax': True, 'tin': '', 'vatNumber': '',
-            'tickets': True, 'menu': True},
+    # Ethiopian VAT: 15% standard rate for VAT-registered businesses. Organizers confirm their own obligations.
+    'tax': {'regime': 'vat', 'vatRate': 15, 'pricesIncludeTax': True, 'tin': '', 'vatNumber': '', 'tickets': True, 'menu': True},
 }
-TAX_REGIMES = ['vat', 'tot', 'none']
+TAX_REGIMES = ['vat', 'none']
+MAX_TIP_CENTS = 5_000_000  # 50,000 in the workspace currency
 
 
 def uid():
@@ -73,6 +75,22 @@ def number(v, low=0, high=1000000):
     if not low <= n <= high:
         raise ValueError('Number is outside the allowed range.')
     return n
+
+
+def money_cents(v, max_cents, message):
+    """Parse an amount in currency units into exact integer cents (at most 2 decimals, never negative)."""
+    if v in (None, ''):
+        return 0
+    if isinstance(v, bool):
+        raise ValueError(message)
+    try:
+        amount = Decimal(str(v))
+    except InvalidOperation:
+        raise ValueError(message)
+    cents = amount * 100
+    if not amount.is_finite() or amount < 0 or cents != cents.to_integral_value() or cents > max_cents:
+        raise ValueError(message)
+    return int(cents)
 
 
 def whole(v, low, high, message='Enter a whole number.'):
@@ -140,6 +158,13 @@ def upgrade(s):
                 code = short_code()
             t['code'] = code
             codes.add(code)
+    tips = settings['tips']
+    if tips.get('unit') != 'amount':  # older workspaces stored percentage presets
+        tips.update(unit='amount', presets=[20, 50, 100])
+    tax = settings['tax']
+    if tax.get('regime') not in TAX_REGIMES:  # turnover tax was removed
+        tax['regime'] = 'none'
+    tax.pop('totRate', None)
     for item in s['menu']:
         item.setdefault('events', [])
         if item.get('category') and item['category'] not in settings['menu']['categories']:
@@ -152,6 +177,15 @@ def public_settings(s):
     return {k: copy.deepcopy(s['settings'][k]) for k in keep}
 
 
+def map_link(s):
+    """Google Maps link for the organizer: the saved link, or a search for the address and city."""
+    p = s['settings']['profile']
+    if p.get('mapUrl'):
+        return p['mapUrl']
+    query = ', '.join(x for x in [p.get('address'), p.get('city'), 'Ethiopia'] if x)
+    return 'https://www.google.com/maps/search/?api=1&query=' + quote(query) if (p.get('address') or p.get('city')) else ''
+
+
 def sold(s, event_id):
     return sum(b.get('qty', 0) for b in s['bookings'] if b.get('event') == event_id and b.get('status') in HOLDING_STATUSES)
 
@@ -159,6 +193,7 @@ def sold(s, event_id):
 def public_state(s):
     out = {k: s[k] for k in ['name', 'description', 'currency']}
     out['settings'] = public_settings(s)
+    out['mapLink'] = map_link(s)
     show_remaining = s['settings']['ticketing']['showRemaining']
     out['events'] = []
     for e in s['events']:
@@ -221,8 +256,8 @@ def configure(s, group, v):
             presets = [p for p in re.split(r'[\s,]+', presets) if p]
         if not isinstance(presets, list) or len(presets) > 5:
             raise ValueError('Offer up to five tip options.')
-        presets = sorted({whole(p, 1, 50, 'Tip options must be whole percentages from 1 to 50.') for p in presets})
-        cfg.update(enabled=flag(v.get('enabled')), custom=flag(v.get('custom')), presets=presets)
+        presets = sorted({whole(p, 1, 50000, 'Tip options must be whole amounts from 1 to 50,000.') for p in presets})
+        cfg.update(enabled=flag(v.get('enabled')), custom=flag(v.get('custom')), presets=presets, unit='amount')
         if cfg['enabled'] and not presets and not cfg['custom']:
             raise ValueError('Add at least one tip option or allow custom tips.')
     elif group == 'payments':
@@ -252,6 +287,8 @@ def configure(s, group, v):
         map_url = text(v.get('mapUrl'), 500, False)
         if map_url and not re.match(r'https://', map_url):
             raise ValueError('The map link must start with https://')
+        if map_url and not re.match(r'https://(?:www\.)?(?:google\.[a-z.]+/maps|maps\.google\.[a-z.]+|maps\.app\.goo\.gl|goo\.gl/maps)', map_url):
+            raise ValueError('Use a Google Maps link (google.com/maps or maps.app.goo.gl).')
         cfg.update(city=text(v.get('city'), 80, False), address=text(v.get('address'), 200, False), mapUrl=map_url,
                    photos=[clean_image(p) for p in photos if p])
     elif group == 'menu':
@@ -276,11 +313,11 @@ def configure(s, group, v):
     elif group == 'tax':
         regime = v.get('regime', cfg['regime'])
         if regime not in TAX_REGIMES:
-            raise ValueError('Choose VAT, turnover tax (TOT) or no tax.')
+            raise ValueError('Choose VAT or no tax.')
         tin = text(v.get('tin'), 20, False)
         if tin and not re.fullmatch(r'\d{10}', tin):
             raise ValueError('An Ethiopian TIN has 10 digits.')
-        cfg.update(regime=regime, vatRate=number(v.get('vatRate', cfg['vatRate']), 0, 50), totRate=number(v.get('totRate', cfg['totRate']), 0, 50),
+        cfg.update(regime=regime, vatRate=number(v.get('vatRate', cfg['vatRate']), 0, 50),
                    pricesIncludeTax=flag(v.get('pricesIncludeTax')), tin=tin, vatNumber=text(v.get('vatNumber'), 30, False),
                    tickets=flag(v.get('tickets')), menu=flag(v.get('menu')))
         if regime != 'none' and not tin:
@@ -389,16 +426,25 @@ def mutate(s, op, v, notices):
         _check_in(b, None)
         notices.append({'record': b, 'kind': 'checkin', 'title': 'Welcome in!', 'body': f'You are checked in to {b["eventName"]}. Have a great night.'})
     elif op == 'checkin_ticket':
-        value = str(v.get('code', ''))
+        value = str(v.get('code', '')).strip()
         parts = value.split(':')
         b = ticket = None
-        if len(parts) == 3:
+        if len(parts) == 3:  # scanned QR: REF:serial:token
             b = next((b for b in s['bookings'] if b.get('ref') == parts[0]), None)
             ticket = next((t for t in (b or {}).get('tickets', []) if hmac.compare_digest(t['token'], parts[2])), None)
+        else:  # typed reference number, e.g. EN-ABC123 or ABC123: admits the next ticket not yet used
+            ref = value.upper().replace(' ', '')
+            ref = ref if ref.startswith('EN-') else 'EN-' + ref
+            b = next((b for b in s['bookings'] if b.get('ref') == ref), None)
+            if b:
+                ticket = next((t for t in b['tickets'] if not t['used']), None)
+                if not ticket:
+                    raise ValueError(f'All {b["qty"]} ticket{"s" if b["qty"] > 1 else ""} on {ref} have already been checked in.')
         if not ticket:
-            raise ValueError('This ticket is not valid for this workspace.')
+            raise ValueError('No ticket found for that QR code or reference number.')
         _check_in(b, ticket)
-        v['result'] = {'name': b['name'], 'event': b['eventName'], 'serial': ticket['serial'], 'qty': b['qty']}
+        v['result'] = {'name': b['name'], 'event': b['eventName'], 'serial': ticket['serial'], 'qty': b['qty'], 'ref': b['ref'],
+                       'remaining': sum(1 for t in b['tickets'] if not t['used'])}
     else:
         raise ValueError('Unknown action.')
     return s
@@ -418,14 +464,13 @@ def tax_for(s, kind, taxable_cents):
     applies = cfg['regime'] != 'none' and cfg['tickets' if kind == 'booking' else 'menu']
     if not applies or taxable_cents <= 0:
         return None
-    rate = cfg['vatRate'] if cfg['regime'] == 'vat' else cfg['totRate']
+    rate = cfg['vatRate']
     if not rate:
         return None
-    if cfg['pricesIncludeTax']:
-        amount = int(taxable_cents * rate / (100 + rate) + 0.5)
-    else:
-        amount = int(taxable_cents * rate / 100 + 0.5)
-    label = ('VAT' if cfg['regime'] == 'vat' else 'TOT') + f' {rate:g}%'
+    r = Fraction(str(rate))
+    exact = Fraction(taxable_cents) * r / (100 + r) if cfg['pricesIncludeTax'] else Fraction(taxable_cents) * r / 100
+    amount = int(exact + Fraction(1, 2))  # round half up to the nearest cent, exactly
+    label = f'VAT {rate:g}%'
     return {'label': label, 'rate': rate, 'amount': amount, 'included': cfg['pricesIncludeTax'], 'regime': cfg['regime']}
 
 
@@ -496,14 +541,13 @@ def quote_order(s, v, guest_id=None):
             lines.append({'name': item['name'], 'qty': qty, 'total': item['price'] * qty})
         if not lines:
             raise ValueError('Your bag is empty.')
-        percent = number(v.get('tip', 0), 0, 100)
+        tip = money_cents(v.get('tipAmount', 0), MAX_TIP_CENTS, 'Enter a tip between 0 and 50,000.')
         tips = cfg['tips']
-        if percent:
+        if tip:
             if not tips['enabled']:
                 raise ValueError('Tips are not accepted by this organizer.')
-            if not tips['custom'] and percent not in tips['presets']:
+            if not tips['custom'] and tip not in [p * 100 for p in tips['presets']]:
                 raise ValueError('Choose one of the offered tip amounts.')
-        tip = int(sum(i['total'] for i in lines) * percent / 100 + 0.5)
     else:
         raise ValueError('Choose tickets or a menu order.')
     subtotal = sum(i['total'] for i in lines)
@@ -513,7 +557,7 @@ def quote_order(s, v, guest_id=None):
     return {'merchant': s['name'], 'currency': s['currency'], 'lines': lines, 'subtotal': subtotal, 'tip': tip, 'tax': tax,
             'total': subtotal + extra + tip, 'fee': None, 'tableName': table['name'] if table else None,
             'tableEvent': table['event'] if table else None,
-            'tin': cfg['tin'] if tax else '', 'vatNumber': cfg['vatNumber'] if tax and cfg['regime'] == 'vat' else ''}
+            'tin': cfg['tin'] if tax else '', 'vatNumber': cfg['vatNumber'] if tax else ''}
 
 
 def reference():
@@ -526,8 +570,10 @@ def guest_record(s, v, guest, demo_payment=False):
     Normally settled in person at the venue and created unpaid. `demo_payment` is used only by the
     server's explicit demo mode: the record is marked paid by a clearly labelled simulated payment.
     """
+    if v.get('kind') == 'booking' and not demo_payment:
+        raise ValueError('Tickets are paid online only.')
     if not demo_payment and not s['settings']['payments']['venue']:
-        raise ValueError('Reservations are not open yet. Online payment is not available.')
+        raise ValueError('Pay-at-table orders are not available. Please pay online.')
     q = quote_order(s, v, guest['id'])
     rec = {'id': uid(), 'ref': reference(), 'token': uid(), 'guest': guest['id'], 'name': guest['name'], 'phone': guest['phone'],
            'email': email(v.get('email'), False), 'currency': s['currency'], 'total': q['total'], 'subtotal': q['subtotal'],

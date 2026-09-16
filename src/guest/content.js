@@ -2,8 +2,8 @@
 // terms, privacy notices and help answers are added from the admin Settings screen.
 
 export const PLATFORM_FAQ = [
-  ['How do I pay?', 'Reserve in the app, then pay the organizer in person: at the entrance for tickets, or to staff when your food and drinks arrive. Online wallet payments are not available yet, and the app never asks for your wallet PIN.'],
-  ['Where are my tickets?', 'Open Tickets while signed in with the phone number you used to reserve. Each ticket has its own QR code that staff scan at the entrance. Your tickets are also in the private receipt link from your confirmation.'],
+  ['How do I pay?', 'Tickets are paid online with your mobile wallet when you book. Food and drink orders can be paid online, or to staff at your table if the organizer allows it. Encore never asks for your wallet PIN.'],
+  ['Where are my tickets?', 'Open Tickets while signed in with the phone number you used to book. Each ticket has a QR code, and staff can also check you in with your reference number (for example EN-ABC123).'],
   ['How does ordering from my table work?', 'Scan the QR code on your table, or type the short code printed under it. Encore then shows the menu for your concert and sends your order straight to that table.'],
   ['Why can’t I order from the menu?', 'Some organizers only take orders from ticket holders seated at a table for that concert. Reserve a ticket, then scan your table to order.'],
   ['I didn’t get my sign-in code.', 'Codes can take a minute to arrive. Check the number, wait for the timer, then tap Resend. Codes expire after 5 minutes. Never share your code with anyone — organizer staff will never ask for it.'],
@@ -18,14 +18,14 @@ You sign in with your mobile number and a one-time code sent by SMS. Keep your p
 Reservations and orders
 The organizer runs the event, sets prices and menus, and fulfils your tickets and orders. Prices are confirmed by the organizer's system when you reserve. A reservation holds tickets for you but is not paid until the organizer records your payment.
 
-Paying at the venue
-When you choose to pay at the venue, you agree to pay the organizer in person for the total shown before entry or when your order is served. Organizers may cancel reservations that are not paid.
+Payments
+Tickets are paid online when you book. If the organizer allows paying for food and drinks at your table, you agree to pay staff the total shown when your order is served.
 
 Entry
 Each ticket has a unique QR code that can be used once. Do not share or copy tickets. Organizers may refuse entry for tickets that are unpaid, cancelled or already used.
 
 Tips
-Tips are optional and never preselected. They are paid to the organizer together with your order.
+Tips are optional amounts you choose; none is preselected. They are paid to the organizer together with your order and are not taxed by Encore.
 
 Cancellations and refunds
 Cancellations and refunds are handled by the organizer under their own terms, shown below when provided.

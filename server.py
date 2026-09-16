@@ -143,6 +143,17 @@ def rate_limited(key, limit, window):
     return False
 
 
+def rating_summary(c, tenant, guest_id=None, recent=0):
+    row = c.execute('SELECT COUNT(*) AS n, AVG(stars) AS avg FROM ratings WHERE tenant=?', (tenant,)).fetchone()
+    out = {'count': int(row['n'] or 0), 'average': round(float(row['avg']), 1) if row['n'] else None}
+    if recent:
+        out['recent'] = [dict(r) for r in c.execute("SELECT name,stars,comment,updated FROM ratings WHERE tenant=? AND comment<>'' ORDER BY updated DESC LIMIT ?", (tenant, recent))]
+    if guest_id:
+        mine = c.execute('SELECT stars,comment FROM ratings WHERE tenant=? AND guest=?', (tenant, guest_id)).fetchone()
+        out['mine'] = dict(mine) if mine else None
+    return out
+
+
 class ApiError(Exception):
     def __init__(self, status, message, code=None):
         super().__init__(message)
@@ -214,7 +225,8 @@ class BaseHandler(BaseHTTPRequestHandler):
         else:
             dist = ROOT / 'dist'
             candidate = (dist / path.lstrip('/')).resolve()
-            root_file = path in ('/favicon.svg', '/favicon-32.png', '/apple-touch-icon.png', '/icon-192.png', '/icon-512.png', '/manifest.webmanifest')
+            root_file = path in ('/favicon.svg', '/favicon-32.png', '/apple-touch-icon.png', '/icon-192.png', '/icon-512.png', '/manifest.webmanifest') \
+                or bool(re.fullmatch(r'/wallets/[a-z-]+\.(?:png|svg|jpg|webp)', path))
             if (path.startswith('/assets/') or root_file) and candidate.is_file() and candidate.is_relative_to(dist.resolve()):
                 file = candidate
             else:
@@ -326,7 +338,8 @@ class AdminHandler(BaseHandler):
         sms_status = {'provider': 'demo', 'delivers': False, 'label': 'Demo mode: sign-in codes are shown on screen, no SMS is sent'} if DEMO else sms.status()
         unread = c.execute("SELECT COUNT(*) FROM notifications WHERE tenant=? AND audience='staff' AND read=0", (u['tenant'],)).fetchone()[0]
         return {'user': {k: u[k] for k in ['id', 'name', 'email', 'role', 'tenant']}, 'state': s, 'version': row['version'], 'team': team,
-                'paymentReady': DEMO, 'demo': DEMO, 'sms': sms_status, 'guestOrigin': GUEST_ORIGIN, 'unread': unread}
+                'paymentReady': DEMO, 'demo': DEMO, 'sms': sms_status, 'guestOrigin': GUEST_ORIGIN, 'unread': unread,
+                'ratings': rating_summary(c, u['tenant'], recent=5)}
 
     def cookie(self, value, maxage=ADMIN_SESSION_DAYS * 86400):
         return self.make_cookie('encore_session', value, maxage, 'Strict')
@@ -487,10 +500,13 @@ class GuestHandler(BaseHandler):
             for r in c.execute('SELECT id,name,state FROM tenants ORDER BY name'):
                 st = domain.upgrade(json.loads(r['state']))
                 profile, theme = st['settings']['profile'], st['settings']['theme']
-                upcoming = sum(1 for e in st['events'] if e.get('published'))
+                published = sorted((e for e in st['events'] if e.get('published')), key=lambda e: e['date'])
+                upcoming = len(published)
+                next_events = [{k: e.get(k) for k in ['id', 'name', 'date', 'venue', 'price', 'image']} for e in published[:3]]
                 out.append({'id': r['id'], 'name': r['name'], 'description': st['description'], 'logo': theme['logo'],
                             'photo': (profile['photos'] or [theme['cover']])[0], 'city': profile['city'], 'address': profile['address'],
-                            'events': upcoming})
+                            'events': upcoming, 'nextEvents': next_events, 'currency': st['currency'],
+                            'rating': rating_summary(c, r['id']), 'mapLink': domain.map_link(st)})
             return self.send(out)
         if path == '/api/public':
             row, s = read_tenant(c, q.get('tenant', ''))
@@ -498,6 +514,8 @@ class GuestHandler(BaseHandler):
             out['id'] = row['id']
             out['paymentReady'] = DEMO
             out['demo'] = DEMO
+            viewer = self.guest(c, required=False)
+            out['ratings'] = rating_summary(c, row['id'], viewer['id'] if viewer else None, recent=6)
             out['table'] = None
             if q.get('table'):
                 t = domain.find_table(s, token=q['table'])
@@ -601,13 +619,25 @@ class GuestHandler(BaseHandler):
             # Fail closed until the AfroPay merchant contract and credentials are configured.
             raise ApiError(503, 'Online payments are not available yet. You can reserve and pay at the venue.', 'PAYMENT_NOT_CONFIGURED')
 
-        if path not in ['/api/guest/profile', '/api/guest/notifications/read', '/api/order', '/api/checkout']:
+        if path not in ['/api/guest/profile', '/api/guest/notifications/read', '/api/order', '/api/checkout', '/api/guest/rating']:
             raise LookupError('Not found')
         g = self.guest(c)
         if path == '/api/guest/profile':
             name = text(v.get('name'), 80)
             c.execute('UPDATE guests SET name=? WHERE id=?', (name, g['id']))
             return self.send({'guest': {'id': g['id'], 'name': name, 'phone': g['phone']}})
+        if path == '/api/guest/rating':
+            row, st = read_tenant(c, text(v.get('tenant')))
+            if not any(r.get('guest') == g['id'] for r in st['bookings'] + st['orders']):
+                raise PermissionError('You can rate an organizer after booking tickets or ordering with them.')
+            stars = domain.whole(v.get('stars'), 1, 5, 'Choose 1 to 5 stars.')
+            comment = domain.text(v.get('comment'), 500, False)
+            now = int(time.time())
+            c.execute('INSERT INTO ratings(tenant,guest,stars,comment,name,created,updated) VALUES(?,?,?,?,?,?,?) '
+                      'ON CONFLICT(tenant,guest) DO UPDATE SET stars=excluded.stars,comment=excluded.comment,name=excluded.name,updated=excluded.updated',
+                      (row['id'], g['id'], stars, comment, g['name'].split(' ')[0], now, now))
+            notify(c, row['id'], 'staff', f'New {stars}-star rating', comment or f'{g["name"].split(" ")[0]} rated {st["name"]} {stars} of 5.', kind='rating')
+            return self.send(rating_summary(c, row['id'], g['id'], recent=6))
         if path == '/api/guest/notifications/read':
             c.execute("UPDATE notifications SET read=1 WHERE audience='guest' AND guest=?", (g['id'],))
             return self.send({'ok': True})

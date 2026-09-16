@@ -9,7 +9,7 @@ const SECTIONS = [
   ['ticketing', 'Ticketing', 'ticket'],
   ['ordering', 'Table ordering', 'table'],
   ['categories', 'Menu categories', 'menu'],
-  ['tax', 'Taxes (VAT/TOT)', 'chart'],
+  ['tax', 'VAT', 'chart'],
   ['tips', 'Tips', 'money'],
   ['payments', 'Payments', 'wallet'],
   ['notifications', 'Notifications', 'bell'],
@@ -225,39 +225,30 @@ function Tax({ ctx, setDirty }) {
   const form = useDraft(ctx.state.settings.tax, setDirty);
   const save = useSaver(ctx, form);
   const d = form.draft;
-  const rate = d.regime === 'vat' ? d.vatRate : d.totRate;
+  const rate = Number(d.vatRate) || 0;
   const example = 100000;
-  const tax = d.regime === 'none' ? 0 : d.pricesIncludeTax ? Math.round(example * rate / (100 + rate)) : Math.round(example * rate / 100);
+  const tax = d.pricesIncludeTax ? Math.round(example * rate / (100 + rate)) : Math.round(example * rate / 100);
   return (
     <>
-      <Head title="Taxes (VAT/TOT)">Ethiopian indirect tax on tickets and menu orders, shown on every checkout and receipt.</Head>
+      <Head title="VAT">Ethiopian value-added tax on tickets and menu orders, shown on every checkout and receipt.</Head>
       <Locked ctx={ctx} />
-      <p className="notice warning">Encore calculates and displays tax from these settings; it is not tax advice and Encore receipts are not fiscal (cash register) receipts. Confirm your registration, rates and receipt obligations with the Ministry of Revenues or your accountant.</p>
-      <div className="field" style={{ display: 'grid', gap: 8 }}>
-        <b style={{ fontSize: 13 }}>Tax registration</b>
-        <div className="segmented" role="radiogroup" aria-label="Tax registration">
-          {[['vat', 'VAT registered'], ['tot', 'Turnover tax (TOT)'], ['none', 'No tax']].map(([id, label]) => (
-            <button key={id} type="button" role="radio" aria-checked={d.regime === id} className={d.regime === id ? 'active' : ''} disabled={!ctx.canManage} onClick={() => form.set('regime', id)}>{label}</button>
-          ))}
-        </div>
-      </div>
-      {d.regime !== 'none' && <>
+      <p className="notice warning">Encore calculates and displays VAT from these settings; it is not tax advice, and Encore receipts are not fiscal (cash register) receipts. Confirm your registration and obligations with the Ministry of Revenues or your accountant.</p>
+      <Toggle label="Charge VAT" description="Turn on if your organization is registered for VAT." checked={d.regime === 'vat'} onChange={v => form.set('regime', v ? 'vat' : 'none')} disabled={!ctx.canManage} />
+      {d.regime === 'vat' && <>
         <div className="formrow">
-          {d.regime === 'vat'
-            ? <Field label="VAT rate (%)" type="number" min="0" max="50" step="0.01" value={d.vatRate} onChange={e => form.set('vatRate', Number(e.target.value))} disabled={!ctx.canManage} hint="Ethiopia's standard VAT rate is 15%." />
-            : <Field label="TOT rate (%)" type="number" min="0" max="50" step="0.01" value={d.totRate} onChange={e => form.set('totRate', Number(e.target.value))} disabled={!ctx.canManage} hint="Turnover tax is commonly 2% on goods and 10% on services — confirm the rate for your activity." />}
+          <Field label="VAT rate (%)" type="number" min="0" max="50" step="0.01" value={d.vatRate} onChange={e => form.set('vatRate', Number(e.target.value))} disabled={!ctx.canManage} hint="Ethiopia's standard VAT rate is 15%." />
           <Field label="TIN" inputMode="numeric" placeholder="10 digits" value={d.tin} maxLength={10} onChange={e => form.set('tin', e.target.value.replace(/\D/g, ''))} disabled={!ctx.canManage} />
         </div>
-        {d.regime === 'vat' && <Field label="VAT registration number (optional)" value={d.vatNumber} maxLength={30} onChange={e => form.set('vatNumber', e.target.value)} disabled={!ctx.canManage} />}
+        <Field label="VAT registration number (optional)" value={d.vatNumber} maxLength={30} onChange={e => form.set('vatNumber', e.target.value)} disabled={!ctx.canManage} />
         <div>
-          <Toggle label="Prices already include tax" description={d.pricesIncludeTax ? 'Guests pay the listed price; receipts show the tax inside it.' : 'Tax is added on top of listed prices at checkout.'} checked={d.pricesIncludeTax} onChange={v => form.set('pricesIncludeTax', v)} disabled={!ctx.canManage} />
+          <Toggle label="Prices already include VAT" description={d.pricesIncludeTax ? 'Guests pay the listed price; receipts show the VAT inside it.' : 'VAT is added on top of listed prices at checkout.'} checked={d.pricesIncludeTax} onChange={v => form.set('pricesIncludeTax', v)} disabled={!ctx.canManage} />
           <Toggle label="Apply to tickets" checked={d.tickets} onChange={v => form.set('tickets', v)} disabled={!ctx.canManage} />
           <Toggle label="Apply to food & drink orders" description="Tips are voluntary and never taxed by Encore." checked={d.menu} onChange={v => form.set('menu', v)} disabled={!ctx.canManage} />
         </div>
         <div className="notice">
           <b style={{ color: 'var(--ink)' }}>Example:</b> a {ctx.money(example)} item → {d.pricesIncludeTax
-            ? <>guest pays {ctx.money(example)}, of which {d.regime.toUpperCase()} {rate}% is {ctx.money(tax)}.</>
-            : <>{d.regime.toUpperCase()} {rate}% adds {ctx.money(tax)}; guest pays {ctx.money(example + tax)}.</>}
+            ? <>guest pays {ctx.money(example)}, of which VAT {rate}% is {ctx.money(tax)}.</>
+            : <>VAT {rate}% adds {ctx.money(tax)}; guest pays {ctx.money(example + tax)}.</>}
         </div>
       </>}
       <ErrorText>{form.error}</ErrorText>
@@ -393,15 +384,15 @@ function Tips({ ctx, setDirty }) {
   const d = form.draft;
   return (
     <>
-      <Head title="Tips">Optional tips on food & drink orders. No tip is ever preselected.</Head>
+      <Head title="Tips">Optional tip amounts on food & drink orders. No tip is ever preselected, and tips are not taxed.</Head>
       <Locked ctx={ctx} />
       <div>
         <Toggle label="Allow tips" checked={d.enabled} onChange={v => form.set('enabled', v)} disabled={!ctx.canManage} />
-        <Toggle label="Allow a custom tip percentage" checked={d.custom} onChange={v => form.set('custom', v)} disabled={!ctx.canManage || !d.enabled} />
+        <Toggle label="Allow guests to enter their own amount" checked={d.custom} onChange={v => form.set('custom', v)} disabled={!ctx.canManage || !d.enabled} />
       </div>
-      <Field label="Tip options (%)" hint="Up to five whole percentages, separated by commas." value={text} disabled={!ctx.canManage || !d.enabled}
+      <Field label={`Tip amounts (${ctx.state.currency})`} hint="Up to five whole amounts, separated by commas — for example 20, 50, 100." value={text} disabled={!ctx.canManage || !d.enabled}
         onChange={e => { setText(e.target.value); form.set('presets', e.target.value.split(/[\s,]+/).filter(Boolean).map(Number)); }} />
-      {d.enabled && <div className="tips" style={{ maxWidth: 420 }} aria-label="Preview"><button className="active">No tip</button>{d.presets.filter(n => n > 0).map(n => <button key={n} type="button">{n}%</button>)}</div>}
+      {d.enabled && <div className="tips" style={{ maxWidth: 460 }} aria-label="Preview"><button className="active">No tip</button>{d.presets.filter(n => n > 0).map(n => <button key={n} type="button">{ctx.money(n * 100).replace(/\.00$/, '')}</button>)}</div>}
       <ErrorText>{form.error}</ErrorText>
       {ctx.canManage && <SaveBar form={form} onSave={() => save('config', { group: 'tips', values: d })} />}
     </>
@@ -415,14 +406,15 @@ function Payments({ ctx, setDirty }) {
     <>
       <Head title="Payments">How guests pay for tickets and orders.</Head>
       <Locked ctx={ctx} />
-      <Toggle label="Pay at the venue" description="Guests reserve now and pay staff in person. Staff record each payment in Bookings or Orders." checked={form.draft.venue} onChange={v => form.set('venue', v)} disabled={!ctx.canManage} />
+      <p className="notice"><b style={{ color: 'var(--ink)' }}>Tickets are paid online only.</b> Guests pay with their mobile wallet when they book; there is no pay-at-the-door option.</p>
+      <Toggle label="Allow paying for food & drinks at the table" description="Guests order now and pay staff when it arrives. Staff record each payment in Orders." checked={form.draft.venue} onChange={v => form.set('venue', v)} disabled={!ctx.canManage} />
       <div className="notice">
         <div className="row spread" style={{ marginBottom: 6 }}><b style={{ color: 'var(--ink)' }}>AfroPay online payments</b><span className={'badge ' + (ctx.session.demo ? 'warning' : 'neutral')}>{ctx.session.demo ? 'Demo (simulated)' : 'Not connected'}</span></div>
         {ctx.session.demo
           ? 'Demo mode is on: online checkout completes a simulated payment and marks the booking or order paid as "Demo payment (simulated)". No money moves. Turn demo mode off on the server before real sales.'
           : 'Online wallet payments are not available yet. The merchant integration will be enabled once the AfroPay merchant API contract and credentials are configured on the server. Until then, checkout never charges guests.'}
       </div>
-      {!form.draft.venue && <p className="notice warning">With pay at the venue off and online payments unavailable, guests cannot make new reservations or orders.</p>}
+      {!ctx.session.demo && <p className="notice warning">Online payments are not connected yet, so guests cannot buy tickets{form.draft.venue ? '' : ' or place orders'} until AfroPay is configured (demo mode simulates it).</p>}
       <ErrorText>{form.error}</ErrorText>
       {ctx.canManage && <SaveBar form={form} onSave={() => save('config', { group: 'payments', values: form.draft })} />}
     </>

@@ -48,11 +48,18 @@ In development, SMS messages (sign-in codes, booking and order updates) are **pr
 - Account, Help & support (organizer contacts + FAQ + platform FAQ), Terms & conditions, Privacy.
 - Organizer branding and dark mode applied.
 
-## Organizer profile, menu categories and Ethiopian tax
+## Organizer profile, ratings, menu categories, tips and VAT
 
-- **Location & photos** (Settings): city, address, map link and up to 12 photos. The guest organizer list shows the first photo, logo, location and upcoming events; the organizer page shows the address, a Directions button and a photo gallery.
-- **Menu categories** (Settings): add, rename (updates items), reorder and remove (only when empty). Menu items must use a configured category; guests see categories in this order.
-- **Taxes (VAT/TOT)** (Settings): VAT-registered (15% standard rate), turnover tax (TOT, configurable rate) or no tax; prices tax-inclusive or tax added at checkout; apply to tickets and/or menu orders; TIN (10 digits) and VAT registration number. Tax is calculated on the server, shown in the booking sheet, bag, checkout, receipts and staff order queue. Tips are never taxed. Encore receipts are **not fiscal receipts** and this is not tax advice — organizers should confirm registration, rates and receipt obligations with the Ministry of Revenues or an accountant.
+- **Guest home:** search venues and cities, a "Coming up" rail of the next events across venues, venue cards with photo, logo, star rating, address and event count, and a "How Encore works" section.
+- **Organizer page:** hero with logo, rating and address; upcoming events; photo mosaic with a viewer; guest reviews; a side panel with **Open in Google Maps** and contact details. The map link is the organizer's Google Maps link, or a Google Maps search for the address and city.
+- **Ratings:** guests who booked or ordered with an organizer can give 1–5 stars and an optional comment (one rating per guest, updatable). Averages appear on the home page and organizer page; organizers see recent reviews on the Overview.
+- **Location & photos** (Settings): city, address, Google Maps link (google.com/maps or maps.app.goo.gl), up to 12 photos.
+- **Menu categories** (Settings): add, rename (updates items), reorder, remove when empty.
+- **Tips:** fixed amounts in the workspace currency (default 20, 50, 100) plus an optional custom amount; never preselected, never taxed.
+- **VAT** (Settings): on/off, rate (15% standard), prices VAT-inclusive or VAT added, apply to tickets and/or menu, TIN (10 digits) and VAT registration number. Calculated on the server with exact round-half-up to the cent; the bag shows the server's quote. Turnover tax (TOT) is not offered. Encore receipts are **not fiscal receipts** and this is not tax advice.
+- **Payments:** tickets are **online only** (wallet checkout; simulated in demo mode). Food & drink orders can optionally be paid at the table.
+- **Entry:** staff check guests in by scanning each ticket's QR code **or by typing the booking reference** (e.g. `EN-ABC123`, case-insensitive, prefix optional), which admits that booking's tickets one at a time.
+- **Wallet logos:** add official logo files you are permitted to use to `public/wallets/` as `telebirr.png`, `cbe-birr.png`, `mpesa.png`, `awash-birr.png` (svg/webp/jpg also work), then rebuild; otherwise checkout shows the wallet names.
 
 ## Appearance
 

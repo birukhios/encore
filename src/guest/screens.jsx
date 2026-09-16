@@ -10,10 +10,10 @@ const ORDER_STEPS = ['Placed', 'Preparing', 'Ready', 'Delivered'];
 /** Mirrors domain.tax_for on the server, for display before checkout. The server's quote is authoritative. */
 export function taxFor(cfg, kind, cents) {
   if (!cfg || cfg.regime === 'none' || !cfg[kind === 'booking' ? 'tickets' : 'menu'] || cents <= 0) return null;
-  const rate = cfg.regime === 'vat' ? cfg.vatRate : cfg.totRate;
+  const rate = cfg.vatRate;
   if (!rate) return null;
   const amount = cfg.pricesIncludeTax ? Math.round(cents * rate / (100 + rate)) : Math.round(cents * rate / 100);
-  return { label: `${cfg.regime === 'vat' ? 'VAT' : 'TOT'} ${rate}%`, amount, included: cfg.pricesIncludeTax };
+  return { label: `VAT ${rate}%`, amount, included: cfg.pricesIncludeTax };
 }
 
 function Title({ eyebrow, title, children }) {
@@ -32,89 +32,257 @@ const statusBadge = r => r.status === 'Cancelled'
 
 // ---------------------------------------------------------------- directory
 
-export function Directory({ workspaces, error, onPick }) {
+export function Stars({ value = 0, size = 14, label }) {
+  const full = Math.round(value * 2) / 2;
   return (
-    <div className="directory">
-      <span className="brand"><span className="brandmark"><Icon name="brand" /></span>encore<span className="dot">.</span></span>
-      <div>
-        <span className="eyebrow accent">Find your next live moment</span>
+    <span className="stars" style={{ fontSize: size }} role="img" aria-label={label || `${value || 0} out of 5 stars`}>
+      {[1, 2, 3, 4, 5].map(i => <span key={i} className={full >= i ? 'on' : full >= i - 0.5 ? 'half' : ''}>★</span>)}
+    </span>
+  );
+}
+
+function RatingBadge({ rating }) {
+  if (!rating?.count) return <span className="muted small">New on Encore</span>;
+  return <span className="row" style={{ gap: 6 }}><Stars value={rating.average} /><b className="small">{rating.average.toFixed(1)}</b><span className="muted small">({rating.count})</span></span>;
+}
+
+export function Directory({ workspaces, error, onPick }) {
+  const [query, setQuery] = useState('');
+  const q = query.trim().toLowerCase();
+  const shown = workspaces.filter(w => !q || [w.name, w.city, w.address].join(' ').toLowerCase().includes(q));
+  const coming = workspaces.flatMap(w => (w.nextEvents || []).map(e => ({ ...e, org: w }))).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 8);
+  const fmt = (cents, currency) => new Intl.NumberFormat('en-US', { style: 'currency', currency: currency || 'ETB' }).format(cents / 100);
+  return (
+    <div className="home">
+      <header className="home-top">
+        <span className="brand"><span className="brandmark"><Icon name="brand" /></span>encore<span className="dot">.</span></span>
+      </header>
+      <section className="home-hero">
+        <div className="home-hero-glow" aria-hidden="true" />
+        <span className="eyebrow accent">Live music · great food · your table</span>
         <h1>Good nights<br />start here.</h1>
-        <p style={{ marginTop: 10 }}>Choose your organizer to see concerts, reserve tickets and order from your table.</p>
-      </div>
+        <p>Find concerts near you, book your tickets in seconds, and order to your table when you arrive.</p>
+        <label className="home-search">
+          <Icon name="search" />
+          <input type="search" placeholder="Search venues or cities" value={query} onChange={e => setQuery(e.target.value)} aria-label="Search venues or cities" />
+        </label>
+        <div className="home-stats">
+          <span><b>{workspaces.length}</b> venue{workspaces.length === 1 ? '' : 's'}</span>
+          <span><b>{workspaces.reduce((n, w) => n + (w.events || 0), 0)}</b> upcoming events</span>
+          <span><b>Online</b> tickets</span>
+        </div>
+      </section>
       <ErrorText>{error}</ErrorText>
-      <div className="guest-grid orgs">
-        {workspaces.map(w => (
-          <button key={w.id} className="orgtile" onClick={() => onPick(w.id)} aria-label={`${w.name}${w.city ? ', ' + w.city : ''}`}>
-            <span className="orgtile-photo">
-              {w.photo ? <img src={w.photo} alt="" /> : <span className="cover placeholder"><Icon name="brand" /></span>}
-              {w.logo && <img className="orgtile-logo" src={w.logo} alt="" />}
-            </span>
-            <span className="orgtile-body">
-              <b>{w.name}</b>
-              {(w.address || w.city) && <small><Icon name="venue" size="sm" /> {[w.address, w.city].filter(Boolean).join(', ')}</small>}
-              <span className="row spread" style={{ marginTop: 6 }}>
-                <span className="badge neutral">{w.events ? `${w.events} upcoming event${w.events > 1 ? 's' : ''}` : 'No events yet'}</span>
-                <Icon name="next" />
+
+      {coming.length > 0 && !q && (
+        <section className="home-section">
+          <div className="row spread"><h2>Coming up</h2><span className="muted small">Swipe for more</span></div>
+          <div className="rail">
+            {coming.map(e => (
+              <button key={e.org.id + e.id} className="railcard" onClick={() => onPick(e.org.id)}>
+                {e.image || e.org.photo ? <img src={e.image || e.org.photo} alt="" /> : <span className="cover placeholder"><Icon name="brand" /></span>}
+                <span className="railcard-body">
+                  <span className="datechip"><b>{new Date(e.date).getDate()}</b>{new Date(e.date).toLocaleString('en', { month: 'short' })}</span>
+                  <b>{e.name}</b>
+                  <small>{e.org.name}</small>
+                  <span className="price-tag">{e.price ? fmt(e.price, e.org.currency) : 'Free'}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <section className="home-section">
+        <div className="row spread"><h2>{q ? `Results for “${query.trim()}”` : 'Venues & organizers'}</h2><span className="muted small">{shown.length}</span></div>
+        <div className="guest-grid orgs">
+          {shown.map(w => (
+            <button key={w.id} className="orgtile" onClick={() => onPick(w.id)} aria-label={`${w.name}${w.city ? ', ' + w.city : ''}`}>
+              <span className="orgtile-photo">
+                {w.photo ? <img src={w.photo} alt="" /> : <span className="cover placeholder"><Icon name="brand" /></span>}
+                {w.logo && <img className="orgtile-logo" src={w.logo} alt="" />}
+                {w.events > 0 && <span className="orgtile-pill">{w.events} event{w.events > 1 ? 's' : ''}</span>}
               </span>
-            </span>
-          </button>
-        ))}
-      </div>
-      {!workspaces.length && !error && <Empty icon="calendar" title="No organizers yet" body="Check back soon for upcoming concerts." />}
+              <span className="orgtile-body">
+                <b>{w.name}</b>
+                <RatingBadge rating={w.rating} />
+                {(w.address || w.city) && <small><Icon name="venue" size="sm" /> {[w.address, w.city].filter(Boolean).join(', ')}</small>}
+              </span>
+            </button>
+          ))}
+        </div>
+        {!shown.length && !error && <Empty icon="search" title={q ? 'No matches' : 'No venues yet'} body={q ? 'Try another name or city.' : 'Check back soon for upcoming concerts.'} />}
+      </section>
+
+      <section className="home-section how">
+        <h2>How Encore works</h2>
+        <div className="how-grid">
+          {[['ticket', 'Book online', 'Choose your concert and pay with your wallet. Your QR tickets arrive instantly.'], ['table', 'Scan your table', 'At the venue, scan the QR on your table to open that night’s menu.'], ['bell', 'Relax & enjoy', 'Order, add a tip if you like, and follow your order to your seat.']].map(([icon, title, body], i) => (
+            <div key={title} className="how-step"><span className="how-num">{i + 1}</span><Icon name={icon} /><b>{title}</b><p>{body}</p></div>
+          ))}
+        </div>
+      </section>
+      <footer className="home-foot">encore · Live for the moment.</footer>
     </div>
   );
 }
 
-// ---------------------------------------------------------------- events
+// ---------------------------------------------------------------- organizer page
 
 export function EventsScreen({ ctx }) {
   const { data, money, setSheet, myEvents } = ctx;
-  const cover = data.settings.theme.cover || data.settings.profile.photos[0];
+  const profile = data.settings.profile;
+  const cover = data.settings.theme.cover || profile.photos[0];
   const events = [...data.events].sort((a, b) => a.date.localeCompare(b.date));
   const ticketing = data.settings.ticketing;
+  const [photo, setPhoto] = useState(null);
+  const where = [profile.address, profile.city].filter(Boolean).join(', ');
   return (
     <>
-      <section className="hero">
-        {cover && <img src={cover} alt="" />}
-        <div>
-          <span className="eyebrow">More than a ticket</span>
-          <h2>{data.name}</h2>
-          <p>{data.description}</p>
-        </div>
-      </section>
-      {(data.settings.profile.address || data.settings.profile.city) && (
-        <div className="row wrap spread locationbar">
-          <span className="row"><Icon name="venue" /><span><b>{data.settings.profile.address || data.settings.profile.city}</b>{data.settings.profile.address && data.settings.profile.city && <small className="muted" style={{ display: 'block' }}>{data.settings.profile.city}</small>}</span></span>
-          {data.settings.profile.mapUrl && <a className="button" href={data.settings.profile.mapUrl} target="_blank" rel="noreferrer noopener">Directions</a>}
-        </div>
-      )}
-      {data.settings.profile.photos.length > 0 && (
-        <div className="gallery" aria-label={`Photos of ${data.name}`}>
-          {data.settings.profile.photos.map((url, i) => <img key={url} src={url} alt={`${data.name} photo ${i + 1}`} loading="lazy" />)}
-        </div>
-      )}
-      {!ticketing.enabled && <p className="notice">Ticket reservations are currently closed.</p>}
-      {events.length ? <div className="guest-grid">{events.map(e => (
-        <article className="eventcard" key={e.id}>
-          {e.image ? <img className="cover" src={e.image} alt="" /> : <div className="cover placeholder"><Icon name="brand" /></div>}
-          <div className="eventbody">
-            <div className="row spread wrap">
-              <span className="small muted">{dateTime(e.date)}</span>
-              {myEvents.includes(e.id) ? <span className="badge success">You're going</span> : e.soldOut ? <span className="badge neutral">Sold out</span> : e.remaining !== undefined ? <span className="badge">{e.remaining} left</span> : null}
-            </div>
-            <h2>{e.name}</h2>
-            <p className="small"><Icon name="venue" size="sm" /> {e.venue}</p>
-            <p className="description">{e.description}</p>
-            <div className="eventfoot">
-              <div className="price"><small>Admission</small><b>{e.price ? money(e.price) : 'Free'}</b></div>
-              <button className="primary" disabled={!ticketing.enabled || e.soldOut} onClick={() => setSheet({ type: 'booking', event: e })}>
-                {e.soldOut ? 'Sold out' : 'Get tickets'}<Icon name="next" />
-              </button>
+      <section className="org-hero">
+        {cover ? <img src={cover} alt="" /> : <div className="cover placeholder" />}
+        <div className="org-hero-body">
+          {data.settings.theme.logo && <img className="org-logo" src={data.settings.theme.logo} alt="" />}
+          <div className="grow" style={{ minWidth: 0 }}>
+            <h1>{data.name}</h1>
+            <div className="row wrap" style={{ gap: '6px 14px' }}>
+              <RatingBadge rating={data.ratings} />
+              {where && <span className="small org-where"><Icon name="venue" size="sm" /> {where}</span>}
             </div>
           </div>
-        </article>
-      ))}</div> : <section className="card"><Empty icon="calendar" title="The next show is coming" body="No concerts are on sale right now. Check back soon." /></section>}
+        </div>
+      </section>
+
+      <div className="org-layout">
+        <div className="org-main">
+          {data.description && <p className="org-about">{data.description}</p>}
+          {!ticketing.enabled && <p className="notice">Ticket sales are currently closed.</p>}
+          <div className="row spread"><h2>Upcoming events</h2><span className="muted small">{events.length}</span></div>
+          {events.length ? <div className="event-list">{events.map(e => {
+            const d = new Date(e.date);
+            return (
+              <article className="eventcard" key={e.id}>
+                <div className="eventmedia">
+                  {e.image ? <img className="cover" src={e.image} alt="" /> : <div className="cover placeholder"><Icon name="brand" /></div>}
+                  <span className="datechip"><b>{d.getDate()}</b>{d.toLocaleString('en', { month: 'short' })}</span>
+                </div>
+                <div className="eventbody">
+                  <div className="row spread wrap">
+                    <span className="small muted">{dateTime(e.date)}</span>
+                    {myEvents.includes(e.id) ? <span className="badge success">You're going</span> : e.soldOut ? <span className="badge neutral">Sold out</span> : e.remaining !== undefined ? <span className="badge">{e.remaining} left</span> : null}
+                  </div>
+                  <h3 className="eventtitle">{e.name}</h3>
+                  <p className="small"><Icon name="venue" size="sm" /> {e.venue}</p>
+                  <p className="description">{e.description}</p>
+                  <div className="eventfoot">
+                    <div className="price"><small>Admission</small><b>{e.price ? money(e.price) : 'Free'}</b></div>
+                    <button className="primary" disabled={!ticketing.enabled || e.soldOut} onClick={() => setSheet({ type: 'booking', event: e })}>
+                      {e.soldOut ? 'Sold out' : 'Get tickets'}<Icon name="next" />
+                    </button>
+                  </div>
+                </div>
+              </article>
+            );
+          })}</div> : <section className="card"><Empty icon="calendar" title="The next show is coming" body="No concerts are on sale right now. Check back soon." /></section>}
+
+          {profile.photos.length > 0 && (
+            <section className="stack">
+              <h2>Photos</h2>
+              <div className={'photo-mosaic count-' + Math.min(profile.photos.length, 5)}>
+                {profile.photos.slice(0, 5).map((url, i) => (
+                  <button key={url} className="mosaic-item" onClick={() => setPhoto(i)} aria-label={`Open photo ${i + 1} of ${profile.photos.length}`}>
+                    <img src={url} alt="" loading="lazy" />
+                    {i === 4 && profile.photos.length > 5 && <span className="mosaic-more">+{profile.photos.length - 5}</span>}
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
+          <Reviews ctx={ctx} />
+        </div>
+
+        <aside className="org-side">
+          <section className="card stack">
+            <h3>Location</h3>
+            {where ? <p style={{ color: 'var(--ink)' }}>{where}</p> : <p>Ask the organizer for directions.</p>}
+            {data.mapLink && <a className="button primary block" href={data.mapLink} target="_blank" rel="noreferrer noopener"><Icon name="venue" />Open in Google Maps</a>}
+          </section>
+          {(data.settings.support.phone || data.settings.support.email) && (
+            <section className="card stack">
+              <h3>Contact</h3>
+              {data.settings.support.phone && <a className="button block" href={'tel:' + data.settings.support.phone.replace(/[^\d+]/g, '')}>Call {data.settings.support.phone}</a>}
+              {data.settings.support.email && <a className="button block" href={'mailto:' + data.settings.support.email}><Icon name="support" />Email</a>}
+              {data.settings.support.hours && <p className="small"><Icon name="clock" size="sm" /> {data.settings.support.hours}</p>}
+            </section>
+          )}
+        </aside>
+      </div>
+
+      {photo !== null && (
+        <Modal label="Photo" onClose={() => setPhoto(null)} wide
+          footer={<>
+            <button onClick={() => setPhoto((photo - 1 + profile.photos.length) % profile.photos.length)} aria-label="Previous photo">‹ Previous</button>
+            <span className="muted small grow center">{photo + 1} / {profile.photos.length}</span>
+            <button onClick={() => setPhoto((photo + 1) % profile.photos.length)} aria-label="Next photo">Next ›</button>
+          </>}>
+          <img src={profile.photos[photo]} alt={`${data.name} photo ${photo + 1}`} style={{ width: '100%', borderRadius: 12 }} />
+        </Modal>
+      )}
     </>
+  );
+}
+
+function Reviews({ ctx }) {
+  const { data, guest, records, requireAuth, tenant, toast } = ctx;
+  const r = data.ratings || { count: 0 };
+  const [stars, setStars] = useState(r.mine?.stars || 0);
+  const [comment, setComment] = useState(r.mine?.comment || '');
+  const [summary, setSummary] = useState(r);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  useEffect(() => { setSummary(data.ratings || { count: 0 }); if (data.ratings?.mine) { setStars(data.ratings.mine.stars); setComment(data.ratings.mine.comment); } }, [data.ratings?.count, data.ratings?.average, data.ratings?.mine?.stars]);
+  const canRate = guest && (records || []).length > 0;
+  const submit = async e => {
+    e.preventDefault();
+    setBusy(true); setError('');
+    try { setSummary(await api('guest/rating', { tenant, stars, comment })); toast('Thanks for your rating'); }
+    catch (err) { setError(err.message); }
+    finally { setBusy(false); }
+  };
+  return (
+    <section className="stack">
+      <div className="row spread wrap"><h2>Guest ratings</h2><RatingBadge rating={summary} /></div>
+      {summary.recent?.length > 0 && (
+        <div className="reviews">
+          {summary.recent.map((x, i) => (
+            <figure key={i} className="review">
+              <Stars value={x.stars} size={13} />
+              <blockquote>{x.comment}</blockquote>
+              <figcaption>{x.name} · {timeAgo(x.updated)}</figcaption>
+            </figure>
+          ))}
+        </div>
+      )}
+      <form className="card stack" onSubmit={submit}>
+        <b>{summary.mine ? 'Your rating' : 'Rate your experience'}</b>
+        {canRate ? (
+          <>
+            <div className="starpicker" role="radiogroup" aria-label="Your rating">
+              {[1, 2, 3, 4, 5].map(n => (
+                <button key={n} type="button" role="radio" aria-checked={stars === n} aria-label={`${n} star${n > 1 ? 's' : ''}`} className={stars >= n ? 'on' : ''} onClick={() => setStars(n)}>★</button>
+              ))}
+            </div>
+            <textarea placeholder="What made the night great? (optional)" maxLength={500} value={comment} onChange={e => setComment(e.target.value)} style={{ minHeight: 70 }} />
+            <ErrorText>{error}</ErrorText>
+            <button className="primary" disabled={busy || !stars} style={{ justifySelf: 'start' }}>{busy ? 'Saving…' : summary.mine ? 'Update rating' : 'Submit rating'}</button>
+          </>
+        ) : guest ? (
+          <p className="small">You can rate {data.name} after booking tickets or ordering with them.</p>
+        ) : (
+          <button type="button" style={{ justifySelf: 'start' }} onClick={() => requireAuth('Sign in to rate this organizer', () => {})}>Sign in to rate</button>
+        )}
+      </form>
+    </section>
   );
 }
 
@@ -148,7 +316,7 @@ export function BookingSheet({ ctx, event, onClose }) {
         </div>
       </div>
       {(() => { const t = taxFor(data.settings.tax, 'booking', event.price * qty); return t && <p className="small">{t.included ? `Includes ${t.label}: ${money(t.amount)}` : `Plus ${t.label}: ${money(t.amount)}`}</p>; })()}
-      <p className="footnote">Each ticket gets its own QR code. {data.settings.payments.venue ? 'Pay at the entrance.' : ''}</p>
+      <p className="footnote">Tickets are paid online. Each ticket gets its own QR code and reference number for entry.</p>
       <ErrorText>{error}</ErrorText>
     </Modal>
   );
@@ -239,7 +407,7 @@ export function ReceiptModal({ ctx, receipt: r, onClose }) {
   const link = `${location.origin}/?tenant=${encodeURIComponent(tenant)}&view=tickets&ref=${encodeURIComponent(r.ref)}&token=${encodeURIComponent(r.token)}`;
   const status = r.status === 'Cancelled' ? 'This was cancelled by the organizer.'
     : r.paid ? (r.settlement === 'demo' ? 'Paid with a simulated demo payment. No money was charged.' : `Paid at the venue (${r.settledBy}).`)
-    : booking ? 'Not paid yet. Show your ticket and pay at the entrance.' : 'Not paid yet. Pay staff when your order arrives.';
+    : booking ? 'Awaiting online payment.' : 'Not paid yet. Pay staff when your order arrives.';
   return (
     <Modal sheet eyebrow={r.merchant} title={booking ? (r.status === 'Reserved' ? "You're on the list." : r.eventName) : 'Order ' + r.status.toLowerCase() + '.'} label="Receipt" onClose={onClose}
       footer={<button className="primary block" onClick={onClose}>Done</button>}>
@@ -251,7 +419,7 @@ export function ReceiptModal({ ctx, receipt: r, onClose }) {
         <div className={'ticket-qr' + (t.used ? ' used' : '')} key={t.token}>
           <QR value={`${r.ref}:${t.serial}:${t.token}`} name={`Ticket ${t.serial} ${r.eventName}`} download={false} size={200} />
           <b>Ticket {t.serial} of {r.qty}</b>
-          <small className="muted">{t.used ? 'Used for entry' : 'Show this at the entrance'}</small>
+          <small className="muted">{t.used ? 'Used for entry' : `Show this at the entrance · Ref ${r.ref}`}</small>
         </div>
       ))}
       <div className="totals">
@@ -410,8 +578,22 @@ export function Bag({ ctx }) {
   const lines = data.menu.filter(i => cart[i.id]);
   const notServed = lines.filter(i => !served.some(s => s.id === i.id) || !i.available);
   const subtotal = lines.reduce((s, i) => s + i.price * cart[i.id], 0);
-  const tipAmount = tips.enabled ? Math.round((subtotal * Number(tip || 0)) / 100) : 0;
+  const tipAmount = tips.enabled ? Math.round(Number(tip || 0) * 100) : 0;
   const tax = taxFor(data.settings.tax, 'menu', subtotal);
+  const [quote, setQuote] = useState(null);
+  useEffect(() => {
+    // The server's quote is authoritative; the local figures above only fill the gap while it loads.
+    setQuote(null);  // show local figures immediately; replaced by the server quote moments later
+    if (!lines.length || !canOrder) return;
+    const id = setTimeout(() => {
+      api('quote', { tenant: ctx.tenant, kind: 'menu', items: cart, tipAmount: String(tips.enabled ? Number(tip || 0) : 0), table: table?.token || '' })
+        .then(setQuote).catch(() => setQuote(null));
+    }, 250);
+    return () => clearTimeout(id);
+  }, [JSON.stringify(cart), tip, table?.token, canOrder]);
+  const shownTax = quote ? quote.tax : tax;
+  const shownTip = quote ? quote.tip : tipAmount;
+  const shownTotal = quote ? quote.total : subtotal + (tax && !tax.included ? tax.amount : 0) + tipAmount;
   const change = (id, delta) => {
     const next = { ...cart, [id]: Math.max(0, Math.min(50, (cart[id] || 0) + delta)) };
     if (!next[id]) delete next[id];
@@ -421,7 +603,7 @@ export function Bag({ ctx }) {
     setBusy(true);
     setError('');
     try {
-      await startCheckout({ kind: 'menu', items: cart, tip: tips.enabled ? Number(tip || 0) : 0, table: table?.token || '' }, null);
+      await startCheckout({ kind: 'menu', items: cart, tipAmount: String(tips.enabled ? Number(tip || 0) : 0), table: table?.token || '' }, null);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -451,15 +633,16 @@ export function Bag({ ctx }) {
       </section>
       {tips.enabled && (
         <section className="card stack">
-          <div><h3>Leave a little love</h3><p className="small">Tips are optional and go to the organizer's team.</p></div>
-          <div className="tips" role="radiogroup" aria-label="Tip">
+          <div><h3>Leave a little love</h3><p className="small">Tips are optional, go to the team, and are never taxed.</p></div>
+          <div className="tips" role="radiogroup" aria-label="Tip amount">
             {[0, ...tips.presets].map(n => (
-              <button key={n} role="radio" aria-checked={Number(tip) === n} className={Number(tip) === n ? 'active' : ''} onClick={() => setTip(n)}>{n ? n + '%' : 'No tip'}</button>
+              <button key={n} role="radio" aria-checked={Number(tip) === n} className={Number(tip) === n ? 'active' : ''} onClick={() => setTip(n)}>{n ? money(n * 100).replace(/\.00$/, '') : 'No tip'}</button>
             ))}
           </div>
           {tips.custom && (
-            <label className="field">Custom tip (%)
-              <input type="number" inputMode="numeric" min="0" max="100" value={tip} onChange={e => setTip(Math.min(100, Math.max(0, Math.round(Number(e.target.value) || 0))))} />
+            <label className="field">Other amount ({data.currency})
+              <input type="text" inputMode="decimal" placeholder="0" value={tip === 0 ? '' : tip}
+                onChange={e => { const v = e.target.value.replace(/[^\d.]/g, ''); if (/^\d{0,5}(\.\d{0,2})?$/.test(v)) setTip(v === '' ? 0 : v); }} />
             </label>
           )}
         </section>
@@ -468,9 +651,9 @@ export function Bag({ ctx }) {
       <section className="card stack bag-summary">
         <div className="totals">
           <div className="line"><span>Items</span><b>{money(subtotal)}</b></div>
-          {tax && <div className="line"><span>{tax.label} {tax.included ? '(included)' : ''}</span><b>{money(tax.amount)}</b></div>}
-          {tips.enabled && <div className="line"><span>Tip</span><b>{money(tipAmount)}</b></div>}
-          <div className="line total"><span>Total</span><span>{money(subtotal + (tax && !tax.included ? tax.amount : 0) + tipAmount)}</span></div>
+          {shownTax && <div className="line"><span>{shownTax.label} {shownTax.included ? '(included)' : ''}</span><b>{money(shownTax.amount)}</b></div>}
+          {tips.enabled && <div className="line"><span>Tip</span><b>{money(shownTip)}</b></div>}
+          <div className="line total"><span>Total</span><span>{money(shownTotal)}</span></div>
         </div>
         {needsScan ? (
           <button className="primary lg-btn block" onClick={() => setSheet({ type: 'scan' })}>Scan your table to continue</button>

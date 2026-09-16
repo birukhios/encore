@@ -51,7 +51,7 @@ export function Overview({ ctx }) {
     ['Brand your guest app', !!(cfg.theme.logo || cfg.theme.cover || cfg.theme.accent !== '#E61E32'), 'Settings'],
     ['Add help & support contacts', !!(cfg.support.email || cfg.support.phone), 'Settings'],
     ['Publish your terms', !!cfg.legal.terms, 'Settings'],
-    ['Set up taxes (VAT/TOT and TIN)', cfg.tax.regime === 'none' || !!cfg.tax.tin, 'Settings'],
+    ['Set up VAT and TIN', cfg.tax.regime === 'none' || !!cfg.tax.tin, 'Settings'],
     ['Add your location & photos', !!(cfg.profile.address || cfg.profile.photos.length), 'Settings'],
   ];
   return (
@@ -108,6 +108,14 @@ export function Overview({ ctx }) {
           </section>
         )}
       </div>
+      <section className="card">
+        <div className="card-head"><h2>Guest ratings</h2>{session.ratings.count > 0 && <span className="row"><span className="stars" aria-hidden="true">{'★★★★★'.slice(0, Math.round(session.ratings.average))}</span><b>{session.ratings.average.toFixed(1)}</b><span className="muted small">from {session.ratings.count} guest{session.ratings.count > 1 ? 's' : ''}</span></span>}</div>
+        {session.ratings.recent?.length ? (
+          <div className="list">{session.ratings.recent.map((r, i) => (
+            <div className="listrow" key={i}><span className="stars" aria-label={`${r.stars} stars`}>{'★'.repeat(r.stars)}</span><div className="grow"><b>{r.name}</b><small>{r.comment}</small></div></div>
+          ))}</div>
+        ) : <p className="small">{session.ratings.count ? 'No written reviews yet.' : 'Guests who book or order with you can rate your organization from the guest app.'}</p>}
+      </section>
       <section className="card">
         <div className="card-head"><h2>Latest activity</h2>{pagesFor(role).includes('Orders') && <button onClick={() => go('Orders')}>View orders</button>}</div>
         {records.length ? (
@@ -218,13 +226,13 @@ function EventForm({ ctx, item, onClose }) {
 
 export function Bookings({ ctx }) {
   const { state, money, canManage, role, matches } = ctx;
-  const [filter, setFilter] = useState('Unpaid');
+  const [filter, setFilter] = useState('Ready for entry');
   const [settling, setSettling] = useState(null);
   const [scanning, setScanning] = useState(false);
   const [rowError, setRowError] = useState('');
   const filters = {
-    Unpaid: b => b.status === 'Reserved' && !b.paid,
     'Ready for entry': b => b.status === 'Reserved' && b.paid,
+    'Awaiting payment': b => b.status === 'Reserved' && !b.paid,
     'Checked in': b => b.status === 'Checked in',
     Cancelled: b => b.status === 'Cancelled',
     All: () => true,
@@ -266,12 +274,11 @@ export function Bookings({ ctx }) {
               </div>
               <div className="actions">
                 {b.status === 'Reserved' && !b.paid && ['Owner', 'Admin'].includes(role) && <button onClick={() => confirm(`Cancel booking ${b.ref}?`) && act('cancel', { id: b.id })}>Cancel</button>}
-                {b.status === 'Reserved' && !b.paid && canManage && <button className="primary" onClick={() => setSettling(b)}>Record payment</button>}
-                {b.status === 'Reserved' && b.paid && <button className="primary" onClick={() => act('checkin', { id: b.id })}>Check in all</button>}
+                {b.status === 'Reserved' && b.paid && <button className="primary" onClick={() => act('checkin', { id: b.id })}>Check in {b.tickets.filter(t => !t.used).length > 1 ? 'all' : ''}</button>}
               </div>
             </div>
           </div>
-        )) : <Empty icon="ticket" title={filter === 'Unpaid' ? 'No payments waiting' : 'Nothing here yet'} body="Guest reservations appear here. Record payment at the door, then check guests in or scan their tickets." />}
+        )) : <Empty icon="ticket" title="Nothing here yet" body="Tickets bought online appear here. Scan each ticket's QR code or type its reference number to check guests in." />}
       </section>
       {settling && <SettleModal ctx={ctx} record={settling} onClose={() => setSettling(null)} />}
       {scanning && <TicketScan ctx={ctx} onClose={() => setScanning(false)} />}
@@ -313,7 +320,8 @@ function TicketScan({ ctx, onClose }) {
         <div className="stack center" style={{ justifyItems: 'center' }}>
           <span className="empty" style={{ padding: 0 }}><Icon name="success" /></span>
           <h2>Welcome, {result.name}</h2>
-          <p>Ticket {result.serial} of {result.qty} · {result.event}</p>
+          <p>Ticket {result.serial} of {result.qty} · {result.event} · {result.ref}</p>
+          {result.remaining > 0 && <p className="notice">{result.remaining} more ticket{result.remaining > 1 ? 's' : ''} on this booking. Enter the reference again to admit the next guest.</p>}
           <button className="primary block lg-btn" onClick={again}>Scan next ticket</button>
         </div>
       ) : error ? (
@@ -325,10 +333,10 @@ function TicketScan({ ctx, onClose }) {
         <>
           <Scanner key={attempt} onResult={check} hint="Point the camera at the guest's ticket QR" />
           <form className="codeentry" onSubmit={e => { e.preventDefault(); if (manual) check(manual); }}>
-            <input aria-label="Ticket code" placeholder="Or paste ticket code" value={manual} onChange={e => setManual(e.target.value)} style={{ textTransform: 'none', letterSpacing: 0 }} />
-            <button className="primary" disabled={busy || !manual}>Check</button>
+            <input aria-label="Ticket reference number" placeholder="Or type reference, e.g. EN-ABC123" value={manual} onChange={e => setManual(e.target.value)} autoCapitalize="characters" style={{ textTransform: 'none', letterSpacing: 0 }} />
+            <button className="primary" disabled={busy || !manual.trim()}>Check in</button>
           </form>
-          <p className="footnote">Tickets must be paid before entry. Each ticket can be scanned once.</p>
+          <p className="footnote">Each ticket can be used once. A reference number admits the booking's tickets one at a time.</p>
         </>
       )}
     </Modal>
