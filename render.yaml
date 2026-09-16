@@ -26,9 +26,8 @@ services:
       - key: ENCORE_SECRET
         generateValue: true
       # PUBLIC_ORIGIN defaults to Render's RENDER_EXTERNAL_URL. Set it if you add a custom domain.
-      # DEMO ONLY: guest sign-in codes are written to the Render logs instead of being sent by SMS.
-      # Remove both lines and configure a real SMS provider before inviting real guests.
-      - key: SMS_PROVIDER
-        value: log
-      - key: ENCORE_ALLOW_LOG_SMS
+      # DEMO MODE: guest sign-in codes are shown on screen (no SMS) and online checkout simulates a
+      # successful payment (no money moves). Everything is labelled "demo" in both apps.
+      # Set to "0" (and configure real SMS + payments) before real guests or real sales.
+      - key: ENCORE_DEMO
         value: "1"

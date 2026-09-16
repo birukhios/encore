@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { api, money as formatMoney, timeAgo } from '../shared/api';
 import { applyTheme } from '../shared/theme';
-import { Icon, Modal, Spinner, usePolling, useToast } from '../shared/ui';
+import { Icon, ModeToggle, Modal, Spinner, usePolling, useToast } from '../shared/ui';
 import Auth from './Auth';
 import { Bookings, Events, Menu, Orders, Overview, Profile, Tables, Team } from './pages';
 import Settings from './Settings';
@@ -146,6 +146,8 @@ export default function AdminApp() {
             </div>
           ) : <div className="grow" />}
           <div className="row">
+            {session.demo && <span className="badge warning" title="Sign-in codes are shown on screen and payments are simulated">Demo mode</span>}
+            <ModeToggle />
             <button className="icon-btn" onClick={refresh} aria-label="Refresh workspace"><Icon name="refresh" /></button>
             <Notifications unread={session.unread} onRead={refresh} go={go} />
           </div>

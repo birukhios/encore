@@ -13,6 +13,22 @@ export function Icon({ name, id, size = '' }) {
   return <span className={'icon ' + size} aria-hidden="true" dangerouslySetInnerHTML={{ __html: svg }} />;
 }
 
+export function ModeToggle({ onChange }) {
+  const [, force] = useState(0);
+  const dark = document.documentElement.dataset.mode === 'dark';
+  return (
+    <button className="icon-btn" aria-label={dark ? 'Switch to light mode' : 'Switch to dark mode'} title={dark ? 'Light mode' : 'Dark mode'}
+      onClick={async () => {
+        const { setModeOverride } = await import('./theme');
+        setModeOverride(dark ? 'light' : 'dark');
+        force(n => n + 1);
+        onChange?.();
+      }}>
+      <span aria-hidden="true" style={{ fontSize: 17, lineHeight: 1 }}>{dark ? '☀' : '☾'}</span>
+    </button>
+  );
+}
+
 export function Field({ label, hint, children, ...props }) {
   return (
     <label className="field">

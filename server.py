@@ -42,6 +42,9 @@ else:
     ADMIN_ORIGIN = (os.environ.get('ADMIN_ORIGIN') or _PUBLIC or f'http://127.0.0.1:{ADMIN_PORT}').rstrip('/')
     GUEST_ORIGIN = (os.environ.get('GUEST_ORIGIN') or f'http://127.0.0.1:{GUEST_PORT}').rstrip('/')
 TRUST_PROXY = os.environ.get('TRUST_PROXY') == '1'
+# Demo mode: sign-in codes are shown on screen and online checkout simulates a successful payment.
+# Never enable for real guests or real money.
+DEMO = os.environ.get('ENCORE_DEMO') == '1'
 
 ADMIN_SESSION_DAYS, GUEST_SESSION_DAYS = 7, 30
 OTP_TTL, OTP_RESEND, OTP_MAX_ATTEMPTS = 300, 60, 5
@@ -325,9 +328,10 @@ class AdminHandler(BaseHandler):
     def bundle(self, c, u):
         row, s = read_tenant(c, u['tenant'])
         team = [dict(r) for r in c.execute('SELECT id,name,email,role FROM users WHERE tenant=?', (u['tenant'],))]
+        sms_status = {'provider': 'demo', 'delivers': False, 'label': 'Demo mode: sign-in codes are shown on screen, no SMS is sent'} if DEMO else sms.status()
         unread = c.execute("SELECT COUNT(*) FROM notifications WHERE tenant=? AND audience='staff' AND read=0", (u['tenant'],)).fetchone()[0]
         return {'user': {k: u[k] for k in ['id', 'name', 'email', 'role', 'tenant']}, 'state': s, 'version': row['version'], 'team': team,
-                'paymentReady': False, 'sms': sms.status(), 'guestOrigin': GUEST_ORIGIN, 'unread': unread}
+                'paymentReady': DEMO, 'demo': DEMO, 'sms': sms_status, 'guestOrigin': GUEST_ORIGIN, 'unread': unread}
 
     def cookie(self, value, maxage=ADMIN_SESSION_DAYS * 86400):
         return self.make_cookie('encore_session', value, maxage, 'Strict')
@@ -488,7 +492,8 @@ class GuestHandler(BaseHandler):
             row, s = read_tenant(c, q.get('tenant', ''))
             out = domain.public_state(s)
             out['id'] = row['id']
-            out['paymentReady'] = False
+            out['paymentReady'] = DEMO
+            out['demo'] = DEMO
             out['table'] = None
             if q.get('table'):
                 t = domain.find_table(s, token=q['table'])
@@ -540,7 +545,8 @@ class GuestHandler(BaseHandler):
                 raise ApiError(429, 'Too many codes were sent to this number. Try again in an hour.')
             code = f'{secrets.randbelow(1000000):06d}'
             try:
-                sms.send(phone, f'Your Encore code is {code}. It expires in 5 minutes. Never share this code.')
+                if not DEMO:
+                    sms.send(phone, f'Your Encore code is {code}. It expires in 5 minutes. Never share this code.')
             except sms.NotConfigured:
                 raise ApiError(503, 'Phone sign-in is temporarily unavailable. Please try again later.', 'SMS_NOT_CONFIGURED')
             except sms.DeliveryFailed:
@@ -548,7 +554,10 @@ class GuestHandler(BaseHandler):
             c.execute('INSERT OR REPLACE INTO otps(phone,code,expires,attempts,sent) VALUES(?,?,?,0,?)',
                       (phone, hmac.new(secret(), (phone + ':' + code).encode(), 'sha256').hexdigest(), now + OTP_TTL, now))
             c.execute('INSERT INTO otp_log(phone,ip,created) VALUES(?,?,?)', (phone, self.client_ip(), now))
-            return self.send({'sent': True, 'phone': phone, 'resendIn': OTP_RESEND, 'expiresIn': OTP_TTL})
+            out = {'sent': True, 'phone': phone, 'resendIn': OTP_RESEND, 'expiresIn': OTP_TTL}
+            if DEMO:
+                out['demoCode'] = code  # simulated SMS: shown on screen, nothing is sent
+            return self.send(out)
         if path == '/api/guest/verify':
             phone = domain.normalize_phone(v.get('phone'))
             code = str(v.get('code', '')).strip()
@@ -582,12 +591,12 @@ class GuestHandler(BaseHandler):
             row, s = read_tenant(c, text(v.get('tenant')))
             g = self.guest(c, required=False)
             return self.send(domain.quote_order(s, v, g['id'] if g else None))
-        if path == '/api/checkout':
+        if path == '/api/checkout' and not DEMO:
             read_tenant(c, text(v.get('tenant')))
             # Fail closed until the AfroPay merchant contract and credentials are configured.
             raise ApiError(503, 'Online payments are not available yet. You can reserve and pay at the venue.', 'PAYMENT_NOT_CONFIGURED')
 
-        if path not in ['/api/guest/profile', '/api/guest/notifications/read', '/api/order']:
+        if path not in ['/api/guest/profile', '/api/guest/notifications/read', '/api/order', '/api/checkout']:
             raise LookupError('Not found')
         g = self.guest(c)
         if path == '/api/guest/profile':
@@ -597,16 +606,18 @@ class GuestHandler(BaseHandler):
         if path == '/api/guest/notifications/read':
             c.execute("UPDATE notifications SET read=1 WHERE audience='guest' AND guest=?", (g['id'],))
             return self.send({'ok': True})
-        if path == '/api/order':
+        if path in ('/api/order', '/api/checkout'):
+            demo_payment = path == '/api/checkout'  # only reachable here when DEMO is on
             if rate_limited('order:' + self.client_ip(), 30, 900) or rate_limited('order-guest:' + g['id'], 20, 900):
                 raise ApiError(429, 'Too many orders in a short time. Please wait a few minutes.')
             row, s = read_tenant(c, text(v.get('tenant')))
-            rec = domain.guest_record(s, v, g)
+            rec = domain.guest_record(s, v, g, demo_payment=demo_payment)
             write_tenant(c, row['id'], s)
             c.execute('INSERT INTO audit(tenant,user,action,created) VALUES(?,?,?,?)', (row['id'], 'guest:' + g['id'], 'guest_' + str(v.get('kind')), int(time.time())))
             prefs = s['settings']['notifications']
             if rec.get('qty'):
-                title, body = 'Tickets reserved', f'{rec["qty"]} ticket{"s" if rec["qty"] > 1 else ""} for {rec["eventName"]}. Pay at the entrance. Ref {rec["ref"]}.'
+                title, body = ('Tickets confirmed', f'{rec["qty"]} ticket{"s" if rec["qty"] > 1 else ""} for {rec["eventName"]}. Paid (demo payment). Ref {rec["ref"]}.') if demo_payment else \
+                    ('Tickets reserved', f'{rec["qty"]} ticket{"s" if rec["qty"] > 1 else ""} for {rec["eventName"]}. Pay at the entrance. Ref {rec["ref"]}.')
                 notify(c, row['id'], 'staff', f'New booking · {rec["ref"]}', f'{g["name"]} reserved {rec["qty"]} for {rec["eventName"]}.', kind='booking', ref=rec['ref'])
                 if prefs['smsBookings']:
                     text_guest(g['phone'], f'{s["name"]}: {body}')
@@ -652,7 +663,9 @@ def production_problems():
                 problems.append(f'{name} must be an https:// origin in production.')
         if not os.environ.get('ENCORE_SECRET'):
             problems.append('ENCORE_SECRET must be set in production (32+ random bytes, base64 or hex).')
-        if sms.demo_log_allowed():
+        if DEMO:
+            problems.append('ENCORE_DEMO=1 (SMS_PROVIDER not required): sign-in codes are shown on screen and payments are simulated. Not for real guests or money.')
+        elif sms.demo_log_allowed():
             problems.append('SMS_PROVIDER=log demo mode: sign-in codes are written to server logs, not sent. Not for real guests.')
         elif not sms.status()['delivers']:
             problems.append('SMS_PROVIDER is not configured; guest phone sign-in will be unavailable.')

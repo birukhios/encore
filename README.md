@@ -48,6 +48,10 @@ In development, SMS messages (sign-in codes, booking and order updates) are **pr
 - Account, Help & support (organizer contacts + FAQ + platform FAQ), Terms & conditions, Privacy.
 - Organizer branding and dark mode applied.
 
+## Appearance
+
+Organizers choose the default look in Settings → Appearance (guest app and dashboard separately: Light, Black, or follow the device). Anyone can also flip light/dark for themselves with the ☾/☀ button in either app's header; that choice is remembered on their device.
+
 ## Payments — online payments are not live
 
 AfroPay is **not integrated**; no provider API was invented. `POST /api/checkout` always fails with `PAYMENT_NOT_CONFIGURED`. The only way to reserve is **pay at the venue**: records are created unpaid, staff collect payment in person and record it. Nothing is ever marked paid by the guest or by the payment screen. To integrate AfroPay, supply the merchant API documentation (checkout creation, verification, webhook signatures, refunds).
@@ -61,7 +65,7 @@ AfroPay is **not integrated**; no provider API was invented. `POST /api/checkout
 1. In Render: **New + → Blueprint**, connect the GitHub repository. Render reads `render.yaml` and builds the `Dockerfile`.
 2. It creates one web service in single-port mode: guest app at `https://<service>.onrender.com/`, organizer admin at `https://<service>.onrender.com/admin`. `ENCORE_SECRET` is generated automatically; origins come from Render's `RENDER_EXTERNAL_URL`.
 3. The blueprint uses the **Starter plan with a 1 GB persistent disk** at `/data`. The free plan has no disk, so data would be erased on every deploy and restart.
-4. **Demo SMS:** the blueprint sets `SMS_PROVIDER=log` + `ENCORE_ALLOW_LOG_SMS=1`, so guest sign-in codes appear in the service's **Logs** tab (`[DEV SMS - NOT DELIVERED]`). This is for testing only — anyone who can read the logs can sign in as any phone number. Remove both variables and connect a real SMS provider before real guests use it.
+4. **Demo mode (`ENCORE_DEMO=1`, on in the blueprint):** the guest sign-in screen shows the 6-digit code with a *Use code* button (no SMS is sent), and *Pay online* on the checkout completes a **simulated** payment, recorded as "Demo payment (simulated)". Both apps show a Demo label. Anyone can sign in as any phone number, so this is only for demos. Set `ENCORE_DEMO=0` before real guests; online checkout then fails closed again.
 5. First visit `/admin/signup` to create the organizer account (no accounts are copied from your computer).
 
 ## Deploying elsewhere

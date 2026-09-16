@@ -283,8 +283,10 @@ function Payments({ ctx, setDirty }) {
       <Locked ctx={ctx} />
       <Toggle label="Pay at the venue" description="Guests reserve now and pay staff in person. Staff record each payment in Bookings or Orders." checked={form.draft.venue} onChange={v => form.set('venue', v)} disabled={!ctx.canManage} />
       <div className="notice">
-        <div className="row spread" style={{ marginBottom: 6 }}><b style={{ color: 'var(--ink)' }}>AfroPay online payments</b><span className="badge neutral">Not connected</span></div>
-        Online wallet payments are not available yet. The merchant integration will be enabled once the AfroPay merchant API contract and credentials are configured on the server. Until then, checkout never charges guests.
+        <div className="row spread" style={{ marginBottom: 6 }}><b style={{ color: 'var(--ink)' }}>AfroPay online payments</b><span className={'badge ' + (ctx.session.demo ? 'warning' : 'neutral')}>{ctx.session.demo ? 'Demo (simulated)' : 'Not connected'}</span></div>
+        {ctx.session.demo
+          ? 'Demo mode is on: online checkout completes a simulated payment and marks the booking or order paid as "Demo payment (simulated)". No money moves. Turn demo mode off on the server before real sales.'
+          : 'Online wallet payments are not available yet. The merchant integration will be enabled once the AfroPay merchant API contract and credentials are configured on the server. Until then, checkout never charges guests.'}
       </div>
       {!form.draft.venue && <p className="notice warning">With pay at the venue off and online payments unavailable, guests cannot make new reservations or orders.</p>}
       <ErrorText>{form.error}</ErrorText>

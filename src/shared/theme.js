@@ -6,9 +6,25 @@ function mix(hex, other, weight) {
 
 let media;
 let listener;
+let last = [{}, {}];
+
+const KEY = 'encore_mode_override';
+export function getModeOverride() {
+  try { return localStorage.getItem(KEY) || ''; } catch { return ''; }
+}
+/** Store a per-device 'light' | 'dark' choice (or '' to follow the organizer's setting) and re-apply. */
+export function setModeOverride(mode) {
+  try { mode ? localStorage.setItem(KEY, mode) : localStorage.removeItem(KEY); } catch { /* storage unavailable */ }
+  applyTheme(...last);
+}
+export const currentMode = () => document.documentElement.dataset.mode || 'light';
 
 /** Apply organizer theme tokens. `mode` is ignored for the admin app, which stays light. */
-export function applyTheme({ accent = '#E61E32', mode = 'light' } = {}, { allowMode = true } = {}) {
+export function applyTheme(theme = {}, options = {}) {
+  last = [theme, options];
+  const { accent = '#E61E32' } = theme;
+  const mode = getModeOverride() || theme.mode || 'light';
+  const { allowMode = true } = options;
   const root = document.documentElement;
   const valid = /^#[0-9a-f]{6}$/i.test(accent) ? accent : '#E61E32';
   root.style.setProperty('--accent', valid);

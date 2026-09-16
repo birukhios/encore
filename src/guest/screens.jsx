@@ -19,7 +19,7 @@ function Title({ eyebrow, title, children }) {
 
 const statusBadge = r => r.status === 'Cancelled'
   ? <span className="badge neutral">Cancelled</span>
-  : r.paid ? <span className="badge success">Paid</span> : <span className="badge warning">Pay at venue</span>;
+  : r.paid ? <span className="badge success">{r.settlement === 'demo' ? 'Paid · demo' : 'Paid'}</span> : <span className="badge warning">Pay at venue</span>;
 
 // ---------------------------------------------------------------- directory
 
@@ -208,7 +208,7 @@ export function ReceiptModal({ ctx, receipt: r, onClose }) {
   const booking = r.kind === 'booking';
   const link = `${location.origin}/?tenant=${encodeURIComponent(tenant)}&view=tickets&ref=${encodeURIComponent(r.ref)}&token=${encodeURIComponent(r.token)}`;
   const status = r.status === 'Cancelled' ? 'This was cancelled by the organizer.'
-    : r.paid ? `Paid at the venue (${r.settledBy}).`
+    : r.paid ? (r.settlement === 'demo' ? 'Paid with a simulated demo payment. No money was charged.' : `Paid at the venue (${r.settledBy}).`)
     : booking ? 'Not paid yet. Show your ticket and pay at the entrance.' : 'Not paid yet. Pay staff when your order arrives.';
   return (
     <Modal sheet eyebrow={r.merchant} title={booking ? (r.status === 'Reserved' ? "You're on the list." : r.eventName) : 'Order ' + r.status.toLowerCase() + '.'} label="Receipt" onClose={onClose}

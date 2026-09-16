@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { api, money as formatMoney } from '../shared/api';
 import { applyTheme } from '../shared/theme';
-import { Icon, Modal, Spinner, usePolling, useToast } from '../shared/ui';
+import { Icon, ModeToggle, Modal, Spinner, usePolling, useToast } from '../shared/ui';
 import AfroPayCheckout from './AfroPayCheckout';
 import PhoneAuth from './PhoneAuth';
 import { Account, Bag, BookingSheet, Directory, EventsScreen, HelpScreen, LegalScreen, MenuScreen, NotificationsScreen, ReceiptModal, TableScan, TicketsScreen } from './screens';
@@ -152,8 +152,8 @@ export default function GuestApp() {
     const quote = await api('quote', { ...payload, tenant });
     setSheet({ type: 'checkout', quote, payload: { ...payload, tenant }, previous });
   }
-  async function placeAtVenue(payload) {
-    const receipt = await api('order', payload);
+  async function placeAtVenue(payload, endpoint = 'order') {
+    const receipt = await api(endpoint, payload);
     if (payload.kind === 'menu') { setCart({}); setTip(0); }
     setSheet({ type: 'receipt', receipt });
     await Promise.all([loadRecords(), loadNotifications(), loadPublic()]);
@@ -178,7 +178,8 @@ export default function GuestApp() {
 
   // ------------------------------------------------------------ render
   if (!workspaces && !loadError) return <div className="loading"><Spinner />Opening Encore…</div>;
-  if (!tenant) return <Directory workspaces={workspaces || []} error={loadError} onPick={id => { setTenant(id); go('events', { replace: true }); }} />;
+  const modeToggleCorner = <div style={{ position: 'fixed', top: 12, right: 12, zIndex: 50 }}><ModeToggle /></div>;
+  if (!tenant) return <>{modeToggleCorner}<Directory workspaces={workspaces || []} error={loadError} onPick={id => { setTenant(id); go('events', { replace: true }); }} /></>;
   if (!data) {
     return loadError
       ? <div className="directory"><p className="error errorbar" role="alert">{loadError}<button onClick={() => loadPublic()}>Try again</button></p><button onClick={() => { setTenant(''); store.set('encore_tenant', ''); }}>Choose another organizer</button></div>
@@ -194,7 +195,7 @@ export default function GuestApp() {
       <header className="guest-top">
         <button className="org" onClick={() => go('events')} aria-label={data.name + ' home'}>
           {data.settings.theme.logo ? <img src={data.settings.theme.logo} alt="" /> : <span className="brandmark"><Icon name="brand" /></span>}
-          <span className="grow" style={{ minWidth: 0 }}><small>LIVE WITH ENCORE</small><b>{data.name}</b></span>
+          <span className="grow" style={{ minWidth: 0 }}><small>{data.demo ? 'DEMO · NO REAL PAYMENTS' : 'LIVE WITH ENCORE'}</small><b>{data.name}</b></span>
         </button>
         <nav className="topnav" aria-label="Guest navigation">
           {TABS.map(([id, label, icon]) => (
@@ -204,6 +205,7 @@ export default function GuestApp() {
             </button>
           ))}
         </nav>
+        <ModeToggle />
         <button className="icon-btn" aria-label={unread ? `Notifications, ${unread} unread` : 'Notifications'} onClick={() => requireAuth('Get updates on your tickets and orders', () => go('notifications'))}>
           <Icon name="bell" />{unread > 0 && <span className="dot-count">{unread > 9 ? '9+' : unread}</span>}
         </button>
@@ -232,7 +234,7 @@ export default function GuestApp() {
       {sheet?.type === 'checkout' && (
         <AfroPayCheckout quote={sheet.quote} payload={sheet.payload} venueEnabled={data.settings.payments.venue}
           onClose={() => setSheet(null)} onBack={() => setSheet(sheet.previous)}
-          onPay={payload => api('checkout', payload)} onVenue={placeAtVenue} />
+          demo={data.demo} onPay={payload => placeAtVenue(payload, 'checkout')} onVenue={placeAtVenue} />
       )}
       {auth && (
         <PhoneAuth reason={auth.reason} openTerms={() => setLegal(true)} onClose={() => setAuth(null)}

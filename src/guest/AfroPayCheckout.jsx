@@ -4,7 +4,7 @@ import { money } from '../shared/api';
 const WALLETS = [['telebirr', 'Telebirr'], ['cbe-birr', 'CBE Birr'], ['mpesa', 'M-PESA'], ['awash-birr', 'Awash Birr']];
 
 /** Provider-styled review screen. Online payment fails closed on the server; the venue option creates an unpaid reservation. */
-export default function AfroPayCheckout({ quote, payload, onBack, onClose, onPay, onVenue, venueEnabled = true }) {
+export default function AfroPayCheckout({ quote, payload, onBack, onClose, onPay, onVenue, venueEnabled = true, demo = false }) {
   const [wallet, setWallet] = useState('telebirr');
   const [phone, setPhone] = useState('');
   const [busy, setBusy] = useState(false);
@@ -46,7 +46,9 @@ export default function AfroPayCheckout({ quote, payload, onBack, onClose, onPay
         <div className="afro-top"><b>afropay</b><button aria-label="Close checkout" onClick={onClose}>×</button></div>
         <div className="afro-merchant"><small>Paying</small><strong>{quote.merchant}</strong>{quote.tableName && <span>{quote.tableName}</span>}</div>
         <form onSubmit={pay}>
-          <p className="notice" role="status">Online wallet payments are not available yet, so no payment will be taken here.{venueEnabled ? ' You can reserve now and pay at the venue.' : ''}</p>
+          {demo
+            ? <p className="notice" role="status"><b>Demo mode.</b> Paying online simulates a successful wallet payment — no money moves and no wallet is contacted.</p>
+            : <p className="notice" role="status">Online wallet payments are not available yet, so no payment will be taken here.{venueEnabled ? ' You can reserve now and pay at the venue.' : ''}</p>}
           <h2 style={{ marginTop: 22 }}>Review your {booking ? 'booking' : 'order'}</h2>
           <div className="afro-lines">
             {quote.lines.map((line, i) => <div key={i}><span>{line.qty} × {line.name}</span><b>{amount(line.total)}</b></div>)}
@@ -75,7 +77,7 @@ export default function AfroPayCheckout({ quote, payload, onBack, onClose, onPay
           <label className="afro-phone-label">Wallet mobile number
             <div className="afro-phone"><span>+251</span><input aria-label="Wallet mobile number" type="tel" inputMode="tel" autoComplete="tel-national" placeholder="0912345678" value={phone} onChange={e => setPhone(e.target.value)} /></div>
           </label>
-          <button className="afro-pay" disabled={busy}>{busy ? 'Connecting…' : 'Pay online · ' + amount(quote.total)}</button>
+          <button className="afro-pay" disabled={busy}>{busy ? (demo ? 'Simulating payment…' : 'Connecting…') : (demo ? 'Pay (demo) · ' : 'Pay online · ') + amount(quote.total)}</button>
           <p className="afro-foot">Review any provider fees before authorizing payment. Never share your wallet PIN or one-time code.</p>
           <button type="button" className="afro-back" onClick={onBack}>Back to {booking ? 'booking' : 'order'}</button>
         </form>

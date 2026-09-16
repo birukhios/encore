@@ -441,9 +441,13 @@ def reference():
     return 'EN-' + short_code()
 
 
-def guest_record(s, v, guest):
-    """Create a venue-settled booking or table order for a signed-in guest. Never marks anything paid."""
-    if not s['settings']['payments']['venue']:
+def guest_record(s, v, guest, demo_payment=False):
+    """Create a booking or table order for a signed-in guest.
+
+    Normally settled in person at the venue and created unpaid. `demo_payment` is used only by the
+    server's explicit demo mode: the record is marked paid by a clearly labelled simulated payment.
+    """
+    if not demo_payment and not s['settings']['payments']['venue']:
         raise ValueError('Reservations are not open yet. Online payment is not available.')
     q = quote_order(s, v, guest['id'])
     rec = {'id': uid(), 'ref': reference(), 'token': uid(), 'guest': guest['id'], 'name': guest['name'], 'phone': guest['phone'],
@@ -461,6 +465,8 @@ def guest_record(s, v, guest):
         if v.get('table'):
             rec['table'] = find_table(s, token=v['table'])['id']
         s['orders'].append(rec)
+    if demo_payment:
+        rec.update(paid=True, settlement='demo', settledBy='Demo payment (simulated)', settledAt=int(time.time()))
     return rec
 
 

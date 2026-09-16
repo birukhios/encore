@@ -249,6 +249,27 @@ class AppTests(unittest.TestCase):
             sms.os.environ['SMS_PROVIDER'] = 'test'
             sms.os.environ.pop('ENCORE_ENV')
 
+    def test_demo_mode_simulates_sms_and_payment(self):
+        c, b, _, _ = self.staff()
+        t = b['user']['tenant']
+        e = self.concert(c)
+        g = Client(self.guest.server_port)
+        self.assertNotIn('demoCode', g('guest/otp', {'phone': '0944000111'})[1])
+        s.DEMO = True
+        try:
+            sent_before = len(SENT)
+            out = g('guest/otp', {'phone': '0944000222'})[1]
+            self.assertRegex(out['demoCode'], r'^\d{6}$')
+            self.assertEqual(len(SENT), sent_before)  # nothing was sent
+            status, body = g('guest/verify', {'phone': '0944000222', 'code': out['demoCode'], 'name': 'Demo', 'acceptTerms': True})
+            self.assertEqual(status, 200)
+            self.assertTrue(g('public?tenant=' + t)[1]['demo'])
+            status, rec = g('checkout', {'tenant': t, 'kind': 'booking', 'event': e['id'], 'qty': 1, 'paid': False, 'total': 1})
+            self.assertEqual((status, rec['paid'], rec['settledBy'], rec['total']), (201, True, 'Demo payment (simulated)', 10000))
+        finally:
+            s.DEMO = False
+        self.assertEqual(g('checkout', {'tenant': t, 'kind': 'booking', 'event': e['id'], 'qty': 1})[1]['code'], 'PAYMENT_NOT_CONFIGURED')
+
     def test_booking_tickets_settlement_checkin_and_notifications(self):
         c, b, _, _ = self.staff()
         t = b['user']['tenant']
