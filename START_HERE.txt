@@ -1,0 +1,19 @@
+ENCORE — START HERE
+
+1. Keep the encore-platform folder intact.
+2. On Mac, double-click Start_Encore.command (or in Terminal inside the folder: python3 launch.py).
+3. It starts two apps and opens the organizer admin:
+     Organizer admin:  http://127.0.0.1:8081/admin
+     Guest app:        http://127.0.0.1:8082/
+4. Keep the Terminal window open while you use Encore.
+
+Requires Python 3.11 or newer. macOS's built-in python3 (3.9) cannot run Encore; the launcher
+finds a newer Python automatically if installed, otherwise it tells you how to install one.
+
+Guest sign-in codes: while running on your computer, SMS messages are NOT sent. The 6-digit
+code appears in the Terminal window, on a line starting with [DEV SMS - NOT DELIVERED].
+
+Do NOT double-click admin.html or guest.html; a file preview cannot reach the server.
+Table QR codes use the guest address above, which only works on this computer. Guests' phones
+need a public HTTPS deployment (see README "Deploying").
+Online AfroPay payments are not connected. Guests reserve and pay at the venue.

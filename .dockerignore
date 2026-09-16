@@ -1,0 +1,8 @@
+node_modules
+data
+dist
+.pnpm-store
+__pycache__
+tests
+*.pyc
+.env

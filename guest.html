@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#E61E32">
+<meta name="description" content="Reserve concert tickets and order from your table.">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/manifest.webmanifest">
+<title>Encore — Live moments</title>
+<script>
+if (location.protocol === 'file:') {
+  document.addEventListener('DOMContentLoaded', function () {
+    document.body.innerHTML = '<main style="font:15px/1.6 system-ui,sans-serif;max-width:520px;margin:12vh auto;padding:24px">' +
+      '<h1 style="font-size:28px">Start Encore first</h1>' +
+      '<p>This page was opened as a file, so it cannot reach your Encore server.</p>' +
+      '<ol><li>Open the <b>encore-platform</b> folder.</li>' +
+      '<li>Double-click <b>Start_Encore.command</b> (or run <code>python3 launch.py</code>).</li>' +
+      '<li>Use the addresses it prints: organizer admin on port 8081, guest app on port 8082.</li></ol></main>';
+  });
+}
+</script>
+</head>
+<body><div id="root"></div><script type="module" src="/src/guest/main.jsx"></script></body>
+</html>

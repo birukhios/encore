@@ -1,0 +1,16 @@
+# Example HTTPS reverse proxy. Replace the domains, point DNS at the server, then run `caddy run`.
+# Caddy obtains and renews TLS certificates automatically.
+
+admin.example.com {
+	reverse_proxy 127.0.0.1:8081
+	request_body {
+		max_size 8MB
+	}
+}
+
+tickets.example.com {
+	reverse_proxy 127.0.0.1:8082
+	request_body {
+		max_size 1MB
+	}
+}

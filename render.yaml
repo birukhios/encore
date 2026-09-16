@@ -1,0 +1,34 @@
+# Render Blueprint: New + → Blueprint → select this repository.
+services:
+  - type: web
+    name: encore
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    # A persistent disk is required: SQLite data and uploads live on it. Disks need a paid plan;
+    # without one every deploy or restart erases all accounts, events and orders.
+    plan: starter
+    healthCheckPath: /api/health
+    disk:
+      name: encore-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: ENCORE_ENV
+        value: production
+      - key: ENCORE_SINGLE_PORT     # guest app at /, organizer admin at /admin
+        value: "1"
+      - key: ENCORE_DATA
+        value: /data
+      - key: HOST
+        value: 0.0.0.0
+      - key: TRUST_PROXY            # Render's proxy sets X-Forwarded-For
+        value: "1"
+      - key: ENCORE_SECRET
+        generateValue: true
+      # PUBLIC_ORIGIN defaults to Render's RENDER_EXTERNAL_URL. Set it if you add a custom domain.
+      # DEMO ONLY: guest sign-in codes are written to the Render logs instead of being sent by SMS.
+      # Remove both lines and configure a real SMS provider before inviting real guests.
+      - key: SMS_PROVIDER
+        value: log
+      - key: ENCORE_ALLOW_LOG_SMS
+        value: "1"

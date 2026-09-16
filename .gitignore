@@ -1,0 +1,11 @@
+node_modules/
+data/
+dist/
+__pycache__/
+*.pyc
+.env
+.env.*
+!.env.example
+.pnpm-store/
+.DS_Store
+.claude/
