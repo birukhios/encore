@@ -329,6 +329,51 @@ class AppTests(unittest.TestCase):
         self.assertTrue(any('ready' in msg and phone == guest['phone'] for phone, msg in SENT))
 
 
+class EthiopiaTaxCategoryProfileTests(AppTests):
+    def test_tax_categories_and_profile(self):
+        c, b, _, _ = self.staff()
+        t = b['user']['tenant']
+        e = self.concert(c, price='115')
+        self.act(c, 'table', {'name': 'T1', 'event': e['id'], 'seats': 2})
+        tok = c('me')[1]['state']['tables'][0]['token']
+        # TIN is required once tax is on, and must be 10 digits
+        self.assertEqual(self.act(c, 'config', {'group': 'tax', 'values': {'regime': 'vat', 'vatRate': 15, 'pricesIncludeTax': True, 'tin': '123', 'tickets': True, 'menu': True}})[0], 400)
+        self.assertEqual(self.act(c, 'config', {'group': 'tax', 'values': {'regime': 'vat', 'vatRate': 15, 'pricesIncludeTax': True, 'tin': '0012345678', 'tickets': True, 'menu': True}})[0], 200)
+        g, _ = self.guest_client()
+        q = g('quote', {'tenant': t, 'kind': 'booking', 'event': e['id'], 'qty': 2})[1]
+        self.assertEqual((q['total'], q['tax']['amount'], q['tax']['label'], q['tin']), (23000, 3000, 'VAT 15%', '0012345678'))  # 230.00 incl. 30.00 VAT
+        self.act(c, 'config', {'group': 'tax', 'values': {'regime': 'vat', 'vatRate': 15, 'pricesIncludeTax': False, 'tin': '0012345678', 'tickets': True, 'menu': True}})
+        rec = g('order', {'tenant': t, 'kind': 'booking', 'event': e['id'], 'qty': 1})[1]
+        self.assertEqual((rec['subtotal'], rec['tax']['amount'], rec['total']), (11500, 1725, 13225))  # VAT added on top
+        # categories: must exist; rename cascades; removal blocked while in use
+        self.assertEqual(self.act(c, 'menu', {'name': 'Tej', 'description': 'Honey wine', 'price': '100', 'category': 'Cocktails', 'available': True})[0], 400)
+        self.assertEqual(self.act(c, 'config', {'group': 'menu', 'values': {'categories': ['Food', 'Drinks', 'Cocktails']}})[0], 200)
+        self.assertEqual(self.act(c, 'menu', {'name': 'Tej', 'description': 'Honey wine', 'price': '100', 'category': 'cocktails', 'available': True})[0], 200)
+        self.assertEqual(self.act(c, 'config', {'group': 'menu', 'values': {'categories': ['Food', 'Drinks']}})[0], 400)
+        self.assertEqual(self.act(c, 'config', {'group': 'menu', 'values': {'categories': ['Food', 'Drinks', 'Traditional'], 'renames': {'Cocktails': 'Traditional'}}})[0], 200)
+        self.assertEqual(c('me')[1]['state']['menu'][0]['category'], 'Traditional')
+        # TOT on menu orders; tips are not taxed
+        self.act(c, 'config', {'group': 'tax', 'values': {'regime': 'tot', 'totRate': 10, 'pricesIncludeTax': False, 'tin': '0012345678', 'tickets': True, 'menu': True}})
+        item = c('me')[1]['state']['menu'][0]['id']
+        rec = g('order', {'tenant': t, 'kind': 'menu', 'items': {item: 2}, 'tip': 10, 'table': tok})[1]
+        self.assertEqual((rec['subtotal'], rec['tax']['label'], rec['tax']['amount'], rec['tip'], rec['total']), (20000, 'TOT 10%', 2000, 2000, 24000))
+        # profile: location and photos appear in the organizer directory
+        png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII='
+        url = c('upload', {'data': png})[1]['url']
+        self.assertEqual(self.act(c, 'config', {'group': 'profile', 'values': {'city': 'Addis Ababa', 'address': 'Bole Road', 'mapUrl': 'javascript:alert(1)', 'photos': [url]}})[0], 400)
+        self.assertEqual(self.act(c, 'config', {'group': 'profile', 'values': {'city': 'Addis Ababa', 'address': 'Bole Road', 'mapUrl': 'https://maps.example/x', 'photos': [url]}})[0], 200)
+        org = next(w for w in Client(self.guest.server_port)('workspaces')[1] if w['id'] == t)
+        self.assertEqual((org['photo'], org['address'], org['city'], org['events']), (url, 'Bole Road', 'Addis Ababa', 1))
+
+
+def load_tests(loader, tests, pattern):
+    suite = unittest.TestSuite()
+    for case in [AppTests, DomainTests]:
+        suite.addTests(loader.loadTestsFromTestCase(case))
+    suite.addTest(EthiopiaTaxCategoryProfileTests('test_tax_categories_and_profile'))
+    return suite
+
+
 class DomainTests(unittest.TestCase):
     def setUp(self):
         self.state = domain.upgrade(domain.blank('Concert Team'))

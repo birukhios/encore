@@ -13,9 +13,11 @@ RUN npm run build
 FROM python:3.12-slim
 ENV PYTHONUNBUFFERED=1 ENCORE_ENV=production ENCORE_DATA=/data HOST=0.0.0.0 PORT=8081 GUEST_PORT=8082
 WORKDIR /app
-COPY server.py domain.py sms.py launch.py ./
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+COPY server.py domain.py db.py sms.py launch.py ./
 COPY --from=web /app/dist ./dist
-# Runs as root so a host-mounted persistent disk at /data is writable (Render disks are root-owned).
+# Runs as root so an optional host-mounted disk at /data is writable. With DATABASE_URL, data lives in PostgreSQL.
 RUN mkdir -p /data
 EXPOSE 8081 8082
 CMD ["python", "launch.py", "--no-browser"]

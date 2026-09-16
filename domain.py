@@ -25,7 +25,15 @@ DEFAULT_SETTINGS = {
     'notifications': {'smsBookings': True, 'smsOrderReady': True, 'staffNewOrders': True},
     'support': {'email': '', 'phone': '', 'hours': '', 'faq': []},
     'legal': {'terms': '', 'privacy': ''},
+    # Organization profile shown to guests: location and a photo gallery.
+    'profile': {'city': 'Addis Ababa', 'address': '', 'mapUrl': '', 'photos': []},
+    'menu': {'categories': ['Food', 'Drinks']},
+    # Ethiopian indirect tax. VAT: 15% standard rate for VAT-registered businesses.
+    # TOT (turnover tax): for businesses not registered for VAT. Rates must be confirmed by the organizer.
+    'tax': {'regime': 'vat', 'vatRate': 15, 'totRate': 10, 'pricesIncludeTax': True, 'tin': '', 'vatNumber': '',
+            'tickets': True, 'menu': True},
 }
+TAX_REGIMES = ['vat', 'tot', 'none']
 
 
 def uid():
@@ -134,11 +142,13 @@ def upgrade(s):
             codes.add(code)
     for item in s['menu']:
         item.setdefault('events', [])
+        if item.get('category') and item['category'] not in settings['menu']['categories']:
+            settings['menu']['categories'].append(item['category'])
     return s
 
 
 def public_settings(s):
-    keep = ['theme', 'ticketing', 'ordering', 'tips', 'payments', 'support', 'legal']
+    keep = ['theme', 'ticketing', 'ordering', 'tips', 'payments', 'support', 'legal', 'profile', 'menu', 'tax']
     return {k: copy.deepcopy(s['settings'][k]) for k in keep}
 
 
@@ -235,6 +245,46 @@ def configure(s, group, v):
                 clean_faq.append({'q': q, 'a': a})
         cfg.update(email=email(v.get('email'), False), phone=text(v.get('phone'), 30, False),
                    hours=text(v.get('hours'), 120, False), faq=clean_faq)
+    elif group == 'profile':
+        photos = v.get('photos', [])
+        if not isinstance(photos, list) or len(photos) > 12:
+            raise ValueError('Add up to 12 photos.')
+        map_url = text(v.get('mapUrl'), 500, False)
+        if map_url and not re.match(r'https://', map_url):
+            raise ValueError('The map link must start with https://')
+        cfg.update(city=text(v.get('city'), 80, False), address=text(v.get('address'), 200, False), mapUrl=map_url,
+                   photos=[clean_image(p) for p in photos if p])
+    elif group == 'menu':
+        raw = v.get('categories', [])
+        if not isinstance(raw, list) or not 1 <= len(raw) <= 30:
+            raise ValueError('Keep between 1 and 30 menu categories.')
+        categories = []
+        for name in raw:
+            name = text(name, 60)
+            if name.lower() in [c.lower() for c in categories]:
+                raise ValueError(f'"{name}" is listed twice.')
+            categories.append(name)
+        renames = v.get('renames') or {}
+        if not isinstance(renames, dict):
+            raise ValueError('Invalid category changes.')
+        for item in s['menu']:
+            item['category'] = renames.get(item.get('category'), item.get('category'))
+        in_use = sorted({i['category'] for i in s['menu'] if i['category'] not in categories})
+        if in_use:
+            raise ValueError(f'Move menu items out of {", ".join(in_use)} before removing it.')
+        cfg['categories'] = categories
+    elif group == 'tax':
+        regime = v.get('regime', cfg['regime'])
+        if regime not in TAX_REGIMES:
+            raise ValueError('Choose VAT, turnover tax (TOT) or no tax.')
+        tin = text(v.get('tin'), 20, False)
+        if tin and not re.fullmatch(r'\d{10}', tin):
+            raise ValueError('An Ethiopian TIN has 10 digits.')
+        cfg.update(regime=regime, vatRate=number(v.get('vatRate', cfg['vatRate']), 0, 50), totRate=number(v.get('totRate', cfg['totRate']), 0, 50),
+                   pricesIncludeTax=flag(v.get('pricesIncludeTax')), tin=tin, vatNumber=text(v.get('vatNumber'), 30, False),
+                   tickets=flag(v.get('tickets')), menu=flag(v.get('menu')))
+        if regime != 'none' and not tin:
+            raise ValueError('Enter your 10-digit TIN to show tax on receipts.')
     elif group == 'legal':
         cfg.update(terms=text(v.get('terms'), 20000, False), privacy=text(v.get('privacy'), 20000, False))
     return s
@@ -275,7 +325,7 @@ def mutate(s, op, v, notices):
             if not isinstance(events, list) or any(not any(e['id'] == x for e in s['events']) for x in events):
                 raise ValueError('Choose concerts from your workspace.')
             item.update(description=text(v.get('description'), 500), price=round(number(v.get('price')) * 100),
-                        category=text(v.get('category'), 60), available=flag(v.get('available')),
+                        category=_category(s, v.get('category')), available=flag(v.get('available')),
                         image=clean_image(v.get('image')), events=sorted(set(events)))
         else:
             if old and old['event'] != v.get('event'):
@@ -352,6 +402,31 @@ def mutate(s, op, v, notices):
     else:
         raise ValueError('Unknown action.')
     return s
+
+
+def _category(s, value):
+    name = text(value, 60)
+    match = next((c for c in s['settings']['menu']['categories'] if c.lower() == name.lower()), None)
+    if not match:
+        raise ValueError('Choose a category from Settings → Menu categories.')
+    return match
+
+
+def tax_for(s, kind, taxable_cents):
+    """Ethiopian VAT/TOT on a taxable amount in cents. Tips are never taxed here."""
+    cfg = s['settings']['tax']
+    applies = cfg['regime'] != 'none' and cfg['tickets' if kind == 'booking' else 'menu']
+    if not applies or taxable_cents <= 0:
+        return None
+    rate = cfg['vatRate'] if cfg['regime'] == 'vat' else cfg['totRate']
+    if not rate:
+        return None
+    if cfg['pricesIncludeTax']:
+        amount = int(taxable_cents * rate / (100 + rate) + 0.5)
+    else:
+        amount = int(taxable_cents * rate / 100 + 0.5)
+    label = ('VAT' if cfg['regime'] == 'vat' else 'TOT') + f' {rate:g}%'
+    return {'label': label, 'rate': rate, 'amount': amount, 'included': cfg['pricesIncludeTax'], 'regime': cfg['regime']}
 
 
 def _check_in(b, ticket):
@@ -432,9 +507,13 @@ def quote_order(s, v, guest_id=None):
     else:
         raise ValueError('Choose tickets or a menu order.')
     subtotal = sum(i['total'] for i in lines)
-    return {'merchant': s['name'], 'currency': s['currency'], 'lines': lines, 'subtotal': subtotal, 'tip': tip,
-            'total': subtotal + tip, 'fee': None, 'tableName': table['name'] if table else None,
-            'tableEvent': table['event'] if table else None}
+    tax = tax_for(s, v.get('kind'), subtotal)
+    extra = tax['amount'] if tax and not tax['included'] else 0
+    cfg = s['settings']['tax']
+    return {'merchant': s['name'], 'currency': s['currency'], 'lines': lines, 'subtotal': subtotal, 'tip': tip, 'tax': tax,
+            'total': subtotal + extra + tip, 'fee': None, 'tableName': table['name'] if table else None,
+            'tableEvent': table['event'] if table else None,
+            'tin': cfg['tin'] if tax else '', 'vatNumber': cfg['vatNumber'] if tax and cfg['regime'] == 'vat' else ''}
 
 
 def reference():
@@ -452,7 +531,8 @@ def guest_record(s, v, guest, demo_payment=False):
     q = quote_order(s, v, guest['id'])
     rec = {'id': uid(), 'ref': reference(), 'token': uid(), 'guest': guest['id'], 'name': guest['name'], 'phone': guest['phone'],
            'email': email(v.get('email'), False), 'currency': s['currency'], 'total': q['total'], 'subtotal': q['subtotal'],
-           'lines': q['lines'], 'paid': False, 'settlement': 'venue', 'created': int(time.time())}
+           'lines': q['lines'], 'tax': q['tax'], 'tin': q['tin'], 'vatNumber': q['vatNumber'],
+           'paid': False, 'settlement': 'venue', 'created': int(time.time())}
     if v.get('kind') == 'booking':
         e = next(e for e in s['events'] if e['id'] == v['event'])
         qty = q['lines'][0]['qty']
@@ -472,7 +552,8 @@ def guest_record(s, v, guest, demo_payment=False):
 
 def receipt(s, rec):
     keep = ['ref', 'token', 'name', 'phone', 'email', 'currency', 'total', 'subtotal', 'lines', 'paid', 'settlement', 'created',
-            'status', 'tip', 'tableName', 'items', 'event', 'eventName', 'venue', 'date', 'qty', 'tickets', 'settledBy', 'settledAt']
+            'status', 'tip', 'tableName', 'items', 'event', 'eventName', 'venue', 'date', 'qty', 'tickets', 'settledBy', 'settledAt',
+            'tax', 'tin', 'vatNumber']
     out = {k: copy.deepcopy(rec[k]) for k in keep if k in rec}
     out['merchant'] = s['name']
     out['kind'] = 'booking' if 'qty' in rec else 'order'

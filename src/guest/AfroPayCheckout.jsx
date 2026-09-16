@@ -52,13 +52,14 @@ export default function AfroPayCheckout({ quote, payload, onBack, onClose, onPay
           <h2 style={{ marginTop: 22 }}>Review your {booking ? 'booking' : 'order'}</h2>
           <div className="afro-lines">
             {quote.lines.map((line, i) => <div key={i}><span>{line.qty} × {line.name}</span><b>{amount(line.total)}</b></div>)}
+            {quote.tax && <div><span>{quote.tax.label} {quote.tax.included ? '(included in prices)' : ''}</span><b>{amount(quote.tax.amount)}</b></div>}
             {!booking && <div><span>Tip</span><b>{amount(quote.tip)}</b></div>}
             <div><span>Processing fee</span><b>{quote.fee === null ? 'Not yet available' : amount(quote.fee)}</b></div>
             <div className="afro-total"><strong>{quote.fee === null ? 'Subtotal' + (quote.tip ? ' including tip' : '') : 'Total'}</strong><strong>{amount(quote.total)}</strong></div>
           </div>
           {venueEnabled && (
             <div className="venue-option">
-              <p>Reserve now and pay {booking ? 'at the entrance' : 'when your order arrives'}. Your {booking ? 'tickets' : 'order'} are confirmed right away; staff mark them paid when you pay.</p>
+              <p>Reserve now and pay {booking ? 'at the entrance' : 'when your order arrives'}. {booking ? 'Your tickets are confirmed right away; staff mark them paid when you pay.' : 'Your order is confirmed right away; staff mark it paid when you pay.'}</p>
               <button type="button" className="afro-venue" disabled={venueBusy} onClick={venue}>{venueBusy ? 'Reserving…' : `Reserve · pay ${amount(quote.total)} at the venue`}</button>
             </div>
           )}

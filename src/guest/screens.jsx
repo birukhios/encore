@@ -7,6 +7,15 @@ import { PLATFORM_FAQ, PLATFORM_PRIVACY, PLATFORM_TERMS } from './content';
 
 const ORDER_STEPS = ['Placed', 'Preparing', 'Ready', 'Delivered'];
 
+/** Mirrors domain.tax_for on the server, for display before checkout. The server's quote is authoritative. */
+export function taxFor(cfg, kind, cents) {
+  if (!cfg || cfg.regime === 'none' || !cfg[kind === 'booking' ? 'tickets' : 'menu'] || cents <= 0) return null;
+  const rate = cfg.regime === 'vat' ? cfg.vatRate : cfg.totRate;
+  if (!rate) return null;
+  const amount = cfg.pricesIncludeTax ? Math.round(cents * rate / (100 + rate)) : Math.round(cents * rate / 100);
+  return { label: `${cfg.regime === 'vat' ? 'VAT' : 'TOT'} ${rate}%`, amount, included: cfg.pricesIncludeTax };
+}
+
 function Title({ eyebrow, title, children }) {
   return (
     <div className="guest-title">
@@ -33,12 +42,21 @@ export function Directory({ workspaces, error, onPick }) {
         <p style={{ marginTop: 10 }}>Choose your organizer to see concerts, reserve tickets and order from your table.</p>
       </div>
       <ErrorText>{error}</ErrorText>
-      <div className="stack">
+      <div className="guest-grid orgs">
         {workspaces.map(w => (
-          <button key={w.id} className="orgcard" onClick={() => onPick(w.id)} style={{ justifyContent: 'flex-start', minHeight: 72 }}>
-            <span className="brandmark"><Icon name="brand" /></span>
-            <span className="grow" style={{ textAlign: 'left' }}><b style={{ fontSize: 16 }}>{w.name}</b><small className="muted" style={{ display: 'block', marginTop: 3 }}>See events</small></span>
-            <Icon name="next" />
+          <button key={w.id} className="orgtile" onClick={() => onPick(w.id)} aria-label={`${w.name}${w.city ? ', ' + w.city : ''}`}>
+            <span className="orgtile-photo">
+              {w.photo ? <img src={w.photo} alt="" /> : <span className="cover placeholder"><Icon name="brand" /></span>}
+              {w.logo && <img className="orgtile-logo" src={w.logo} alt="" />}
+            </span>
+            <span className="orgtile-body">
+              <b>{w.name}</b>
+              {(w.address || w.city) && <small><Icon name="venue" size="sm" /> {[w.address, w.city].filter(Boolean).join(', ')}</small>}
+              <span className="row spread" style={{ marginTop: 6 }}>
+                <span className="badge neutral">{w.events ? `${w.events} upcoming event${w.events > 1 ? 's' : ''}` : 'No events yet'}</span>
+                <Icon name="next" />
+              </span>
+            </span>
           </button>
         ))}
       </div>
@@ -51,7 +69,7 @@ export function Directory({ workspaces, error, onPick }) {
 
 export function EventsScreen({ ctx }) {
   const { data, money, setSheet, myEvents } = ctx;
-  const cover = data.settings.theme.cover;
+  const cover = data.settings.theme.cover || data.settings.profile.photos[0];
   const events = [...data.events].sort((a, b) => a.date.localeCompare(b.date));
   const ticketing = data.settings.ticketing;
   return (
@@ -64,6 +82,17 @@ export function EventsScreen({ ctx }) {
           <p>{data.description}</p>
         </div>
       </section>
+      {(data.settings.profile.address || data.settings.profile.city) && (
+        <div className="row wrap spread locationbar">
+          <span className="row"><Icon name="venue" /><span><b>{data.settings.profile.address || data.settings.profile.city}</b>{data.settings.profile.address && data.settings.profile.city && <small className="muted" style={{ display: 'block' }}>{data.settings.profile.city}</small>}</span></span>
+          {data.settings.profile.mapUrl && <a className="button" href={data.settings.profile.mapUrl} target="_blank" rel="noreferrer noopener">Directions</a>}
+        </div>
+      )}
+      {data.settings.profile.photos.length > 0 && (
+        <div className="gallery" aria-label={`Photos of ${data.name}`}>
+          {data.settings.profile.photos.map((url, i) => <img key={url} src={url} alt={`${data.name} photo ${i + 1}`} loading="lazy" />)}
+        </div>
+      )}
       {!ticketing.enabled && <p className="notice">Ticket reservations are currently closed.</p>}
       {events.length ? <div className="guest-grid">{events.map(e => (
         <article className="eventcard" key={e.id}>
@@ -108,7 +137,7 @@ export function BookingSheet({ ctx, event, onClose }) {
   });
   return (
     <Modal sheet title={event.name} eyebrow="Your next live moment" onClose={onClose}
-      footer={<button className="primary lg-btn block" disabled={busy} onClick={next}>{busy ? 'Checking availability…' : `Continue · ${money(event.price * qty)}`}</button>}>
+      footer={<button className="primary lg-btn block" disabled={busy} onClick={next}>{busy ? 'Checking availability…' : `Continue · ${money(event.price * qty + ((t => t && !t.included ? t.amount : 0)(taxFor(data.settings.tax, 'booking', event.price * qty))))}`}</button>}>
       <p>{event.venue} · {dateTime(event.date)}</p>
       <div className="row spread">
         <div><b>Tickets</b><small className="muted" style={{ display: 'block' }}>{event.price ? money(event.price) + ' each' : 'Free entry'} · up to {max}</small></div>
@@ -118,6 +147,7 @@ export function BookingSheet({ ctx, event, onClose }) {
           <button aria-label="One more ticket" disabled={qty >= max} onClick={() => setQty(q => q + 1)}>+</button>
         </div>
       </div>
+      {(() => { const t = taxFor(data.settings.tax, 'booking', event.price * qty); return t && <p className="small">{t.included ? `Includes ${t.label}: ${money(t.amount)}` : `Plus ${t.label}: ${money(t.amount)}`}</p>; })()}
       <p className="footnote">Each ticket gets its own QR code. {data.settings.payments.venue ? 'Pay at the entrance.' : ''}</p>
       <ErrorText>{error}</ErrorText>
     </Modal>
@@ -226,8 +256,10 @@ export function ReceiptModal({ ctx, receipt: r, onClose }) {
       ))}
       <div className="totals">
         {r.lines.map((l, i) => <div className="line" key={i}><span>{l.qty} × {l.name}</span><b>{money(l.total)}</b></div>)}
+        {r.tax && <div className="line"><span>{r.tax.label} {r.tax.included ? '(included)' : ''}</span><b>{money(r.tax.amount)}</b></div>}
         {!booking && <div className="line"><span>Tip</span><b>{money(r.tip || 0)}</b></div>}
         <div className="line total"><span>Total</span><span>{money(r.total)}</span></div>
+        {r.tin && <small className="muted">{r.merchant} · TIN {r.tin}{r.vatNumber ? ` · VAT reg. ${r.vatNumber}` : ''} · Not a fiscal receipt</small>}
       </div>
       <div className="stack">
         <small className="muted">Private receipt link — open your {booking ? 'tickets' : 'order'} on another device. Anyone with it can view them.</small>
@@ -260,7 +292,7 @@ export function MenuScreen({ ctx }) {
   const { data, table, cart, setCart, money, setSheet, clearTable, go, guest, requireAuth } = ctx;
   const { items, needsScan, needsTicket, canOrder, eventName, cfg } = useMenu(ctx);
   const [category, setCategory] = useState('All');
-  const categories = ['All', ...new Set(items.map(i => i.category))];
+  const categories = ['All', ...data.settings.menu.categories.filter(c => items.some(i => i.category === c))];
   const shown = items.filter(i => category === 'All' || i.category === category);
   const count = Object.values(cart).reduce((a, b) => a + b, 0);
   const subtotal = data.menu.filter(i => cart[i.id]).reduce((s, i) => s + i.price * cart[i.id], 0);
@@ -379,6 +411,7 @@ export function Bag({ ctx }) {
   const notServed = lines.filter(i => !served.some(s => s.id === i.id) || !i.available);
   const subtotal = lines.reduce((s, i) => s + i.price * cart[i.id], 0);
   const tipAmount = tips.enabled ? Math.round((subtotal * Number(tip || 0)) / 100) : 0;
+  const tax = taxFor(data.settings.tax, 'menu', subtotal);
   const change = (id, delta) => {
     const next = { ...cart, [id]: Math.max(0, Math.min(50, (cart[id] || 0) + delta)) };
     if (!next[id]) delete next[id];
@@ -435,8 +468,9 @@ export function Bag({ ctx }) {
       <section className="card stack bag-summary">
         <div className="totals">
           <div className="line"><span>Items</span><b>{money(subtotal)}</b></div>
+          {tax && <div className="line"><span>{tax.label} {tax.included ? '(included)' : ''}</span><b>{money(tax.amount)}</b></div>}
           {tips.enabled && <div className="line"><span>Tip</span><b>{money(tipAmount)}</b></div>}
-          <div className="line total"><span>Total</span><span>{money(subtotal + tipAmount)}</span></div>
+          <div className="line total"><span>Total</span><span>{money(subtotal + (tax && !tax.included ? tax.amount : 0) + tipAmount)}</span></div>
         </div>
         {needsScan ? (
           <button className="primary lg-btn block" onClick={() => setSheet({ type: 'scan' })}>Scan your table to continue</button>

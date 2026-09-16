@@ -652,3 +652,30 @@ details.faq p { padding: 0 16px 14px; font-size: 13px; }
 [data-mode='dark'] .overlay { background: #000a; }
 [data-mode='dark'] input[type='color'] { background: var(--surface-2); }
 [data-mode='dark'] .brandmark { box-shadow: 0 0 0 1px #ffffff14; }
+
+/* Organizer profile: directory tiles, location, gallery, admin photo grid */
+.guest-grid.orgs { gap: 14px; }
+.orgtile { display: flex; flex-direction: column; align-items: stretch; padding: 0; overflow: hidden; border-radius: 18px; border: 1px solid var(--line-soft); background: var(--surface); text-align: left; white-space: normal; min-height: 0; }
+.orgtile:hover { border-color: var(--steel); }
+.orgtile-photo { position: relative; display: block; aspect-ratio: 16 / 9; background: #000; }
+.orgtile-photo > img:first-child, .orgtile-photo .cover { width: 100%; height: 100%; object-fit: cover; aspect-ratio: auto; }
+.orgtile-logo { position: absolute; left: 14px; bottom: -22px; width: 48px; height: 48px; border-radius: 12px; object-fit: cover; border: 3px solid var(--surface); background: var(--surface); }
+.orgtile-body { display: grid; gap: 4px; padding: 30px 16px 16px; }
+.orgtile-body b { font-size: 17px; }
+.orgtile-body small { color: var(--muted); font-size: 12.5px; display: flex; gap: 6px; align-items: center; line-height: 1.4; }
+.locationbar { background: var(--surface); border: 1px solid var(--line-soft); border-radius: 14px; padding: 12px 14px; }
+.locationbar .icon { color: var(--accent); }
+.gallery { display: flex; gap: 10px; overflow-x: auto; scroll-snap-type: x mandatory; padding-bottom: 4px; scrollbar-width: none; }
+.gallery::-webkit-scrollbar { display: none; }
+.gallery img { flex: 0 0 auto; width: 58%; max-width: 340px; aspect-ratio: 3 / 2; object-fit: cover; border-radius: 14px; scroll-snap-align: start; }
+.photogrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 10px; align-items: start; }
+.photo { position: relative; margin: 0; aspect-ratio: 1; border-radius: 12px; overflow: hidden; background: var(--canvas); }
+.photo img { width: 100%; height: 100%; object-fit: cover; }
+.photo figcaption { position: absolute; left: 6px; top: 6px; background: #000c; color: #fff; font-size: 10px; font-weight: 700; padding: 3px 7px; border-radius: 6px; }
+.photo-actions { position: absolute; right: 6px; top: 6px; display: flex; gap: 4px; }
+.photo-actions button { width: 26px; min-height: 26px; padding: 0; border-radius: 8px; background: #000c; color: #fff; border: 0; font-size: 16px; }
+.photogrid .field { gap: 0 !important; }
+.photogrid .field > span { display: none; }
+.photogrid .upload.square { width: 100%; min-height: 0; aspect-ratio: 1; }
+@media (min-width: 720px) { .gallery img { width: 42%; } }
+@media (min-width: 1024px) { .gallery img { width: 30%; } }

@@ -1,33 +1,35 @@
-# Render Blueprint: New + → Blueprint → select this repository.
+# Render Blueprint. After changing this file, open the Blueprint in Render and click "Sync"
+# (or enable auto-sync) so database and environment changes are applied to the service.
+databases:
+  - name: encore-db
+    databaseName: encore
+    user: encore
+    # Free Render Postgres databases expire after 30 days. Switch to a paid plan (e.g. basic-256mb) to keep data.
+    plan: free
+
 services:
   - type: web
     name: encore
     runtime: docker
     dockerfilePath: ./Dockerfile
-    # A persistent disk is required: SQLite data and uploads live on it. Disks need a paid plan;
-    # without one every deploy or restart erases all accounts, events and orders.
-    plan: starter
+    plan: free            # all data and uploaded photos are stored in PostgreSQL, so no disk is needed
     healthCheckPath: /api/health
-    disk:
-      name: encore-data
-      mountPath: /data
-      sizeGB: 1
     envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: encore-db
+          property: connectionString
       - key: ENCORE_ENV
         value: production
       - key: ENCORE_SINGLE_PORT     # guest app at /, organizer admin at /admin
         value: "1"
-      - key: ENCORE_DATA
-        value: /data
       - key: HOST
         value: 0.0.0.0
       - key: TRUST_PROXY            # Render's proxy sets X-Forwarded-For
         value: "1"
       - key: ENCORE_SECRET
         generateValue: true
-      # PUBLIC_ORIGIN defaults to Render's RENDER_EXTERNAL_URL. Set it if you add a custom domain.
       # DEMO MODE: guest sign-in codes are shown on screen (no SMS) and online checkout simulates a
-      # successful payment (no money moves). Everything is labelled "demo" in both apps.
-      # Set to "0" (and configure real SMS + payments) before real guests or real sales.
+      # successful payment (no money moves). Set to "0" before real guests or real sales.
       - key: ENCORE_DEMO
         value: "1"

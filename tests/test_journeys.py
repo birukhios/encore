@@ -47,7 +47,13 @@ class JourneyTests(test_server.AppTests):
         png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII='
         status, body = c('upload', {'data': png})
         self.assertEqual(status, 200)
-        self.assertTrue((s.UPLOADS / body['url'].split('/')[-1]).is_file())
+        import base64, http.client
+        for port in [self.admin.server_port, self.guest.server_port]:
+            conn = http.client.HTTPConnection('127.0.0.1', port)
+            conn.request('GET', body['url'])
+            resp = conn.getresponse()
+            self.assertEqual((resp.status, resp.getheader('Content-Type'), resp.read()), (200, 'image/png', base64.b64decode(png)))
+            conn.close()
         self.assertEqual(self.act(other, 'event', e)[0], 400)
         self.assertEqual(self.act(other, 'menu', {'name': 'X', 'description': 'X', 'price': '1', 'category': 'X', 'available': True, 'events': [e['id']]})[0], 400)
         self.assertEqual(other('me')[1]['state']['events'], [])

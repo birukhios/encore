@@ -37,6 +37,7 @@ def main():
  if any('SMS_PROVIDER' not in p for p in problems):
   print('Encore will not start in production until these are fixed. See .env.example.');return 1
  server.init()
+ print('Database: '+server.db.describe()+(' · DEMO MODE (on-screen sign-in codes, simulated payments)' if server.DEMO else ''),flush=True)
  host=os.environ.get('HOST','127.0.0.1')
  if server.SINGLE_PORT:
   try:http=server.serve(server.CombinedHandler,host,server.ADMIN_PORT)

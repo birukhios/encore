@@ -13,7 +13,6 @@ import mimetypes
 import os
 import re
 import secrets
-import sqlite3
 import sys
 import threading
 import time
@@ -21,6 +20,7 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
+import db
 import domain
 import sms
 from domain import text, email, uid
@@ -62,31 +62,14 @@ _SECRET = None
 # ---------------------------------------------------------------- storage
 
 def conn():
-    c = sqlite3.connect(DB, timeout=10)
-    c.row_factory = sqlite3.Row
-    c.execute('PRAGMA foreign_keys=ON')
-    return c
+    return db.connect(DB)
 
 
 def init():
     DB.parent.mkdir(parents=True, exist_ok=True)
     UPLOADS.mkdir(parents=True, exist_ok=True)
     with conn() as c:
-        c.executescript('''
-        PRAGMA journal_mode=WAL;
-        CREATE TABLE IF NOT EXISTS tenants(id TEXT PRIMARY KEY,name TEXT NOT NULL,state TEXT NOT NULL,version INTEGER DEFAULT 0);
-        CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY,tenant TEXT NOT NULL REFERENCES tenants(id),name TEXT NOT NULL,email TEXT UNIQUE NOT NULL,password TEXT NOT NULL,recovery TEXT NOT NULL,role TEXT NOT NULL);
-        CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY,user TEXT NOT NULL REFERENCES users(id),expires INTEGER NOT NULL);
-        CREATE TABLE IF NOT EXISTS invites(token TEXT PRIMARY KEY,tenant TEXT NOT NULL REFERENCES tenants(id),email TEXT NOT NULL,role TEXT NOT NULL,expires INTEGER NOT NULL);
-        CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY,tenant TEXT,user TEXT,action TEXT,created INTEGER);
-        CREATE TABLE IF NOT EXISTS guests(id TEXT PRIMARY KEY,phone TEXT UNIQUE NOT NULL,name TEXT NOT NULL,created INTEGER NOT NULL,terms INTEGER NOT NULL);
-        CREATE TABLE IF NOT EXISTS guest_sessions(token TEXT PRIMARY KEY,guest TEXT NOT NULL REFERENCES guests(id),expires INTEGER NOT NULL);
-        CREATE TABLE IF NOT EXISTS otps(phone TEXT PRIMARY KEY,code TEXT NOT NULL,expires INTEGER NOT NULL,attempts INTEGER NOT NULL DEFAULT 0,sent INTEGER NOT NULL);
-        CREATE TABLE IF NOT EXISTS otp_log(id INTEGER PRIMARY KEY,phone TEXT NOT NULL,ip TEXT NOT NULL,created INTEGER NOT NULL);
-        CREATE TABLE IF NOT EXISTS notifications(id INTEGER PRIMARY KEY,tenant TEXT NOT NULL,audience TEXT NOT NULL,guest TEXT,kind TEXT,title TEXT NOT NULL,body TEXT NOT NULL,ref TEXT,created INTEGER NOT NULL,read INTEGER NOT NULL DEFAULT 0);
-        CREATE INDEX IF NOT EXISTS notifications_guest ON notifications(guest,created);
-        CREATE INDEX IF NOT EXISTS notifications_tenant ON notifications(tenant,audience,created);
-        ''')
+        db.create_schema(c)
         now = int(time.time())
         c.execute('DELETE FROM sessions WHERE expires<?', (now,))
         c.execute('DELETE FROM guest_sessions WHERE expires<?', (now,))
@@ -213,7 +196,19 @@ class BaseHandler(BaseHTTPRequestHandler):
 
     def serve_file(self, path):
         if path.startswith('/uploads/'):
-            file = UPLOADS / Path(path).name
+            name = Path(path).name
+            with conn() as c:
+                row = c.execute('SELECT mime,data FROM uploads WHERE name=?', (name,)).fetchone()
+            if row:
+                body = bytes(row['data'])
+                self.send_response(200)
+                self.send_header('Content-Type', row['mime'])
+                self.send_header('Content-Length', str(len(body)))
+                self.send_header('Cache-Control', 'public, max-age=31536000, immutable')
+                self.security_headers()
+                self.end_headers()
+                return self.wfile.write(body)
+            file = UPLOADS / name  # images uploaded before uploads moved into the database
             if not file.is_file():
                 return self.send({'error': 'Not found'}, 404)
         else:
@@ -249,7 +244,7 @@ class BaseHandler(BaseHTTPRequestHandler):
             if url.path.startswith('/api/'):
                 with conn() as c:
                     if url.path == '/api/health':
-                        return self.send({'ok': True, 'app': self.app})
+                        return self.send({'ok': True, 'app': self.app, 'demo': DEMO, 'database': db.describe()})
                     return self.get_api(c, url.path, q)
             return self.serve_file(url.path)
         except ApiError as e:
@@ -293,7 +288,7 @@ class BaseHandler(BaseHTTPRequestHandler):
             self.send({'error': str(e)}, 401)
         except (ValueError, TypeError, KeyError) as e:
             self.send({'error': str(e) if isinstance(e, ValueError) else 'Invalid request.'}, 400)
-        except sqlite3.IntegrityError:
+        except db.IntegrityErrors:
             self.send({'error': 'An account with these details already exists.'}, 409)
         except LookupError as e:
             self.send({'error': str(e)}, 404)
@@ -320,7 +315,7 @@ class AdminHandler(BaseHandler):
 
     def user(self, c):
         token = self.cookies().get('encore_session', '')
-        u = c.execute('SELECT u.* FROM users u JOIN sessions s ON s.user=u.id WHERE s.token=? AND s.expires>?', (digest(token), time.time())).fetchone()
+        u = c.execute('SELECT u.* FROM users u JOIN sessions s ON s."user"=u.id WHERE s.token=? AND s.expires>?', (digest(token), time.time())).fetchone()
         if not u:
             raise PermissionError('Please sign in to continue.')
         return dict(u)
@@ -366,7 +361,7 @@ class AdminHandler(BaseHandler):
                     raise PermissionError('Recovery details do not match.')
                 recovery = uid()
                 c.execute('UPDATE users SET password=?,recovery=? WHERE id=?', (password(pw), digest(recovery), u['id']))
-                c.execute('DELETE FROM sessions WHERE user=?', (u['id'],))
+                c.execute('DELETE FROM sessions WHERE "user"=?', (u['id'],))
                 return self.send({'recovery': recovery})
             name = text(v.get('name'), 100)
             invite, role = v.get('invite'), 'Owner'
@@ -407,7 +402,7 @@ class AdminHandler(BaseHandler):
             if len(pw) < 12:
                 raise ValueError('Use at least 12 characters.')
             c.execute('UPDATE users SET password=? WHERE id=?', (password(pw), u['id']))
-            c.execute('DELETE FROM sessions WHERE user=?', (u['id'],))
+            c.execute('DELETE FROM sessions WHERE "user"=?', (u['id'],))
             return self.send({'ok': True}, cookie=self.cookie('', 0))
         if path == '/api/invite':
             if u['role'] not in ['Owner', 'Admin']:
@@ -424,7 +419,7 @@ class AdminHandler(BaseHandler):
             member = c.execute('SELECT * FROM users WHERE id=? AND tenant=?', (v.get('id'), u['tenant'])).fetchone()
             if not member or member['role'] == 'Owner':
                 raise ValueError('This member cannot be removed.')
-            c.execute('DELETE FROM sessions WHERE user=?', (member['id'],))
+            c.execute('DELETE FROM sessions WHERE "user"=?', (member['id'],))
             c.execute('DELETE FROM users WHERE id=?', (member['id'],))
             return self.send(self.bundle(c, u))
         if path == '/api/upload':
@@ -437,7 +432,8 @@ class AdminHandler(BaseHandler):
             if not ext:
                 raise ValueError('Upload a PNG, JPEG, or WebP image.')
             file = uid() + '.' + ext
-            (UPLOADS / file).write_bytes(raw)
+            mime = {'png': 'image/png', 'jpg': 'image/jpeg', 'webp': 'image/webp'}[ext]
+            c.execute('INSERT INTO uploads(name,mime,data,created) VALUES(?,?,?,?)', (file, mime, raw, int(time.time())))
             return self.send({'url': '/uploads/' + file})
         if path == '/api/notifications/read':
             c.execute("UPDATE notifications SET read=1 WHERE tenant=? AND audience='staff'", (u['tenant'],))
@@ -452,7 +448,7 @@ class AdminHandler(BaseHandler):
             notices, data = [], v.get('data', {})
             s = domain.mutate(s, op, data, notices)
             write_tenant(c, u['tenant'], s)
-            c.execute('INSERT INTO audit(tenant,user,action,created) VALUES(?,?,?,?)', (u['tenant'], u['id'], op, int(time.time())))
+            c.execute('INSERT INTO audit(tenant,"user",action,created) VALUES(?,?,?,?)', (u['tenant'], u['id'], op, int(time.time())))
             prefs = s['settings']['notifications']
             for n in notices:
                 rec = n['record']
@@ -487,7 +483,15 @@ class GuestHandler(BaseHandler):
 
     def get_api(self, c, path, q):
         if path == '/api/workspaces':
-            return self.send([{'id': r['id'], 'name': r['name']} for r in c.execute('SELECT id,name FROM tenants ORDER BY name')])
+            out = []
+            for r in c.execute('SELECT id,name,state FROM tenants ORDER BY name'):
+                st = domain.upgrade(json.loads(r['state']))
+                profile, theme = st['settings']['profile'], st['settings']['theme']
+                upcoming = sum(1 for e in st['events'] if e.get('published'))
+                out.append({'id': r['id'], 'name': r['name'], 'description': st['description'], 'logo': theme['logo'],
+                            'photo': (profile['photos'] or [theme['cover']])[0], 'city': profile['city'], 'address': profile['address'],
+                            'events': upcoming})
+            return self.send(out)
         if path == '/api/public':
             row, s = read_tenant(c, q.get('tenant', ''))
             out = domain.public_state(s)
@@ -551,7 +555,8 @@ class GuestHandler(BaseHandler):
                 raise ApiError(503, 'Phone sign-in is temporarily unavailable. Please try again later.', 'SMS_NOT_CONFIGURED')
             except sms.DeliveryFailed:
                 raise ApiError(502, 'We could not send a code to this number. Check it and try again.', 'SMS_FAILED')
-            c.execute('INSERT OR REPLACE INTO otps(phone,code,expires,attempts,sent) VALUES(?,?,?,0,?)',
+            c.execute('INSERT INTO otps(phone,code,expires,attempts,sent) VALUES(?,?,?,0,?) '
+                      'ON CONFLICT(phone) DO UPDATE SET code=excluded.code,expires=excluded.expires,attempts=0,sent=excluded.sent',
                       (phone, hmac.new(secret(), (phone + ':' + code).encode(), 'sha256').hexdigest(), now + OTP_TTL, now))
             c.execute('INSERT INTO otp_log(phone,ip,created) VALUES(?,?,?)', (phone, self.client_ip(), now))
             out = {'sent': True, 'phone': phone, 'resendIn': OTP_RESEND, 'expiresIn': OTP_TTL}
@@ -613,7 +618,7 @@ class GuestHandler(BaseHandler):
             row, s = read_tenant(c, text(v.get('tenant')))
             rec = domain.guest_record(s, v, g, demo_payment=demo_payment)
             write_tenant(c, row['id'], s)
-            c.execute('INSERT INTO audit(tenant,user,action,created) VALUES(?,?,?,?)', (row['id'], 'guest:' + g['id'], 'guest_' + str(v.get('kind')), int(time.time())))
+            c.execute('INSERT INTO audit(tenant,"user",action,created) VALUES(?,?,?,?)', (row['id'], 'guest:' + g['id'], 'guest_' + str(v.get('kind')), int(time.time())))
             prefs = s['settings']['notifications']
             if rec.get('qty'):
                 title, body = ('Tickets confirmed', f'{rec["qty"]} ticket{"s" if rec["qty"] > 1 else ""} for {rec["eventName"]}. Paid (demo payment). Ref {rec["ref"]}.') if demo_payment else \

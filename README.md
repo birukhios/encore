@@ -48,6 +48,12 @@ In development, SMS messages (sign-in codes, booking and order updates) are **pr
 - Account, Help & support (organizer contacts + FAQ + platform FAQ), Terms & conditions, Privacy.
 - Organizer branding and dark mode applied.
 
+## Organizer profile, menu categories and Ethiopian tax
+
+- **Location & photos** (Settings): city, address, map link and up to 12 photos. The guest organizer list shows the first photo, logo, location and upcoming events; the organizer page shows the address, a Directions button and a photo gallery.
+- **Menu categories** (Settings): add, rename (updates items), reorder and remove (only when empty). Menu items must use a configured category; guests see categories in this order.
+- **Taxes (VAT/TOT)** (Settings): VAT-registered (15% standard rate), turnover tax (TOT, configurable rate) or no tax; prices tax-inclusive or tax added at checkout; apply to tickets and/or menu orders; TIN (10 digits) and VAT registration number. Tax is calculated on the server, shown in the booking sheet, bag, checkout, receipts and staff order queue. Tips are never taxed. Encore receipts are **not fiscal receipts** and this is not tax advice — organizers should confirm registration, rates and receipt obligations with the Ministry of Revenues or an accountant.
+
 ## Appearance
 
 Organizers choose the default look in Settings → Appearance (guest app and dashboard separately: Light, Black, or follow the device). Anyone can also flip light/dark for themselves with the ☾/☀ button in either app's header; that choice is remembered on their device.
@@ -62,11 +68,13 @@ AfroPay is **not integrated**; no provider API was invented. `POST /api/checkout
 
 ## Deploy on Render
 
-1. In Render: **New + → Blueprint**, connect the GitHub repository. Render reads `render.yaml` and builds the `Dockerfile`.
-2. It creates one web service in single-port mode: guest app at `https://<service>.onrender.com/`, organizer admin at `https://<service>.onrender.com/admin`. `ENCORE_SECRET` is generated automatically; origins come from Render's `RENDER_EXTERNAL_URL`.
-3. The blueprint uses the **Starter plan with a 1 GB persistent disk** at `/data`. The free plan has no disk, so data would be erased on every deploy and restart.
-4. **Demo mode (`ENCORE_DEMO=1`, on in the blueprint):** the guest sign-in screen shows the 6-digit code with a *Use code* button (no SMS is sent), and *Pay online* on the checkout completes a **simulated** payment, recorded as "Demo payment (simulated)". Both apps show a Demo label. Anyone can sign in as any phone number, so this is only for demos. Set `ENCORE_DEMO=0` before real guests; online checkout then fails closed again.
-5. First visit `/admin/signup` to create the organizer account (no accounts are copied from your computer).
+`render.yaml` creates a **Render PostgreSQL database** (`encore-db`) and a web service connected to it through `DATABASE_URL`. All data — organizations, accounts, bookings, orders — and uploaded photos are stored in PostgreSQL, so restarts and redeploys keep everything. Locally, without `DATABASE_URL`, Encore uses SQLite.
+
+1. Push to GitHub. In Render open **Blueprints → encore → Sync** (or enable auto-sync). Environment variable and database changes in `render.yaml` are only applied when the Blueprint syncs; redeploying the service alone is not enough.
+2. Guest app: `https://<service>.onrender.com/` · Organizer admin: `https://<service>.onrender.com/admin` (create the organizer at `/admin/signup`).
+3. Check `https://<service>.onrender.com/api/health` — it reports `"database": "PostgreSQL"` and `"demo": true` when configured correctly.
+4. **Demo mode (`ENCORE_DEMO=1`):** guest sign-in shows the code on screen with *Use code*, and online checkout simulates payment. Anyone can sign in as any number — set `ENCORE_DEMO=0` before real guests.
+5. **Plans:** the blueprint uses Render's free web service (sleeps when idle; first request takes ~1 minute) and free PostgreSQL, which **expires after 30 days**. Upgrade the database plan before then to keep data.
 
 ## Deploying elsewhere
 

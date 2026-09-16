@@ -4,9 +4,12 @@ import { copyText, ErrorText, Field, Icon, Toggle } from '../shared/ui';
 
 const SECTIONS = [
   ['workspace', 'Workspace', 'venue'],
+  ['profile', 'Location & photos', 'download'],
   ['theme', 'Appearance', 'theme'],
   ['ticketing', 'Ticketing', 'ticket'],
   ['ordering', 'Table ordering', 'table'],
+  ['categories', 'Menu categories', 'menu'],
+  ['tax', 'Taxes (VAT/TOT)', 'chart'],
   ['tips', 'Tips', 'money'],
   ['payments', 'Payments', 'wallet'],
   ['notifications', 'Notifications', 'bell'],
@@ -30,7 +33,7 @@ export default function Settings({ ctx }) {
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);
   }, [dirty]);
-  const Section = { workspace: Workspace, theme: Theme, ticketing: Ticketing, ordering: Ordering, tips: Tips, payments: Payments, notifications: Notifications, support: Support, legal: Legal }[section] || Workspace;
+  const Section = { workspace: Workspace, profile: Profile, categories: Categories, tax: Tax, theme: Theme, ticketing: Ticketing, ordering: Ordering, tips: Tips, payments: Payments, notifications: Notifications, support: Support, legal: Legal }[section] || Workspace;
   const title = SECTIONS.find(s => s[0] === section)?.[1] || 'Workspace';
   return (
     <div className="settings-layout">
@@ -128,6 +131,137 @@ function Workspace({ ctx, setDirty }) {
           <button onClick={async () => ctx.toast(await copyText(link) ? 'Link copied' : 'Select and copy the link')}><Icon name="copy" />Copy</button>
         </div>
       </div>
+    </>
+  );
+}
+
+function Profile({ ctx, setDirty }) {
+  const form = useDraft(ctx.state.settings.profile, setDirty);
+  const save = useSaver(ctx, form);
+  const d = form.draft;
+  return (
+    <>
+      <Head title="Location & photos">Where guests find you, and photos shown on your organizer page.</Head>
+      <Locked ctx={ctx} />
+      <div className="formrow">
+        <Field label="City" value={d.city} maxLength={80} onChange={e => form.set('city', e.target.value)} disabled={!ctx.canManage} />
+        <Field label="Address" placeholder="e.g. Bole Road, near Edna Mall" value={d.address} maxLength={200} onChange={e => form.set('address', e.target.value)} disabled={!ctx.canManage} />
+      </div>
+      <Field label="Map link (optional)" placeholder="https://maps.google.com/…" value={d.mapUrl} maxLength={500} onChange={e => form.set('mapUrl', e.target.value)} disabled={!ctx.canManage}
+        hint="Guests can open directions from your organizer page." />
+      <div className="stack">
+        <div className="row spread"><h3>Photos</h3><span className="hint">{d.photos.length}/12 · the first photo is your cover on the organizer list</span></div>
+        <div className="photogrid">
+          {d.photos.map((url, i) => (
+            <figure key={url + i} className="photo">
+              <img src={url} alt={`Photo ${i + 1}`} />
+              {ctx.canManage && (
+                <div className="photo-actions">
+                  {i > 0 && <button type="button" onClick={() => { const p = [...d.photos]; [p[i - 1], p[i]] = [p[i], p[i - 1]]; form.set('photos', p); }} aria-label="Move earlier">‹</button>}
+                  <button type="button" onClick={() => form.set('photos', d.photos.filter((_, j) => j !== i))} aria-label="Remove photo">×</button>
+                </div>
+              )}
+              {i === 0 && <figcaption>Cover</figcaption>}
+            </figure>
+          ))}
+          {ctx.canManage && d.photos.length < 12 && <ImageUpload key={d.photos.length} label="Add photo" square value="" onChange={url => url && form.set('photos', [...d.photos, url])} />}
+        </div>
+      </div>
+      <ErrorText>{form.error}</ErrorText>
+      {ctx.canManage && <SaveBar form={form} onSave={() => save('config', { group: 'profile', values: d })} />}
+    </>
+  );
+}
+
+function Categories({ ctx, setDirty }) {
+  const initial = { categories: ctx.state.settings.menu.categories, renames: {} };
+  const form = useDraft(initial, setDirty);
+  const save = useSaver(ctx, form);
+  const [adding, setAdding] = useState('');
+  const d = form.draft;
+  const original = ctx.state.settings.menu.categories;
+  const count = name => ctx.state.menu.filter(i => i.category === (Object.entries(d.renames).find(([, to]) => to === name)?.[0] || name)).length;
+  const rename = (i, value) => {
+    const cats = [...d.categories];
+    const from = original.includes(cats[i]) ? cats[i] : Object.entries(d.renames).find(([, to]) => to === cats[i])?.[0];
+    cats[i] = value;
+    const renames = { ...d.renames };
+    if (from) renames[from] = value;
+    form.setDraft({ categories: cats, renames });
+  };
+  const move = (i, delta) => { const c = [...d.categories]; [c[i], c[i + delta]] = [c[i + delta], c[i]]; form.set('categories', c); };
+  const add = e => { e.preventDefault(); const v = adding.trim(); if (v && !d.categories.some(c => c.toLowerCase() === v.toLowerCase())) form.set('categories', [...d.categories, v]); setAdding(''); };
+  return (
+    <>
+      <Head title="Menu categories">The sections of your menu, in the order guests see them.</Head>
+      <Locked ctx={ctx} />
+      <div className="list">
+        {d.categories.map((c, i) => (
+          <div className="listrow" key={i}>
+            <input aria-label={`Category ${i + 1}`} value={c} maxLength={60} onChange={e => rename(i, e.target.value)} disabled={!ctx.canManage} />
+            <span className="badge neutral" title="Menu items in this category">{count(c)} items</span>
+            {ctx.canManage && <>
+              <button type="button" className="ghost" disabled={i === 0} onClick={() => move(i, -1)} aria-label="Move up"><Icon name="up" /></button>
+              <button type="button" className="ghost" disabled={i === d.categories.length - 1} onClick={() => move(i, 1)} aria-label="Move down"><Icon name="down" /></button>
+              <button type="button" className="ghost danger-text" disabled={count(c) > 0 || d.categories.length === 1} title={count(c) ? 'Move its items to another category first' : 'Remove'} onClick={() => form.set('categories', d.categories.filter((_, j) => j !== i))}>Remove</button>
+            </>}
+          </div>
+        ))}
+      </div>
+      {ctx.canManage && (
+        <form className="codeentry" onSubmit={add}>
+          <input placeholder="New category, e.g. Cocktails" value={adding} maxLength={60} onChange={e => setAdding(e.target.value)} style={{ textTransform: 'none', letterSpacing: 0, textAlign: 'left', fontWeight: 500 }} />
+          <button className="primary" disabled={!adding.trim()}><Icon name="add" />Add</button>
+        </form>
+      )}
+      <p className="footnote">Renaming a category updates every menu item in it. A category with items cannot be removed.</p>
+      <ErrorText>{form.error}</ErrorText>
+      {ctx.canManage && <SaveBar form={form} onSave={() => save('config', { group: 'menu', values: d })} />}
+    </>
+  );
+}
+
+function Tax({ ctx, setDirty }) {
+  const form = useDraft(ctx.state.settings.tax, setDirty);
+  const save = useSaver(ctx, form);
+  const d = form.draft;
+  const rate = d.regime === 'vat' ? d.vatRate : d.totRate;
+  const example = 100000;
+  const tax = d.regime === 'none' ? 0 : d.pricesIncludeTax ? Math.round(example * rate / (100 + rate)) : Math.round(example * rate / 100);
+  return (
+    <>
+      <Head title="Taxes (VAT/TOT)">Ethiopian indirect tax on tickets and menu orders, shown on every checkout and receipt.</Head>
+      <Locked ctx={ctx} />
+      <p className="notice warning">Encore calculates and displays tax from these settings; it is not tax advice and Encore receipts are not fiscal (cash register) receipts. Confirm your registration, rates and receipt obligations with the Ministry of Revenues or your accountant.</p>
+      <div className="field" style={{ display: 'grid', gap: 8 }}>
+        <b style={{ fontSize: 13 }}>Tax registration</b>
+        <div className="segmented" role="radiogroup" aria-label="Tax registration">
+          {[['vat', 'VAT registered'], ['tot', 'Turnover tax (TOT)'], ['none', 'No tax']].map(([id, label]) => (
+            <button key={id} type="button" role="radio" aria-checked={d.regime === id} className={d.regime === id ? 'active' : ''} disabled={!ctx.canManage} onClick={() => form.set('regime', id)}>{label}</button>
+          ))}
+        </div>
+      </div>
+      {d.regime !== 'none' && <>
+        <div className="formrow">
+          {d.regime === 'vat'
+            ? <Field label="VAT rate (%)" type="number" min="0" max="50" step="0.01" value={d.vatRate} onChange={e => form.set('vatRate', Number(e.target.value))} disabled={!ctx.canManage} hint="Ethiopia's standard VAT rate is 15%." />
+            : <Field label="TOT rate (%)" type="number" min="0" max="50" step="0.01" value={d.totRate} onChange={e => form.set('totRate', Number(e.target.value))} disabled={!ctx.canManage} hint="Turnover tax is commonly 2% on goods and 10% on services — confirm the rate for your activity." />}
+          <Field label="TIN" inputMode="numeric" placeholder="10 digits" value={d.tin} maxLength={10} onChange={e => form.set('tin', e.target.value.replace(/\D/g, ''))} disabled={!ctx.canManage} />
+        </div>
+        {d.regime === 'vat' && <Field label="VAT registration number (optional)" value={d.vatNumber} maxLength={30} onChange={e => form.set('vatNumber', e.target.value)} disabled={!ctx.canManage} />}
+        <div>
+          <Toggle label="Prices already include tax" description={d.pricesIncludeTax ? 'Guests pay the listed price; receipts show the tax inside it.' : 'Tax is added on top of listed prices at checkout.'} checked={d.pricesIncludeTax} onChange={v => form.set('pricesIncludeTax', v)} disabled={!ctx.canManage} />
+          <Toggle label="Apply to tickets" checked={d.tickets} onChange={v => form.set('tickets', v)} disabled={!ctx.canManage} />
+          <Toggle label="Apply to food & drink orders" description="Tips are voluntary and never taxed by Encore." checked={d.menu} onChange={v => form.set('menu', v)} disabled={!ctx.canManage} />
+        </div>
+        <div className="notice">
+          <b style={{ color: 'var(--ink)' }}>Example:</b> a {ctx.money(example)} item → {d.pricesIncludeTax
+            ? <>guest pays {ctx.money(example)}, of which {d.regime.toUpperCase()} {rate}% is {ctx.money(tax)}.</>
+            : <>{d.regime.toUpperCase()} {rate}% adds {ctx.money(tax)}; guest pays {ctx.money(example + tax)}.</>}
+        </div>
+      </>}
+      <ErrorText>{form.error}</ErrorText>
+      {ctx.canManage && <SaveBar form={form} onSave={() => save('config', { group: 'tax', values: d })} />}
     </>
   );
 }

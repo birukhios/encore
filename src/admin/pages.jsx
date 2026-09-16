@@ -51,6 +51,8 @@ export function Overview({ ctx }) {
     ['Brand your guest app', !!(cfg.theme.logo || cfg.theme.cover || cfg.theme.accent !== '#E61E32'), 'Settings'],
     ['Add help & support contacts', !!(cfg.support.email || cfg.support.phone), 'Settings'],
     ['Publish your terms', !!cfg.legal.terms, 'Settings'],
+    ['Set up taxes (VAT/TOT and TIN)', cfg.tax.regime === 'none' || !!cfg.tax.tin, 'Settings'],
+    ['Add your location & photos', !!(cfg.profile.address || cfg.profile.photos.length), 'Settings'],
   ];
   return (
     <>
@@ -435,7 +437,7 @@ export function Menu({ ctx }) {
   const { state, money, matches } = ctx;
   const [editing, setEditing] = useState(null);
   const [category, setCategory] = useState('All');
-  const categories = ['All', ...new Set(state.menu.map(i => i.category))];
+  const categories = ['All', ...state.settings.menu.categories.filter(c => state.menu.some(i => i.category === c))];
   const items = state.menu.filter(i => category === 'All' || i.category === category).filter(i => matches(i.name, i.category, i.description));
   const servedAt = i => !i.events?.length ? 'All concerts' : i.events.map(id => state.events.find(e => e.id === id)?.name).filter(Boolean).join(', ');
   return (
@@ -472,7 +474,7 @@ function MenuForm({ ctx, item, onClose }) {
   const [allEvents, setAllEvents] = useState(!item.events?.length);
   const [events, setEvents] = useState(item.events || []);
   const { busy, error, run } = useRunner();
-  const categories = [...new Set(['Food', 'Drinks', ...state.menu.map(i => i.category)])];
+  const categories = state.settings.menu.categories;
   const submit = e => {
     e.preventDefault();
     const v = Object.fromEntries(new FormData(e.currentTarget));
@@ -491,8 +493,9 @@ function MenuForm({ ctx, item, onClose }) {
         <ImageUpload label="Photo" value={image} onChange={setImage} />
         <div className="formrow">
           <Field label="Item name" name="name" defaultValue={item.name} maxLength={120} required />
-          <Field label="Category" name="category" defaultValue={item.category || 'Food'} list="menu-categories" maxLength={60} required />
-          <datalist id="menu-categories">{categories.map(c => <option key={c} value={c} />)}</datalist>
+          <Field label="Category" hint={<button type="button" className="linklike small" onClick={() => { onClose(); ctx.go('Settings'); history.replaceState(null, '', '/admin?page=Settings&section=categories'); }}>Manage categories</button>}>
+            <select name="category" defaultValue={item.category || categories[0]} required>{categories.map(c => <option key={c}>{c}</option>)}</select>
+          </Field>
         </div>
         <Field label="Description"><textarea name="description" defaultValue={item.description} maxLength={500} required /></Field>
         <Field label={`Price (${state.currency})`} name="price" type="number" step="0.01" min="0" defaultValue={(item.price || 0) / 100} required />
@@ -560,7 +563,7 @@ export function Orders({ ctx }) {
           </div>
           <p style={{ color: 'var(--ink)' }}>{o.items}</p>
           <div className="row spread wrap">
-            <div className="meta"><span>Items {money(o.subtotal)}</span><span>Tip {money(o.tip || 0)}</span><b style={{ color: 'var(--ink)' }}>Total {money(o.total)}</b></div>
+            <div className="meta"><span>Items {money(o.subtotal)}</span>{o.tax && <span>{o.tax.label} {o.tax.included ? 'incl.' : '+'} {money(o.tax.amount)}</span>}<span>Tip {money(o.tip || 0)}</span><b style={{ color: 'var(--ink)' }}>Total {money(o.total)}</b></div>
             <div className="actions">
               {['Placed', 'Preparing'].includes(o.status) && !o.paid && <button onClick={() => confirm(`Cancel order ${o.ref}?`) && act('cancel', { id: o.id })}>Cancel</button>}
               {o.status !== 'Cancelled' && !o.paid && <button onClick={() => setSettling(o)}>Record payment</button>}
