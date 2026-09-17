@@ -290,7 +290,7 @@ class AppTests(unittest.TestCase):
             self.assertEqual(status, 200)
             self.assertTrue(g('public?tenant=' + t)[1]['demo'])
             status, rec = g('checkout', {'tenant': t, 'kind': 'booking', 'event': e['id'], 'qty': 1, 'paid': False, 'total': 1})
-            self.assertEqual((status, rec['paid'], rec['settledBy'], rec['total']), (201, True, 'Demo payment (simulated)', 10000))
+            self.assertEqual((status, rec['paid'], rec['settledBy'], rec['total']), (201, True, 'Demo payment (simulated)', 11500))
         finally:
             s.DEMO = False
         self.assertEqual(g('checkout', {'tenant': t, 'kind': 'booking', 'event': e['id'], 'qty': 1})[1]['code'], 'PAYMENT_NOT_CONFIGURED')
@@ -306,7 +306,7 @@ class AppTests(unittest.TestCase):
         try:
             status, rec = g('checkout', {'tenant': t, 'kind': 'booking', 'event': e['id'], 'qty': 2, 'total': 1, 'paid': False})
             self.assertEqual(status, 201)
-            self.assertEqual((rec['total'], rec['paid'], rec['status'], len(rec['tickets']), rec['name']), (20000, True, 'Reserved', 2, 'Guest One'))
+            self.assertEqual((rec['total'], rec['paid'], rec['status'], len(rec['tickets']), rec['name']), (23000, True, 'Reserved', 2, 'Guest One'))
             g2, _ = self.guest_client()
             self.assertEqual(g2('checkout', {'tenant': t, 'kind': 'booking', 'event': e['id'], 'qty': 2})[0], 400)  # capacity
         finally:
@@ -345,20 +345,21 @@ class AppTests(unittest.TestCase):
         tok = c('me')[1]['state']['tables'][0]['token']
         g, guest = self.guest_client()
         tea = {menu[0]['id']: 2}
-        self.assertIn('Scan', g('order', {'tenant': t, 'kind': 'menu', 'items': tea})[1]['error'])
-        self.assertIn('ticket holders', g('order', {'tenant': t, 'kind': 'menu', 'items': tea, 'table': tok})[1]['error'])
+        self.assertEqual(g('order', {'tenant': t, 'kind': 'menu', 'items': tea})[1]['error'], 'Orders are paid online only.')
         s.DEMO = True
+        self.assertIn('Scan', g('checkout', {'tenant': t, 'kind': 'menu', 'items': tea})[1]['error'])
+        self.assertIn('ticket holders', g('checkout', {'tenant': t, 'kind': 'menu', 'items': tea, 'table': tok})[1]['error'])
         self.assertEqual(g('checkout', {'tenant': t, 'kind': 'booking', 'event': e['id'], 'qty': 1})[0], 201)
-        s.DEMO = False
-        self.assertIn('not served', g('order', {'tenant': t, 'kind': 'menu', 'items': {menu[1]['id']: 1}, 'table': tok})[1]['error'])
-        self.assertEqual(g('order', {'tenant': t, 'kind': 'menu', 'items': tea, 'table': 'forged'})[0], 400)
+        self.assertIn('not served', g('checkout', {'tenant': t, 'kind': 'menu', 'items': {menu[1]['id']: 1}, 'table': tok})[1]['error'])
+        self.assertEqual(g('checkout', {'tenant': t, 'kind': 'menu', 'items': tea, 'table': 'forged'})[0], 400)
         self.act(c, 'config', {'group': 'tips', 'values': {'enabled': True, 'presets': [10, 50], 'custom': False}})
-        self.assertEqual(g('order', {'tenant': t, 'kind': 'menu', 'items': tea, 'tipAmount': '7', 'table': tok})[0], 400)
+        self.assertEqual(g('checkout', {'tenant': t, 'kind': 'menu', 'items': tea, 'tipAmount': '7', 'table': tok})[0], 400)
         for bad in ['-5', '10.555', 'abc']:
-            self.assertEqual(g('order', {'tenant': t, 'kind': 'menu', 'items': tea, 'tipAmount': bad, 'table': tok})[0], 400, bad)
-        status, rec = g('order', {'tenant': t, 'kind': 'menu', 'items': tea, 'tipAmount': '10', 'table': tok})
+            self.assertEqual(g('checkout', {'tenant': t, 'kind': 'menu', 'items': tea, 'tipAmount': bad, 'table': tok})[0], 400, bad)
+        status, rec = g('checkout', {'tenant': t, 'kind': 'menu', 'items': tea, 'tipAmount': '10', 'table': tok})
         self.assertEqual(status, 201)
-        self.assertEqual((rec['subtotal'], rec['tip'], rec['total'], rec['tableName'], rec['status']), (10000, 1000, 11000, 'Table 3', 'Placed'))
+        s.DEMO = False
+        self.assertEqual((rec['subtotal'], rec['tip'], rec['total'], rec['tableName'], rec['status'], rec['paid']), (10000, 1000, 12500, 'Table 3', 'Placed', True))  # 100.00 + 15.00 VAT + 10.00 tip
         order = c('me')[1]['state']['orders'][0]
         for status_name in ['Preparing', 'Ready', 'Delivered']:
             self.assertEqual(self.act(c, 'order_status', {'id': order['id'], 'status': status_name})[0], 200)
@@ -395,7 +396,9 @@ class EthiopiaTaxCategoryProfileTests(AppTests):
         # TOT is no longer offered; VAT added on menu orders; a tip amount is added untaxed
         self.assertEqual(self.act(c, 'config', {'group': 'tax', 'values': {'regime': 'tot', 'pricesIncludeTax': False, 'tin': '0012345678', 'tickets': True, 'menu': True}})[0], 400)
         item = c('me')[1]['state']['menu'][0]['id']
-        rec = g('order', {'tenant': t, 'kind': 'menu', 'items': {item: 3}, 'tipAmount': '25.50', 'table': tok})[1]
+        s.DEMO = True
+        rec = g('checkout', {'tenant': t, 'kind': 'menu', 'items': {item: 3}, 'tipAmount': '25.50', 'table': tok})[1]
+        s.DEMO = False
         self.assertEqual((rec['subtotal'], rec['tax']['label'], rec['tax']['amount'], rec['tip'], rec['total']), (30000, 'VAT 15%', 4500, 2550, 37050))
         # inclusive VAT with awkward amounts rounds to the nearest cent and never changes the total
         self.act(c, 'config', {'group': 'tax', 'values': {'regime': 'vat', 'vatRate': 15, 'pricesIncludeTax': True, 'tin': '0012345678', 'tickets': True, 'menu': True}})
@@ -441,8 +444,16 @@ class DomainTests(unittest.TestCase):
 
     def test_server_prices_and_table_context(self):
         q = domain.quote_order(self.state, {'kind': 'menu', 'items': {'food': 2}, 'table': 'unique-table', 'tipAmount': '30', 'total': 1})
-        self.assertEqual((q['total'], q['tip'], q['tableName'], q['tax']['amount']), (23000, 3000, 'Table 8', 2609))  # VAT 15% included in 200.00
+        self.assertEqual((q['total'], q['tip'], q['tableName'], q['tax']['amount'], q['tax']['included']), (26000, 3000, 'Table 8', 3000, False))  # 200 + 30 VAT + 30 tip
         self.assertIsNone(q['fee'])
+
+    def test_existing_workspaces_switch_to_vat_added_on_top_once(self):
+        old = domain.blank('Old')
+        old['settings']['tax'] = {'regime': 'vat', 'vatRate': 15, 'pricesIncludeTax': True, 'tin': '', 'vatNumber': '', 'tickets': True, 'menu': True}
+        tax = domain.upgrade(old)['settings']['tax']
+        self.assertEqual((tax['pricesIncludeTax'], tax['addedOnTop']), (False, True))
+        tax['pricesIncludeTax'] = True  # an organizer who later chooses VAT-inclusive prices keeps that choice
+        self.assertTrue(domain.upgrade(old)['settings']['tax']['pricesIncludeTax'])
 
     def test_reject_unavailable_items_and_bad_table(self):
         for data in [{'kind': 'menu', 'items': {'foreign-id': 1}}, {'kind': 'menu', 'items': {'food': 1}, 'table': 'wrong'},

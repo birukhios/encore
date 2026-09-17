@@ -12,12 +12,11 @@ function WalletLogo({ id, name }) {
   return <img className="wallet-logo" src={`/wallets/${id}.${LOGO_TYPES[attempt]}`} alt={name} onError={() => setAttempt(a => a + 1)} />;
 }
 
-/** Provider-styled review screen. Online payment fails closed on the server; the venue option creates an unpaid reservation. */
-export default function AfroPayCheckout({ quote, payload, onBack, onClose, onPay, onVenue, venueEnabled = true, demo = false }) {
+/** Provider-styled review screen. All payments are online; the server fails closed until AfroPay is configured (demo mode simulates it). */
+export default function AfroPayCheckout({ quote, payload, onBack, onClose, onPay, demo = false }) {
   const [wallet, setWallet] = useState('telebirr');
   const [phone, setPhone] = useState('');
   const [busy, setBusy] = useState(false);
-  const [venueBusy, setVenueBusy] = useState(false);
   const [error, setError] = useState('');
   const amount = n => money(n, quote.currency);
   const booking = payload.kind === 'booking';
@@ -37,17 +36,7 @@ export default function AfroPayCheckout({ quote, payload, onBack, onClose, onPay
     }
   }
 
-  async function venue() {
-    setError('');
-    setVenueBusy(true);
-    try {
-      await onVenue(payload);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setVenueBusy(false);
-    }
-  }
+
 
   return (
     <div className="overlay afro-overlay" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
@@ -57,24 +46,18 @@ export default function AfroPayCheckout({ quote, payload, onBack, onClose, onPay
         <form onSubmit={pay}>
           {demo
             ? <p className="notice" role="status"><b>Demo mode.</b> Paying online simulates a successful wallet payment — no money moves and no wallet is contacted.</p>
-            : <p className="notice" role="status">Online wallet payments are not available yet, so no payment will be taken here.{venueEnabled ? ' You can order now and pay at your table.' : ' Tickets can only be paid online.'}</p>}
+            : <p className="notice" role="status">Online wallet payments are not available yet, so no payment will be taken here.</p>}
           <h2 style={{ marginTop: 22 }}>Review your {booking ? 'booking' : 'order'}</h2>
           <div className="afro-lines">
             {quote.lines.map((line, i) => <div key={i}><span>{line.qty} × {line.name}</span><b>{amount(line.total)}</b></div>)}
-            {quote.tax && <div><span>{quote.tax.label} {quote.tax.included ? '(included in prices)' : ''}</span><b>{amount(quote.tax.amount)}</b></div>}
-            {!booking && <div><span>Tip</span><b>{amount(quote.tip)}</b></div>}
-            <div><span>Processing fee</span><b>{quote.fee === null ? 'Not yet available' : amount(quote.fee)}</b></div>
-            <div className="afro-total"><strong>{quote.fee === null ? 'Subtotal' + (quote.tip ? ' including tip' : '') : 'Total'}</strong><strong>{amount(quote.total)}</strong></div>
+            {quote.lines.length > 1 && <div><span>Subtotal</span><b>{amount(quote.subtotal)}</b></div>}
+            {quote.tax && <div><span>{quote.tax.label}{quote.tax.included ? ' (included in prices)' : ''}</span><b>{quote.tax.included ? '' : '+ '}{amount(quote.tax.amount)}</b></div>}
+            {!booking && quote.tip > 0 && <div><span>Tip</span><b>+ {amount(quote.tip)}</b></div>}
+            <div className="afro-total"><strong>Total</strong><strong>{amount(quote.total)}</strong></div>
           </div>
-          {venueEnabled && (
-            <div className="venue-option">
-              <p>Order now and pay staff when your order arrives. Your order is confirmed right away; staff mark it paid when you pay.</p>
-              <button type="button" className="afro-venue" disabled={venueBusy} onClick={venue}>{venueBusy ? 'Placing order…' : `Order · pay ${amount(quote.total)} at my table`}</button>
-            </div>
-          )}
           {error && <p className="error" role="alert" style={{ marginTop: 16 }}>{error}</p>}
           <fieldset>
-            <legend>Pay online with a wallet</legend>
+            <legend className="afro-legend">Choose your wallet</legend>
             <div className="wallets">
               {WALLETS.map(([id, name]) => (
                 <label key={id} className={wallet === id ? 'chosen' : ''}>
@@ -88,7 +71,7 @@ export default function AfroPayCheckout({ quote, payload, onBack, onClose, onPay
             <div className="afro-phone"><span>+251</span><input aria-label="Wallet mobile number" type="tel" inputMode="tel" autoComplete="tel-national" placeholder="0912345678" value={phone} onChange={e => setPhone(e.target.value)} /></div>
           </label>
           <button className="afro-pay" disabled={busy}>{busy ? (demo ? 'Simulating payment…' : 'Connecting…') : (demo ? 'Pay (demo) · ' : 'Pay online · ') + amount(quote.total)}</button>
-          <p className="afro-foot">Review any provider fees before authorizing payment. Never share your wallet PIN or one-time code.</p>
+          <p className="afro-foot">Never share your wallet PIN or one-time code.</p>
           <button type="button" className="afro-back" onClick={onBack}>Back to {booking ? 'booking' : 'order'}</button>
         </form>
       </section>

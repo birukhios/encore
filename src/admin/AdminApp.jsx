@@ -5,6 +5,7 @@ import { LogoMark } from '../shared/Logo';
 import { Avatar, Glyph, Icon, ModeToggle, Modal, Spinner, usePolling, useToast } from '../shared/ui';
 import Auth from './Auth';
 import { Bookings, CheckIns, Events, Menu, Orders, Overview, Profile, Tables, Team } from './pages';
+import Reports from './Reports';
 import Settings from './Settings';
 
 const PAGES = {
@@ -12,6 +13,7 @@ const PAGES = {
   Events: { icon: 'calendar', sub: 'Create, publish, and shape your next live experience.' },
   Bookings: { icon: 'ticket', sub: 'Tickets sold online. Scan or type a reference to check guests in.' },
   'Check-ins': { icon: 'success', sub: 'Who has arrived, when, and who let them in.' },
+  Reports: { icon: 'chart', sub: 'Sales, best sellers, busy tables and payments — ready to export.' },
   Tables: { icon: 'table', sub: 'A place for every guest. A QR code for every table.' },
   Menu: { icon: 'menu', sub: 'Food and drinks, served at the concerts you choose.' },
   Orders: { icon: 'wallet', sub: 'Keep every order moving, from kitchen to table.' },
@@ -22,13 +24,14 @@ const PAGES = {
 
 const NAV_GROUPS = [
   ['Run the night', ['Overview', 'Orders', 'Bookings', 'Check-ins']],
+  ['Insights', ['Reports']],
   ['Set up', ['Events', 'Menu', 'Tables']],
   ['Workspace', ['Team', 'Settings']],
 ];
 
 export const ROLE_PAGES = {
-  Owner: ['Overview', 'Events', 'Bookings', 'Check-ins', 'Tables', 'Menu', 'Orders', 'Team', 'Settings'],
-  Admin: ['Overview', 'Events', 'Bookings', 'Check-ins', 'Tables', 'Menu', 'Orders', 'Team', 'Settings'],
+  Owner: ['Overview', 'Events', 'Bookings', 'Check-ins', 'Reports', 'Tables', 'Menu', 'Orders', 'Team', 'Settings'],
+  Admin: ['Overview', 'Events', 'Bookings', 'Check-ins', 'Reports', 'Tables', 'Menu', 'Orders', 'Team', 'Settings'],
   Service: ['Overview', 'Orders'],
   Gate: ['Overview', 'Bookings', 'Check-ins'],
 };
@@ -115,7 +118,7 @@ export default function AdminApp() {
   const { state } = session;
   const activeOrders = state.orders.filter(o => ['Placed', 'Preparing', 'Ready'].includes(o.status)).length;
   const meta = PAGES[current];
-  const Page = { Overview, Events, Bookings, 'Check-ins': CheckIns, Tables, Menu, Orders, Team, Settings, Profile }[current];
+  const Page = { Overview, Events, Bookings, 'Check-ins': CheckIns, Reports, Tables, Menu, Orders, Team, Settings, Profile }[current];
 
   return (
     <div className="admin-app">
@@ -155,7 +158,7 @@ export default function AdminApp() {
       <div className="shell">
         <header className="topbar">
           <button className="icon-btn menu-toggle" aria-label="Open navigation" onClick={() => setNavOpen(true)}><Icon name="grid" /></button>
-          {!['Overview', 'Settings', 'Profile', 'Check-ins'].includes(current) ? (
+          {!['Overview', 'Settings', 'Profile', 'Check-ins', 'Reports'].includes(current) ? (
             <div className="search">
               <Icon name="search" />
               <input type="search" placeholder={'Search ' + current.toLowerCase() + '…'} aria-label={'Search ' + current} value={search} onChange={e => setSearch(e.target.value)} />

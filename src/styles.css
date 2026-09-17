@@ -932,3 +932,45 @@ details.faq p { padding: 0 16px 14px; font-size: 13px; }
 
 .wallet-logo { max-height: 48px; width: 100%; }
 .wallets label { padding: 6px; }
+.afro-checkout legend.afro-legend { background: none; color: #121a2b; padding: 0; border-radius: 0; font-size: 15px; font-weight: 700; margin-bottom: 14px; }
+
+/* Reports */
+.report-filters { display: grid; gap: 14px; }
+.report-filter-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+.report-kpis { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+.report-kpis .stat strong { font-size: 22px; }
+.report-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.report-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.report-table th { text-align: left; font-size: 12px; color: var(--muted); font-weight: 650; padding: 10px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.report-table td { padding: 12px; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
+.report-table td small { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+.report-table .num { text-align: right; white-space: nowrap; }
+.bars { display: grid; gap: 12px; }
+.bar-row { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(60px, 1fr) auto; gap: 12px; align-items: center; }
+.bar-label { display: grid; min-width: 0; }
+.bar-label b { font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar-label small { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar-track { height: 10px; border-radius: 5px; background: var(--canvas); overflow: hidden; }
+[data-mode='dark'] .bar-track { background: var(--surface-2); }
+.bar-track span { display: block; height: 100%; background: var(--accent); border-radius: 5px; min-width: 4px; }
+.bar-value { font-size: 13.5px; white-space: nowrap; }
+.daily-chart { display: flex; align-items: flex-end; gap: 6px; height: 180px; overflow-x: auto; padding-bottom: 4px; }
+.daily-col { flex: 1 0 34px; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 6px; }
+.daily-bar { width: 70%; max-width: 36px; background: var(--accent); border-radius: 6px 6px 2px 2px; }
+.daily-col small { font-size: 11px; color: var(--muted); white-space: nowrap; }
+@media (max-width: 900px) { .report-grid { grid-template-columns: 1fr; } }
+
+/* Check-ins guest panel */
+button.checkin-who { border: 0; background: transparent; padding: 4px 6px; margin: -4px -6px; min-height: 0; text-align: left; justify-content: flex-start; white-space: normal; display: grid; border-radius: 8px; }
+button.checkin-who:hover { background: var(--canvas); }
+button.checkin-who:hover b { color: var(--accent); text-decoration: underline; }
+.guest-head { display: flex; align-items: center; gap: 12px; }
+.guest-head small { display: block; }
+.guest-totals { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.guest-totals div { background: var(--canvas); border-radius: 12px; padding: 12px; display: grid; gap: 2px; }
+[data-mode='dark'] .guest-totals div { background: var(--surface-2); }
+.guest-totals strong { font-size: 18px; }
+.guest-totals small { color: var(--muted); font-size: 12px; }
+.history-card { display: grid; gap: 8px; padding: 14px; border: 1px solid var(--line-soft); border-radius: 12px; }
+.history-tickets { display: flex; flex-wrap: wrap; gap: 6px; }
+@media (max-width: 560px) { .guest-totals { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

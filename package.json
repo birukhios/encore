@@ -12,6 +12,8 @@
   "dependencies": {
     "@fontsource-variable/manrope": "^5.3.0",
     "@vitejs/plugin-react": "5.0.4",
+    "jspdf": "2.5.2",
+    "jspdf-autotable": "3.8.4",
     "jsqr": "1.4.0",
     "kiwi-schema": "^0.5.0",
     "qrcode": "^1.5.4",

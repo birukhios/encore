@@ -476,17 +476,16 @@ function Payments({ ctx, setDirty }) {
     <>
       <Head title="Payments">How guests pay for tickets and orders.</Head>
       <Locked ctx={ctx} />
-      <p className="notice"><b style={{ color: 'var(--ink)' }}>Tickets are paid online only.</b> Guests pay with their mobile wallet when they book; there is no pay-at-the-door option.</p>
-      <Toggle label="Allow paying for food & drinks at the table" description="Guests order now and pay staff when it arrives. Staff record each payment in Orders." checked={form.draft.venue} onChange={v => form.set('venue', v)} disabled={!ctx.canManage} />
+      <p className="notice"><b style={{ color: 'var(--ink)' }}>All payments are online.</b> Guests pay for tickets and food & drinks with their mobile wallet at checkout (Telebirr, CBE Birr, M-PESA, Awash Birr). There is no pay-at-the-door or pay-at-the-table option.</p>
       <div className="notice">
         <div className="row spread" style={{ marginBottom: 6 }}><b style={{ color: 'var(--ink)' }}>AfroPay online payments</b><span className={'badge ' + (ctx.session.demo ? 'warning' : 'neutral')}>{ctx.session.demo ? 'Demo (simulated)' : 'Not connected'}</span></div>
         {ctx.session.demo
           ? 'Demo mode is on: online checkout completes a simulated payment and marks the booking or order paid as "Demo payment (simulated)". No money moves. Turn demo mode off on the server before real sales.'
           : 'Online wallet payments are not available yet. The merchant integration will be enabled once the AfroPay merchant API contract and credentials are configured on the server. Until then, checkout never charges guests.'}
       </div>
-      {!ctx.session.demo && <p className="notice warning">Online payments are not connected yet, so guests cannot buy tickets{form.draft.venue ? '' : ' or place orders'} until AfroPay is configured (demo mode simulates it).</p>}
+      {!ctx.session.demo && <p className="notice warning">Online payments are not connected yet, so guests cannot buy tickets or place orders until AfroPay is configured (demo mode simulates it).</p>}
       <ErrorText>{form.error}</ErrorText>
-      {ctx.canManage && <SaveBar form={form} onSave={() => save('config', { group: 'payments', values: form.draft })} />}
+
     </>
   );
 }

@@ -166,7 +166,7 @@ export default function GuestApp() {
     const quote = await api('quote', { ...payload, tenant });
     setSheet({ type: 'checkout', quote, payload: { ...payload, tenant }, previous });
   }
-  async function placeAtVenue(payload, endpoint = 'order') {
+  async function completeCheckout(payload, endpoint = 'order') {
     const receipt = await api(endpoint, payload);
     if (payload.kind === 'menu') { setCart({}); setTip(0); }
     setSheet({ type: 'receipt', receipt });
@@ -264,9 +264,9 @@ export default function GuestApp() {
       {sheet?.type === 'account' && <Account ctx={ctx} setGuest={setGuest} signOut={signOut} onClose={() => setSheet(null)} switchOrganizer={goHome} />}
       {sheet?.type === 'receipt' && <ReceiptModal ctx={ctx} receipt={sheet.receipt} onClose={() => { setSheet(null); if (view !== 'tickets') go('tickets'); }} />}
       {sheet?.type === 'checkout' && (
-        <AfroPayCheckout quote={sheet.quote} payload={sheet.payload} venueEnabled={sheet.payload.kind === 'menu' && data.settings.payments.venue}
+        <AfroPayCheckout quote={sheet.quote} payload={sheet.payload}
           onClose={() => setSheet(null)} onBack={() => setSheet(sheet.previous)}
-          demo={data.demo} onPay={payload => placeAtVenue(payload, 'checkout')} onVenue={placeAtVenue} />
+          demo={data.demo} onPay={payload => completeCheckout(payload, 'checkout')} />
       )}
       {auth && (
         <PhoneAuth reason={auth.reason} openTerms={() => setLegal(true)} onClose={() => setAuth(null)}

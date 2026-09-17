@@ -11,7 +11,15 @@ export default defineConfig({
     emptyOutDir: true,
     rollupOptions: {
       input: { admin: 'admin.html', guest: 'guest.html' },
-      output: { manualChunks: id => (id.includes('node_modules') ? 'vendor' : id.includes('/src/shared/') ? 'shared' : undefined) },
+      output: {
+        manualChunks: id => {
+          // PDF export libraries load on demand only; keep them out of the app's startup chunks.
+          if (/node_modules\/(jspdf|jspdf-autotable|html2canvas|dompurify|canvg|fflate|core-js|raf|rgbcolor|stackblur-canvas|svg-pathdata|performance-now|@babel)/.test(id)) return 'pdf';
+          if (id.includes('node_modules')) return 'vendor';
+          if (id.includes('/src/shared/')) return 'shared';
+          return undefined;
+        },
+      },
     },
   },
   server: {

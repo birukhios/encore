@@ -4,6 +4,8 @@ import { api, dateTime, readFileAsBase64, shortDate } from '../shared/api';
 import ImageUpload from '../shared/ImageUpload';
 import { LogoMark } from '../shared/Logo';
 import QR from '../shared/QR';
+import { exportPdf } from './pdf';
+import { buildReport, downloadText, guestHistory, paymentLabel, slug, toCsv, vatOf } from './reportData';
 import Scanner from '../shared/Scanner';
 import { Avatar, copyText, Empty, ErrorText, Field, Icon, Modal, StarIcon, Toggle } from '../shared/ui';
 
@@ -40,6 +42,30 @@ const paidBadge = r => r.status === 'Cancelled'
 
 export function Overview({ ctx }) {
   const { state, money, go, canManage, role, session } = ctx;
+  const [exporting, setExporting] = useState(false);
+  async function exportDashboard() {
+    setExporting(true);
+    try {
+      const r = buildReport(state);
+      const sm = r.summary;
+      const stamp = new Date().toISOString().slice(0, 10);
+      await exportPdf({
+        filename: `${slug(state.name)}-dashboard-${stamp}.pdf`,
+        title: 'Dashboard summary',
+        subtitle: `All time · ${state.events.filter(e => e.published).length} live events · Currency ${state.currency}`,
+        organization: state.name,
+        logo: state.settings.theme.logo,
+        sections: [
+          { title: 'At a glance', kpis: [['Gross sales', money(sm.gross)], ['Net sales', money(sm.net)], ['VAT collected', money(sm.vat)], ['Tickets sold', sm.ticketsSold], ['Check-in rate', `${Math.round(sm.checkinRate * 100)}%`], ['Food & drink orders', sm.orders], ['Tips', money(sm.tips)], ['Guest rating', session.ratings.count ? `${session.ratings.average.toFixed(1)} / 5 (${session.ratings.count})` : 'No ratings yet'], ['Active orders', state.orders.filter(o => ['Placed', 'Preparing', 'Ready'].includes(o.status)).length]] },
+          { title: 'Upcoming performances', table: { head: ['Date', 'Event', 'Venue', 'Sold', 'Status'], body: upcoming.map(e => [shortDate(e.date), e.name, e.venue, `${state.bookings.filter(b => b.event === e.id && b.status !== 'Cancelled').reduce((n, b) => n + b.qty, 0)}/${e.capacity}`, e.published ? 'Published' : 'Draft']) } },
+          { title: 'Top sellers', table: { head: ['Item', 'Category', 'Qty', 'Revenue'], body: r.bestSellers.slice(0, 5).map(i => [i.name, i.category, i.qty, money(i.revenue)]), align: { 2: 'right', 3: 'right' } } },
+          { title: 'Latest activity', table: { head: ['When', 'Guest', 'Reference', 'Details', 'Payment', 'Total'], body: [...state.bookings, ...state.orders].sort((a, b) => b.created - a.created).slice(0, 12).map(x => [dateTime(x.created * 1000), x.name, x.ref, x.qty ? `${x.qty} ticket(s) · ${x.eventName}` : `${x.tableName || 'Counter'} · ${x.items}`, paymentLabel(x), money(x.total)]), align: { 5: 'right' } } },
+        ],
+      });
+    } finally {
+      setExporting(false);
+    }
+  }
   const records = [...state.bookings, ...state.orders];
   const collected = records.filter(r => r.paid && r.status !== 'Cancelled').reduce((s, r) => s + r.total, 0);
   const outstanding = records.filter(r => !r.paid && r.status !== 'Cancelled').reduce((s, r) => s + r.total, 0);
@@ -56,7 +82,10 @@ export function Overview({ ctx }) {
   ];
   return (
     <>
-      {canManage && <PageActions><button className="primary" onClick={() => go('Events', 'create')}><Icon name="add" />Create event</button></PageActions>}
+      <PageActions>
+        {canManage && <button onClick={exportDashboard} disabled={exporting}><Icon name="download" />{exporting ? 'Preparing…' : 'Export PDF'}</button>}
+        {canManage && <button className="primary" onClick={() => go('Events', 'create')}><Icon name="add" />Create event</button>}
+      </PageActions>
       <div className="stats">
         {[
           ['Collected at venue', money(collected), 'wallet', money(outstanding) + ' awaiting payment'],
@@ -297,6 +326,7 @@ export function CheckIns({ ctx }) {
   const [status, setStatus] = useState('All');
   const [sort, setSort] = useState('recent');
   const [rowError, setRowError] = useState('');
+  const [guest, setGuest] = useState(null);
   const events = [...state.events].sort((a, b) => a.date.localeCompare(b.date));
   const withTickets = events.filter(e => state.bookings.some(b => b.event === e.id && b.paid && b.status !== 'Cancelled'));
   const soon = withTickets.find(e => new Date(e.date) >= new Date(Date.now() - 12 * 3600 * 1000)) || withTickets[withTickets.length - 1];
@@ -387,11 +417,11 @@ export function CheckIns({ ctx }) {
             {rows.map(t => (
               <div className="checkin-row" role="listitem" key={t.key}>
                 <Avatar name={t.booking.name} size={38} />
-                <div className="checkin-who">
+                <button className="checkin-who" onClick={() => setGuest(t.booking)} aria-label={`Open ${t.booking.name}'s tickets, orders and payments`}>
                   <b>{t.booking.name}</b>
                   <small>{t.booking.phone} · {t.booking.ref} · Ticket {t.serial} of {t.booking.qty}</small>
                   {eventId === 'all' && <small>{t.booking.eventName}</small>}
-                </div>
+                </button>
                 <div className="checkin-when">
                   {t.used ? (
                     <>
@@ -414,7 +444,91 @@ export function CheckIns({ ctx }) {
         )}
       </section>
       {scanning && <TicketScan ctx={ctx} onClose={() => setScanning(false)} />}
+      {guest && <GuestDetail ctx={ctx} person={guest} onClose={() => setGuest(null)} />}
     </>
+  );
+}
+
+function GuestDetail({ ctx, person, onClose }) {
+  const { state, money } = ctx;
+  const [tab, setTab] = useState('Tickets');
+  const [exporting, setExporting] = useState(false);
+  const h = guestHistory(state, { guest: person.guest, phone: person.phone });
+  const file = `${slug(person.name)}-${new Date().toISOString().slice(0, 10)}`;
+  const ticketRows = h.bookings.flatMap(b => b.tickets.map(t => [b.eventName, b.ref, `${t.serial} of ${b.qty}`, t.used ? `Checked in ${new Date(t.usedAt * 1000).toLocaleString()}${t.usedBy ? ' by ' + t.usedBy : ''}` : b.status === 'Cancelled' ? 'Cancelled' : 'Not arrived']));
+  const orderRows = h.orders.map(o => [dateTime(o.created * 1000), o.ref, o.tableName || 'Counter', o.items, o.status, money(o.total)]);
+  const paymentRows = h.payments.map(p => [dateTime(p.created * 1000), p.ref, p.kind, p.method, money(p.vat), money(p.tip), money(p.amount)]);
+  const exportCsv = () => downloadText(file + '.csv', toCsv([
+    [person.name, person.phone], ['Total spent', money(h.totals.spent)], [],
+    ['Tickets'], ['Event', 'Reference', 'Ticket', 'Status'], ...ticketRows, [],
+    ['Orders'], ['When', 'Reference', 'Table', 'Items', 'Status', 'Total'], ...orderRows, [],
+    ['Payments'], ['When', 'Reference', 'Type', 'Method', 'VAT', 'Tip', 'Amount'], ...paymentRows,
+  ]));
+  const exportGuestPdf = async () => {
+    setExporting(true);
+    try {
+      await exportPdf({
+        filename: file + '.pdf', title: person.name, subtitle: `${person.phone} · Guest history`, organization: state.name, logo: state.settings.theme.logo,
+        sections: [
+          { title: 'Summary', kpis: [['Total spent', money(h.totals.spent)], ['Tickets', h.totals.tickets], ['Checked in', h.totals.checkedIn], ['Orders', h.totals.orders], ['Bookings', h.bookings.length], ['Payments', h.payments.length]] },
+          { title: 'Tickets', table: { head: ['Event', 'Reference', 'Ticket', 'Status'], body: ticketRows } },
+          { title: 'Orders', table: { head: ['When', 'Reference', 'Table', 'Items', 'Status', 'Total'], body: orderRows, align: { 5: 'right' } } },
+          { title: 'Payments', table: { head: ['When', 'Reference', 'Type', 'Method', 'VAT', 'Tip', 'Amount'], body: paymentRows, align: { 4: 'right', 5: 'right', 6: 'right' } } },
+        ],
+      });
+    } finally {
+      setExporting(false);
+    }
+  };
+  return (
+    <Modal wide title={person.name} eyebrow="Guest" onClose={onClose}
+      footer={<><button onClick={exportCsv}><Icon name="download" />CSV</button><button className="primary" onClick={exportGuestPdf} disabled={exporting}><Icon name="download" />{exporting ? 'Preparing…' : 'Export PDF'}</button></>}>
+      <div className="guest-head">
+        <Avatar name={person.name} size={52} />
+        <div className="grow"><b>{person.phone}</b><small className="muted">Guest since {shortDate(Math.min(...[...h.bookings, ...h.orders].map(r => r.created)) * 1000)}</small></div>
+      </div>
+      <div className="guest-totals">
+        <div><strong>{money(h.totals.spent)}</strong><small>Total spent</small></div>
+        <div><strong>{h.totals.tickets}</strong><small>Tickets</small></div>
+        <div><strong>{h.totals.checkedIn}</strong><small>Checked in</small></div>
+        <div><strong>{h.totals.orders}</strong><small>Orders</small></div>
+      </div>
+      <div className="segmented" role="tablist" aria-label="Guest history">
+        {[['Tickets', ticketRows.length], ['Orders', h.orders.length], ['Payments', h.payments.length]].map(([t, n]) => (
+          <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>{t} <span className="muted">{n}</span></button>
+        ))}
+      </div>
+      {tab === 'Tickets' && (h.bookings.length ? h.bookings.map(b => (
+        <div className="history-card" key={b.id}>
+          <div className="row spread wrap"><b>{b.eventName}</b><span className="muted small">{b.ref} · {dateTime(b.created * 1000)}</span></div>
+          <div className="history-tickets">
+            {b.tickets.map(t => (
+              <span key={t.serial} className={'badge ' + (t.used ? 'success' : 'neutral')}>
+                Ticket {t.serial}: {t.used ? `in ${new Date(t.usedAt * 1000).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}` : b.status === 'Cancelled' ? 'cancelled' : 'not arrived'}
+              </span>
+            ))}
+          </div>
+          <div className="meta"><span>{money(b.subtotal)} tickets</span>{b.tax && <span>{b.tax.label} {money(vatOf(b))}</span>}<b style={{ color: 'var(--ink)' }}>Total {money(b.total)}</b></div>
+        </div>
+      )) : <p className="small">No tickets.</p>)}
+      {tab === 'Orders' && (h.orders.length ? h.orders.map(o => (
+        <div className="history-card" key={o.id}>
+          <div className="row spread wrap"><b>{o.tableName || 'Counter pickup'}</b><span className="badge neutral">{o.status}</span></div>
+          <p style={{ color: 'var(--ink)' }}>{o.items}</p>
+          <div className="meta"><span>{o.ref}</span><span>{dateTime(o.created * 1000)}</span><span>Items {money(o.subtotal)}</span>{o.tax && <span>{o.tax.label} {money(vatOf(o))}</span>}<span>Tip {money(o.tip || 0)}</span><b style={{ color: 'var(--ink)' }}>Total {money(o.total)}</b></div>
+        </div>
+      )) : <p className="small">No food or drink orders.</p>)}
+      {tab === 'Payments' && (h.payments.length ? (
+        <div className="table-scroll">
+          <table className="report-table">
+            <thead><tr><th>When</th><th>Reference</th><th>Type</th><th>Method</th><th className="num">VAT</th><th className="num">Tip</th><th className="num">Amount</th></tr></thead>
+            <tbody>{h.payments.map(p => (
+              <tr key={p.ref}><td>{dateTime(p.created * 1000)}</td><td>{p.ref}</td><td>{p.kind}</td><td>{p.method}</td><td className="num">{money(p.vat)}</td><td className="num">{money(p.tip)}</td><td className="num"><b>{money(p.amount)}</b></td></tr>
+            ))}</tbody>
+          </table>
+        </div>
+      ) : <p className="small">No payments.</p>)}
+    </Modal>
   );
 }
 

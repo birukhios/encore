@@ -72,7 +72,7 @@ class JourneyTests(test_server.AppTests):
             self.assertEqual(Client(self.guest.server_port)('checkout', payload)[0], 401)
             status, rec = g('checkout', payload)
             self.assertEqual(status, 201)
-            self.assertEqual((rec['total'], rec['paid']), (2100, True))
+            self.assertEqual((rec['subtotal'], rec['tax']['amount'], rec['total'], rec['paid']), (2100, 315, 2415, True))  # 21.00 + 15% VAT
             self.assertEqual(g('checkout', payload)[0], 400)  # sold out
         finally:
             s.DEMO = False

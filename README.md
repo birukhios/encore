@@ -69,6 +69,13 @@ In development, SMS messages (sign-in codes, booking and order updates) are **pr
 - **Wallet logos:** official Telebirr, CBE Birr, M-PESA and Awash Birr logo files in `public/wallets/` appear on checkout.
 - **UI/UX pass** (ui-ux-pro-max checklist): SVG icons instead of emoji/text symbols, 44px touch targets on touch screens, 4.5:1 contrast for secondary text, visible focus on composite inputs, minimum text sizes, 16px inputs on phones.
 
+## Reports and PDF exports
+
+- **Reports** (Owner/Admin, under Insights): pick a period and event to see gross sales, ticket and food & drink sales, VAT, tips, check-in rate, daily sales, best-selling items, busiest tables, busiest hours and payment methods. Export as CSV or as a branded PDF.
+- **Dashboard → Export PDF** creates a one-page summary with the Encore and organization branding.
+- **Check-ins:** click a guest's name to see their tickets, orders and payments, and export them as CSV or PDF.
+- **VAT** is added on top of listed prices. Existing workspaces were switched automatically. All tickets and orders are paid online; there is no pay-at-venue option.
+
 ## Appearance
 
 Organizers choose the default look in Settings → Appearance (guest app and dashboard separately: Light, Black, or follow the device). Anyone can also flip light/dark for themselves with the ☾/☀ button in either app's header; that choice is remembered on their device.

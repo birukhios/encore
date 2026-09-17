@@ -623,7 +623,7 @@ class GuestHandler(BaseHandler):
         if path == '/api/checkout' and not DEMO:
             read_tenant(c, text(v.get('tenant')))
             # Fail closed until the AfroPay merchant contract and credentials are configured.
-            raise ApiError(503, 'Online payments are not available yet. You can reserve and pay at the venue.', 'PAYMENT_NOT_CONFIGURED')
+            raise ApiError(503, 'Online payments are not available yet. Please try again later.', 'PAYMENT_NOT_CONFIGURED')
 
         if path not in ['/api/guest/profile', '/api/guest/notifications/read', '/api/order', '/api/checkout', '/api/guest/rating']:
             raise LookupError('Not found')

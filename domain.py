@@ -32,7 +32,7 @@ DEFAULT_SETTINGS = {
     'profile': {'city': 'Addis Ababa', 'address': '', 'mapUrl': '', 'photos': []},
     'menu': {'categories': ['Food', 'Drinks']},
     # Ethiopian VAT: 15% standard rate for VAT-registered businesses. Organizers confirm their own obligations.
-    'tax': {'regime': 'vat', 'vatRate': 15, 'pricesIncludeTax': True, 'tin': '', 'vatNumber': '', 'tickets': True, 'menu': True},
+    'tax': {'regime': 'vat', 'vatRate': 15, 'pricesIncludeTax': False, 'tin': '', 'vatNumber': '', 'tickets': True, 'menu': True, 'addedOnTop': True},
 }
 TAX_REGIMES = ['vat', 'none']
 MAX_TIP_CENTS = 5_000_000  # 50,000 in the workspace currency
@@ -144,6 +144,10 @@ def blank(name):
 def upgrade(s):
     """Bring older workspace documents up to the current shape. Idempotent."""
     settings = s.setdefault('settings', {})
+    old_tax = settings.get('tax')
+    if isinstance(old_tax, dict) and not old_tax.get('addedOnTop'):
+        # One-time switch for workspaces created before VAT was added on top of listed prices by default.
+        old_tax.update(pricesIncludeTax=False, addedOnTop=True)
     for group, defaults in DEFAULT_SETTINGS.items():
         current = settings.setdefault(group, {})
         for key, value in defaults.items():
@@ -165,6 +169,7 @@ def upgrade(s):
     if tax.get('regime') not in TAX_REGIMES:  # turnover tax was removed
         tax['regime'] = 'none'
     tax.pop('totRate', None)
+
     for item in s['menu']:
         item.setdefault('events', [])
         if item.get('category') and item['category'] not in settings['menu']['categories']:
@@ -571,10 +576,8 @@ def guest_record(s, v, guest, demo_payment=False):
     Normally settled in person at the venue and created unpaid. `demo_payment` is used only by the
     server's explicit demo mode: the record is marked paid by a clearly labelled simulated payment.
     """
-    if v.get('kind') == 'booking' and not demo_payment:
-        raise ValueError('Tickets are paid online only.')
-    if not demo_payment and not s['settings']['payments']['venue']:
-        raise ValueError('Pay-at-table orders are not available. Please pay online.')
+    if not demo_payment:
+        raise ValueError('Tickets are paid online only.' if v.get('kind') == 'booking' else 'Orders are paid online only.')
     q = quote_order(s, v, guest['id'])
     rec = {'id': uid(), 'ref': reference(), 'token': uid(), 'guest': guest['id'], 'name': guest['name'], 'phone': guest['phone'],
            'email': email(v.get('email'), False), 'currency': s['currency'], 'total': q['total'], 'subtotal': q['subtotal'],
