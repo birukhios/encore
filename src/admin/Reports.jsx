@@ -1,10 +1,10 @@
 import React, { useMemo, useState } from 'react';
-import { shortDate } from '../shared/api';
+import { dateTime, shortDate } from '../shared/api';
 import { Empty, ErrorText, Field, Icon } from '../shared/ui';
 import { Bars, DataTable, Delta, Donut, Heatmap, Insights, Kpi, TrendChart, hourLabel, pct } from './charts';
 import { PageActions } from './pages';
 import { exportPdf } from './pdf';
-import { buildReport, change, DAY_NAMES, downloadText, isoDay, slug, toCsv } from './reportData';
+import { buildReport, change, DAY_NAMES, downloadText, isoDay, paymentLabel, slug, toCsv } from './reportData';
 
 const daysAgo = n => isoDay(new Date(Date.now() - n * 86400000));
 export const PRESETS = [
@@ -56,6 +56,43 @@ export function ReportFilters({ filters, setFilters, events, children }) {
   );
 }
 
+export function Suggestions({ items, limit = 8 }) {
+  if (!items.length) return <p className="small">Suggestions appear once there are enough sales to analyse.</p>;
+  return (
+    <ol className="suggestions">
+      {items.slice(0, limit).map((x, i) => (
+        <li key={i} className={x.priority}>
+          <div className="suggestion-top"><span className={'badge ' + (x.priority === 'high' ? 'danger' : 'neutral')}>{x.priority === 'high' ? 'High impact' : x.area}</span>{x.metric && <small>{x.metric}</small>}</div>
+          <b>{x.title}</b>
+          <p>{x.body}</p>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+export function LatestActivity({ records, money }) {
+  if (!records.length) return <p className="small">No bookings or orders in this period.</p>;
+  return (
+    <div className="table-scroll">
+      <table className="report-table">
+        <thead><tr><th>When</th><th>Guest</th><th>Details</th><th>Payment</th><th className="num">Total</th></tr></thead>
+        <tbody>
+          {records.map(r => (
+            <tr key={r.id || r.ref}>
+              <td>{dateTime(r.created * 1000)}</td>
+              <td><b>{r.name}</b><small>{r.ref}</small></td>
+              <td>{r.qty ? `${r.qty} ticket${r.qty > 1 ? 's' : ''} · ${r.eventName}` : `${r.tableName || 'Counter pickup'} · ${r.items}`}</td>
+              <td>{paymentLabel(r)}</td>
+              <td className="num"><b>{money(r.total)}</b></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export function Tabs({ tabs, value, onChange, label = 'Report sections' }) {
   return (
     <div className="report-tabs" role="tablist" aria-label={label}>
@@ -93,6 +130,10 @@ export function ReportBody({ report, money, tab }) {
           ? <TrendChart rows={report.daily} series={[{ key: 'tickets', label: 'Tickets' }, { key: 'menu', label: 'Food & drinks' }]} format={axis} label="Daily sales" />
           : <p className="small">Sales on more than one day are needed to draw a trend.</p>}
       </section>
+      <section className="card">
+        <div className="card-head"><div><h2>Suggestions to grow sales</h2><p>Based on this period's data, most important first.</p></div></div>
+        <Suggestions items={report.suggestions} />
+      </section>
       <div className="report-grid">
         <section className="card">
           <div className="card-head"><h2>Key findings</h2></div>
@@ -103,6 +144,10 @@ export function ReportBody({ report, money, tab }) {
           <Donut parts={[{ label: 'Tickets', value: s.ticketSales }, { label: 'Food & drinks', value: s.menuSales }, { label: 'VAT', value: s.vat }, { label: 'Tips', value: s.tips }]} format={money} />
         </section>
       </div>
+      <section className="card">
+        <div className="card-head"><div><h2>Latest activity</h2><p>The 10 most recent bookings and orders in this period.</p></div></div>
+        <LatestActivity records={report.latest} money={money} />
+      </section>
     </>
   );
 
@@ -299,6 +344,7 @@ export function reportPdfSections(report, money, { taxNote = '' } = {}) {
       ['Food & drink sales', money(s.menuSales), vs('menuSales')], ['Average order', money(s.avgOrder), `${s.itemsPerOrder.toFixed(1)} items per order`], ['Attach rate', pct(s.attachRate), 'Ticket holders who ordered'],
       ['Tips', money(s.tips), `${pct(s.tipParticipation)} of orders tipped`], ['Paying guests', s.guests, `${pct(report.guests.repeatRate)} returning`], ['Spend per guest', money(s.spendPerGuest), vs('spendPerGuest')],
     ] },
+    ...(report.suggestions.length ? [{ title: 'Suggestions to grow sales', table: { head: ['#', 'Priority', 'Suggestion', 'Why'], body: report.suggestions.map((x, n) => [n + 1, x.priority === 'high' ? 'High' : 'Medium', x.title, `${x.body}${x.metric ? ` (${x.metric})` : ''}`]) } }] : []),
     ...(report.insights.length ? [{ title: 'Key findings', table: { head: ['Finding', 'Detail'], body: report.insights.map(i => [i.title, i.body]) } }] : []),
     { title: 'Event performance', table: { head: ['Event', 'Sold', 'Sell-through', 'No-show', 'Ticket sales', 'F&B sales', 'VAT', 'Gross'], body: report.byEvent.map(e => [`${e.name}\n${shortDate(e.date)}`, `${e.ticketsSold}/${e.capacity}`, pct(e.sellThrough), e.ticketsSold ? pct(e.noShowRate) : '—', money(e.ticketSales), money(e.menuSales), money(e.vat), money(e.gross)]), align: right(1, 2, 3, 4, 5, 6, 7) } },
     { title: 'Best-selling items', table: { head: ['#', 'Item', 'Category', 'Qty', 'Attach', 'Revenue', 'Share'], body: report.bestSellers.slice(0, 25).map((i, n) => [n + 1, i.name, i.category, i.qty, pct(i.attach), money(i.revenue), pct(i.share, 1)]), align: right(3, 4, 5, 6) } },
@@ -309,6 +355,7 @@ export function reportPdfSections(report, money, { taxNote = '' } = {}) {
     { title: 'Top guests', table: { head: ['#', 'Guest', 'Phone', 'Events', 'Tickets', 'Orders', 'Spent'], body: report.topGuests.slice(0, 20).map((g, n) => [n + 1, g.name, g.phone || '', g.events, g.tickets, g.orders, money(g.spent)]), align: right(3, 4, 5, 6) } },
     { title: 'Busiest hours', table: { head: ['Hour', 'Orders', 'Revenue'], body: report.byHour.filter(h => h.orders).sort((a, b) => b.orders - a.orders).slice(0, 10).map(h => [hourLabel(h.hour), h.orders, money(h.revenue)]), align: right(1, 2) } },
     { title: 'Payment methods', table: { head: ['Method', 'Transactions', 'Amount', 'Share'], body: report.payments.map(x => [x.method, x.count, money(x.amount), pct(x.share)]), align: right(1, 2, 3) } },
+    { title: 'Latest activity', table: { head: ['When', 'Guest', 'Reference', 'Details', 'Payment', 'Total'], body: report.latest.map(x => [dateTime(x.created * 1000), x.name, x.ref, x.qty ? `${x.qty} ticket(s) · ${x.eventName}` : `${x.tableName || 'Counter'} · ${x.items}`, paymentLabel(x), money(x.total)]), align: right(5) } },
     { title: 'Daily sales', table: { head: ['Date', 'Tickets', 'Orders', 'Ticket sales', 'F&B sales', 'Tips', 'VAT', 'Gross'], body: report.daily.filter(r => r.gross).map(r => [r.date, r.ticketsSold, r.orders, money(r.tickets), money(r.menu), money(r.tips), money(r.vat), money(r.gross)]), align: right(1, 2, 3, 4, 5, 6, 7) } },
     { title: 'Notes', note: `Sales include paid, non-cancelled bookings and orders only. Net sales exclude VAT and tips. Attach rate is the share of ticket holders who also ordered food or drinks at the same event. Comparisons use the period of equal length immediately before.${taxNote} Encore reports are not fiscal receipts.` },
   ];
@@ -328,7 +375,9 @@ export function reportCsvRows(report, money, header) {
       const c = report.previous ? change(s[key], before) : null;
       return [label, f(s[key]), report.previous ? f(before) : '', c === null ? '' : pct(c, 1)];
     }),
+    [], ['Suggestions to grow sales'], ['Priority', 'Area', 'Suggestion', 'Why', 'Metric'], ...report.suggestions.map(x => [x.priority, x.area, x.title, x.body, x.metric]),
     [], ['Key findings'], ...report.insights.map(i => [i.title, i.body]),
+    [], ['Latest activity'], ['When', 'Guest', 'Reference', 'Details', 'Payment', 'Total'], ...report.latest.map(x => [new Date(x.created * 1000).toISOString(), x.name, x.ref, x.qty ? `${x.qty} ticket(s) · ${x.eventName}` : `${x.tableName || 'Counter'} · ${x.items}`, paymentLabel(x), money(x.total)]),
     [], ['Event performance'], ['Event', 'Date', 'Capacity', 'Tickets sold', 'Sell-through', 'Checked in', 'No-show rate', 'Ticket sales', 'Orders', 'F&B sales', 'F&B per guest', 'Tips', 'VAT', 'Gross'],
     ...report.byEvent.map(e => [e.name, e.date, e.capacity, e.ticketsSold, pct(e.sellThrough), e.checkedIn, pct(e.noShowRate), money(e.ticketSales), e.orders, money(e.menuSales), money(e.fnbPerAttendee), money(e.tips), money(e.vat), money(e.gross)]),
     [], ['Menu items'], ['Item', 'Category', 'Price', 'Quantity', 'Orders', 'Attach rate', 'Revenue', 'Revenue share'],

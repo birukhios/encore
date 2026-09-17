@@ -1181,3 +1181,11 @@ button.danger:hover:not(:disabled) { background: #a51524; }
 @media (max-width: 380px) { .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 330px) { .kpis { grid-template-columns: minmax(0, 1fr); } }
 .report-panel, .main, .org-detail { grid-template-columns: minmax(0, 1fr); }
+.suggestions { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); }
+.suggestions li { display: grid; gap: 6px; align-content: start; padding: 14px; border-radius: 10px; border: 1px solid var(--line-soft); background: var(--surface-2); }
+.suggestions li.high { border-color: color-mix(in srgb, var(--accent) 35%, var(--line-soft)); background: color-mix(in srgb, var(--accent) 4%, var(--surface)); }
+.suggestion-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.suggestion-top small { color: var(--muted); font-size: 12px; text-align: right; }
+.suggestions b { font-size: 14px; line-height: 1.3; }
+.suggestions p { font-size: 12.5px; line-height: 1.5; }
+.dash-grid .suggestions { grid-template-columns: minmax(0, 1fr); }

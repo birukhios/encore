@@ -14,7 +14,7 @@ from fractions import Fraction
 from urllib.parse import quote
 
 CURRENCIES = ['ETB', 'USD', 'EUR', 'KES', 'NGN', 'GHS', 'RWF', 'UGX']
-SETTLEMENT_METHODS = ['Cash', 'Card at venue', 'Bank transfer']
+SETTLEMENT_METHODS = ['Cash', 'Card at venue']  # bank transfers are not accepted
 ORDER_FLOW = {'Placed': 'Preparing', 'Preparing': 'Ready', 'Ready': 'Delivered'}
 HOLDING_STATUSES = ['Reserved', 'Checked in']  # bookings that consume capacity
 CODE_ALPHABET = 'ACDEFGHJKLMNPQRTUVWXY3469'

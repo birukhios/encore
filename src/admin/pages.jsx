@@ -6,7 +6,7 @@ import { LogoMark } from '../shared/Logo';
 import QR from '../shared/QR';
 import { exportPdf } from './pdf';
 import { Bars, DataTable, Kpi, TrendChart } from './charts';
-import { compact } from './Reports';
+import { compact, Suggestions } from './Reports';
 import { buildReport, change, downloadText, guestHistory, paymentLabel, slug, toCsv, vatOf } from './reportData';
 import Scanner from '../shared/Scanner';
 import { Avatar, copyText, Empty, ErrorText, Field, Icon, Modal, StarIcon, Toggle } from '../shared/ui';
@@ -92,9 +92,10 @@ export function Overview({ ctx }) {
             ['Guest rating', session.ratings.count ? `${session.ratings.average.toFixed(1)} / 5` : 'No ratings', session.ratings.count ? `${session.ratings.count} ratings` : ''],
           ] },
           { title: 'Upcoming performances', table: { head: ['Date', 'Event', 'Venue', 'Sold', 'Sell-through', 'Status'], body: upcoming.map(e => [shortDate(e.date), e.name, e.venue, `${soldFor(e.id)}/${e.capacity}`, `${Math.round((soldFor(e.id) / (e.capacity || 1)) * 100)}%`, e.published ? 'Published' : 'Draft']), align: { 3: 'right', 4: 'right' } } },
+          ...(month.suggestions.length ? [{ title: 'Suggestions to grow sales', table: { head: ['#', 'Suggestion', 'Why'], body: month.suggestions.slice(0, 5).map((x, n) => [n + 1, x.title, x.body]) } }] : []),
           { title: 'Best sellers', table: { head: ['#', 'Item', 'Category', 'Qty', 'Revenue'], body: month.bestSellers.slice(0, 8).map((i, n) => [n + 1, i.name, i.category, i.qty, money(i.revenue)]), align: { 3: 'right', 4: 'right' } } },
           { title: 'Top tipped tables', table: { head: ['#', 'Table', 'Event', 'Tips', 'Tipped orders', 'Avg tip'], body: month.topTipped.slice(0, 8).map((t, n) => [n + 1, t.name, t.event, money(t.tips), `${t.tippedOrders}/${t.orders}`, money(t.avgTip)]), align: { 3: 'right', 4: 'right', 5: 'right' } } },
-          { title: 'Latest activity', table: { head: ['When', 'Guest', 'Reference', 'Details', 'Payment', 'Total'], body: records.slice(0, 12).map(x => [dateTime(x.created * 1000), x.name, x.ref, x.qty ? `${x.qty} ticket(s) · ${x.eventName}` : `${x.tableName || 'Counter'} · ${x.items}`, paymentLabel(x), money(x.total)]), align: { 5: 'right' } } },
+          { title: 'Latest activity', table: { head: ['When', 'Guest', 'Reference', 'Details', 'Payment', 'Total'], body: records.slice(0, 10).map(x => [dateTime(x.created * 1000), x.name, x.ref, x.qty ? `${x.qty} ticket(s) · ${x.eventName}` : `${x.tableName || 'Counter'} · ${x.items}`, paymentLabel(x), money(x.total)]), align: { 5: 'right' } } },
         ],
       });
     } finally {
@@ -198,6 +199,13 @@ export function Overview({ ctx }) {
 
         {canManage && (
           <section className="card">
+            <div className="card-head"><div><h2>Suggestions to grow sales</h2><p>From the last 30 days</p></div><button onClick={() => go('Reports')}>All suggestions</button></div>
+            <Suggestions items={month.suggestions} limit={3} />
+          </section>
+        )}
+
+        {canManage && (
+          <section className="card">
             <div className="card-head"><div><h2>Top tipped tables</h2><p>Last 30 days</p></div><button onClick={() => go('Reports')}>Details</button></div>
             <DataTable limit={5} rank sort={{ key: 'tips', dir: 'desc' }} rows={month.topTipped} empty="No tips in the last 30 days." columns={[
               { key: 'name', label: 'Table', render: t => <><b>{t.name}</b><small>{t.event}</small></> },
@@ -231,7 +239,7 @@ export function Overview({ ctx }) {
         <div className="card-head"><h2>Latest activity</h2>{role !== 'Gate' && <button onClick={() => go('Orders')}>View orders</button>}</div>
         {records.length ? (
           <div className="list">
-            {records.slice(0, 8).map(r => (
+            {records.slice(0, 10).map(r => (
               <div className="listrow" key={r.id}>
                 <span className="avatar">{r.name[0]}</span>
                 <div className="grow">
@@ -624,7 +632,7 @@ function SettleModal({ ctx, record, onClose }) {
       <p className="notice">Collect <b>{ctx.money(record.total)}</b> in person before confirming. This records the payment — it does not charge the guest.</p>
       <Field label="Paid by">
         <select value={method} onChange={e => setMethod(e.target.value)}>
-          <option>Cash</option><option>Card at venue</option><option>Bank transfer</option>
+          <option>Cash</option><option>Card at venue</option>
         </select>
       </Field>
       <ErrorText>{error}</ErrorText>

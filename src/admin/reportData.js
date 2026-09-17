@@ -226,8 +226,10 @@ export function buildReport(state, filters = {}) {
     top10Share: ratio(sum(topGuests.slice(0, 10), g => g.spent), summary.gross),
   };
 
-  const report = { summary, previous, byEvent, bestSellers, slowMovers, pareto, categories, busyTables, topTipped, byHour, byWeekday, heatmap, payments, daily, topGuests, guests };
+  const latest = [...bookings, ...orders].sort((a, b) => b.created - a.created).slice(0, 10);
+  const report = { latest, summary, previous, byEvent, bestSellers, slowMovers, pareto, categories, busyTables, topTipped, byHour, byWeekday, heatmap, payments, daily, topGuests, guests };
   report.insights = insights(report);
+  report.suggestions = suggestions(report);
   return report;
 }
 
@@ -275,6 +277,65 @@ function insights(r) {
   if (s.orders >= 5 && slow.length) out.push({ tone: 'watch', title: `${slow.length} menu item${slow.length > 1 ? 's' : ''} did not sell`, body: slow.slice(0, 3).map(i => i.name).join(', ') + (slow.length > 3 ? '…' : '') });
   if (r.guests.unique >= 5) out.push({ tone: r.guests.repeatRate >= 0.3 ? 'good' : 'info', title: `${pctText(r.guests.repeatRate)} of guests came back`, body: `${r.guests.repeat} of ${r.guests.unique} guests booked or ordered more than once.` });
   return out;
+}
+
+/**
+ * Actions to grow sales, ranked by expected impact. Each: { priority: 'high' | 'medium', area, title, body, metric }.
+ * Only produced when the data supports them, so a quiet workspace gets few or none.
+ */
+function suggestions(r) {
+  const s = r.summary;
+  const out = [];
+  const add = (score, priority, area, title, body, metric) => out.push({ score, priority, area, title, body, metric });
+  const enough = s.bookings + s.orders >= 5;
+  if (!enough) return [];
+
+  const weak = r.byEvent.filter(e => new Date(e.date) > new Date() && e.sellThrough < 0.5 && e.capacity >= 20).sort((a, b) => a.sellThrough - b.sellThrough)[0];
+  if (weak) add(90, 'high', 'Tickets', `Push ticket sales for ${weak.name}`,
+    `Only ${pctText(weak.sellThrough)} of seats are sold. Share the guest link on social media, offer an early-bird or group price, and remind past guests.`, `${weak.ticketsSold}/${weak.capacity} sold`);
+
+  const hot = r.byEvent.filter(e => e.sellThrough >= 0.85).sort((a, b) => b.sellThrough - a.sellThrough)[0];
+  if (hot) add(70, 'medium', 'Tickets', `Add capacity or a second date like ${hot.name}`,
+    `${pctText(hot.sellThrough)} sold. Demand is strong: consider a higher price tier, more seats, or a repeat show.`, `${hot.ticketsSold}/${hot.capacity} sold`);
+
+  if (s.ticketsSold >= 10 && s.attachRate < 0.5) add(85, 'high', 'Food & drinks', 'Turn more ticket holders into food & drink buyers',
+    `${pctText(s.attachRate)} of ticket holders ordered. Put table QR codes on every table, announce ordering from the stage, and add a combo to the menu.`, `${pctText(s.attachRate)} attach rate`);
+
+  const star = r.bestSellers[0];
+  if (star && star.share >= 0.2) add(65, 'medium', 'Menu', `Build on ${star.name}`,
+    `It brings ${pctText(star.share)} of food & drink revenue. Pair it with a drink as a bundle, keep it in stock, and test a small price increase.`, `${star.qty} sold`);
+
+  const dead = r.slowMovers.filter(i => !i.qty);
+  if (s.orders >= 10 && dead.length) add(55, 'medium', 'Menu', `Rethink ${dead.length} item${dead.length > 1 ? 's' : ''} that did not sell`,
+    `${dead.slice(0, 3).map(i => i.name).join(', ')}${dead.length > 3 ? '…' : ''}. Add a photo and description, lower the price, or replace them to keep the menu short.`, 'No sales');
+
+  if (s.orders >= 10 && s.itemsPerOrder < 2) add(60, 'medium', 'Food & drinks', 'Increase items per order',
+    `Orders average ${s.itemsPerOrder.toFixed(1)} items. Suggest a drink with every food item and offer sides or desserts at checkout.`, `${s.itemsPerOrder.toFixed(1)} items/order`);
+
+  if (s.orders >= 10 && s.tipParticipation < 0.4) add(40, 'medium', 'Tips', 'Encourage tipping',
+    `${pctText(s.tipParticipation)} of orders include a tip. Offer small preset amounts in Settings → Tips and let staff mention it at delivery.`, `${pctText(s.tipParticipation)} tipped`);
+
+  const peak = [...r.byHour].sort((a, b) => b.orders - a.orders)[0];
+  if (peak?.orders >= 5) add(50, 'medium', 'Operations', `Staff up around ${hourText(peak.hour)}`,
+    `${peak.orders} orders arrive in that hour. Extra service staff and a prepared bar keep orders fast, so guests order again.`, `${peak.orders} orders`);
+
+  const days = r.byWeekday.filter(d => d.gross > 0).sort((a, b) => b.gross - a.gross);
+  if (days.length >= 3) add(45, 'medium', 'Scheduling', `Schedule more events on ${days[0].day}`,
+    `${days[0].day} brings the most sales; ${days[days.length - 1].day} the least. Plan headline events on strong days and promotions on weak ones.`, `Best day: ${days[0].day}`);
+
+  if (r.guests.unique >= 10 && r.guests.repeatRate < 0.3) add(75, 'high', 'Guests', 'Bring guests back',
+    `Only ${pctText(r.guests.repeatRate)} of guests returned. Message past guests about the next event and reward repeat visits.`, `${pctText(r.guests.repeatRate)} returning`);
+
+  if (r.guests.unique >= 10 && r.guests.top10Share >= 0.4) add(35, 'medium', 'Guests', 'Look after your top guests',
+    `The top 10 guests bring ${pctText(r.guests.top10Share)} of sales. Offer them early access or reserved tables.`, `${pctText(r.guests.top10Share)} of sales`);
+
+  if (r.previous?.summary.gross && change(s.gross, r.previous.summary.gross) < -0.1) add(95, 'high', 'Sales', 'Sales are falling — act this week',
+    `Gross sales fell ${pctText(Math.abs(change(s.gross, r.previous.summary.gross)))} compared with the previous period. Announce the next event early and run a limited-time offer.`, 'vs previous period');
+
+  if (s.ticketsSold >= 10 && s.checkinRate < 0.6) add(30, 'medium', 'Operations', 'Scan every ticket at the door',
+    `${pctText(s.checkinRate)} of tickets were checked in. Scanning gives accurate attendance and no-show data for pricing and staffing.`, `${pctText(s.checkinRate)} checked in`);
+
+  return out.sort((a, b) => b.score - a.score).map(({ score, ...x }) => x);
 }
 
 /** Everything one guest did with the workspace, for the check-in guest panel. */

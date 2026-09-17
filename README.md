@@ -73,7 +73,7 @@ In development, SMS messages (sign-in codes, booking and order updates) are **pr
 
 - **Dashboard:** 7- or 30-day sales, tickets, orders and tips, each compared with the previous period; a daily sales trend; live order status (placed, preparing, ready); upcoming events with how many tickets are sold; top tipped tables; best sellers; ratings; and a setup checklist that disappears once setup is done. **Export PDF** creates a branded summary.
 - **Reports** (Owner/Admin): filter by period (today, 7, 30 or 90 days, all time, or custom dates) and event. Every figure is compared with the previous period of the same length. The report has six tabs:
-  - **Overview:** 8 key figures, a sales trend, key findings, and a breakdown of where the money comes from.
+  - **Overview:** 8 key figures, suggestions to grow sales (ranked from the data), a sales trend, key findings, where the money comes from, and the 10 latest bookings and orders.
   - **Sales:** each event's share of tickets sold, no-show rate and food & drink sales per checked-in guest, plus payment methods, weekdays and a daily breakdown.
   - **Menu:** best sellers with attach rate and revenue share, how much revenue the top items bring in, category mix, and slow movers.
   - **Tables & tips:** top tipped tables with tip rate and average tip, and the busiest tables.
