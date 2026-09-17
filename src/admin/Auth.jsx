@@ -46,7 +46,7 @@ export default function Auth({ onAuth }) {
         <Logo size={32} />
         <div>
           <span className="eyebrow">The backstage pass for organizers</span>
-          <h1>Make every<br />night count.</h1>
+          <h1>Make every <br />night count.</h1>
           <p>From the first ticket to the final encore. Your team, your venue, one workspace.</p>
           <div className="auth-features">
             <span><Icon name="ticket" />Ticketing</span>

@@ -64,7 +64,7 @@ export default function AdminApp() {
       setSession(await api('me'));
       setBannerError('');
     } catch (e) {
-      if (e.status === 401) setSession(null);
+      if (e.status === 401 || e.code === 'TENANT_SUSPENDED') setSession(null);
       else setBannerError(e.message);
     }
   };

@@ -46,7 +46,7 @@ TRUST_PROXY = os.environ.get('TRUST_PROXY') == '1'
 # Never enable for real guests or real money.
 DEMO = os.environ.get('ENCORE_DEMO') == '1'
 
-ADMIN_SESSION_DAYS, GUEST_SESSION_DAYS = 7, 30
+ADMIN_SESSION_DAYS, GUEST_SESSION_DAYS, PLATFORM_SESSION_HOURS = 7, 30, 12
 OTP_TTL, OTP_RESEND, OTP_MAX_ATTEMPTS = 300, 60, 5
 STAFF_ROLES = {
     'Owner': ['settings', 'config', 'event', 'menu', 'table', 'delete', 'order_status', 'checkin', 'checkin_ticket', 'settle', 'cancel'],
@@ -76,6 +76,25 @@ def init():
         c.execute('DELETE FROM guest_sessions WHERE expires<?', (now,))
         c.execute('DELETE FROM otps WHERE expires<?', (now,))
         c.execute('DELETE FROM otp_log WHERE created<?', (now - 86400,))
+        c.execute('DELETE FROM platform_sessions WHERE expires<?', (now,))
+        bootstrap_platform_admin(c)
+
+
+def bootstrap_platform_admin(c):
+    """Create or update the platform operator named by ENCORE_PLATFORM_EMAIL / ENCORE_PLATFORM_PASSWORD."""
+    mail, pw = os.environ.get('ENCORE_PLATFORM_EMAIL', '').strip().lower(), os.environ.get('ENCORE_PLATFORM_PASSWORD', '')
+    if not mail:
+        return
+    if len(pw) < 12:
+        print('WARNING: ENCORE_PLATFORM_PASSWORD must be at least 12 characters; platform admin not created.', flush=True)
+        return
+    row = c.execute('SELECT * FROM platform_admins WHERE email=?', (mail,)).fetchone()
+    if not row:
+        c.execute('INSERT INTO platform_admins(id,name,email,password,created) VALUES(?,?,?,?,?)',
+                  (uid(), os.environ.get('ENCORE_PLATFORM_NAME', 'Platform admin'), mail, password(pw), int(time.time())))
+    elif not verify(pw, row['password']):
+        c.execute('UPDATE platform_admins SET password=? WHERE id=?', (password(pw), row['id']))
+        c.execute('DELETE FROM platform_sessions WHERE admin=?', (row['id'],))
 
 
 def secret():
@@ -113,6 +132,23 @@ def read_tenant(c, t):
     if not row:
         raise LookupError('Workspace not found.')
     return row, domain.upgrade(json.loads(row['state']))
+
+
+SUSPENDED_MESSAGE = 'This organization is suspended. Contact Encore support.'
+
+
+def ensure_active(c, tenant_id):
+    row = c.execute('SELECT status FROM tenants WHERE id=?', (tenant_id,)).fetchone()
+    if row and row['status'] == 'suspended':
+        raise ApiError(403, SUSPENDED_MESSAGE, 'TENANT_SUSPENDED')
+
+
+def guest_tenant(c, t):
+    """A workspace that guests may book or order with; suspended organizations are hidden."""
+    row, s = read_tenant(c, t)
+    if row['status'] == 'suspended':
+        raise LookupError('This organizer is not available right now.')
+    return row, s
 
 
 def write_tenant(c, tenant_id, s):
@@ -153,6 +189,53 @@ def rating_summary(c, tenant, guest_id=None, recent=0):
         mine = c.execute('SELECT stars,comment FROM ratings WHERE tenant=? AND guest=?', (tenant, guest_id)).fetchone()
         out['mine'] = dict(mine) if mine else None
     return out
+
+
+def platform_log(c, admin, action, target='', detail=''):
+    c.execute('INSERT INTO platform_audit(admin,action,target,detail,created) VALUES(?,?,?,?,?)', (admin, action, target, detail, int(time.time())))
+
+
+def _strip_tokens(rec):
+    out = {k: v for k, v in rec.items() if k != 'token'}
+    if 'tickets' in out:
+        out['tickets'] = [{k: v for k, v in t.items() if k != 'token'} for t in out['tickets']]
+    return out
+
+
+def platform_snapshot(c, system):
+    """Everything the platform console analyses, without secrets (password hashes, session and ticket tokens)."""
+    now = int(time.time())
+    last_seen = {r['user']: r['last'] - ADMIN_SESSION_DAYS * 86400 for r in c.execute('SELECT "user",MAX(expires) AS last FROM sessions GROUP BY "user"')}
+    active = {r['user'] for r in c.execute('SELECT DISTINCT "user" FROM sessions WHERE expires>?', (now,))}
+    users = {}
+    for r in c.execute('SELECT id,tenant,name,email,role,avatar FROM users ORDER BY name'):
+        users.setdefault(r['tenant'], []).append({**dict(r), 'lastSeen': last_seen.get(r['id']), 'signedIn': r['id'] in active})
+    ratings = {r['tenant']: {'count': int(r['n']), 'average': round(float(r['avg']), 2)} for r in c.execute('SELECT tenant,COUNT(*) AS n,AVG(stars) AS avg FROM ratings GROUP BY tenant')}
+    tenants = []
+    for r in c.execute('SELECT id,name,state,status,status_note,created,version FROM tenants ORDER BY name'):
+        st = domain.upgrade(json.loads(r['state']))
+        cfg = st['settings']
+        records = st['bookings'] + st['orders']
+        tenants.append({
+            'id': r['id'], 'name': r['name'], 'status': r['status'], 'statusNote': r['status_note'], 'version': r['version'],
+            'created': r['created'] or min([x['created'] for x in records], default=0), 'currency': st['currency'], 'description': st['description'],
+            'logo': cfg['theme']['logo'], 'city': cfg['profile']['city'], 'address': cfg['profile']['address'],
+            'support': cfg['support'], 'tax': {k: cfg['tax'].get(k) for k in ['regime', 'vatRate', 'tin', 'vatNumber']},
+            'events': st['events'], 'menu': st['menu'], 'tables': [{k: t[k] for k in ['id', 'name', 'event']} for t in st['tables']],
+            'bookings': [_strip_tokens(b) for b in st['bookings']], 'orders': [_strip_tokens(o) for o in st['orders']],
+            'team': users.get(r['id'], []), 'ratings': ratings.get(r['id'], {'count': 0, 'average': None}),
+        })
+    guests = [dict(r) for r in c.execute('SELECT id,name,phone,created FROM guests ORDER BY created DESC')]
+    names = {t['id']: t['name'] for t in tenants}
+    people = {u['id']: u['name'] for team in users.values() for u in team}
+    audit = [{**dict(r), 'tenantName': names.get(r['tenant'], '—'), 'who': people.get(r['user']) or ('Guest' if str(r['user']).startswith('guest:') else '—')}
+             for r in c.execute('SELECT id,tenant,"user",action,created FROM audit ORDER BY id DESC LIMIT 300')]
+    admins = {r['id']: r['name'] for r in c.execute('SELECT id,name FROM platform_admins')}
+    platform_audit = [{**dict(r), 'who': admins.get(r['admin'], '—')} for r in c.execute('SELECT * FROM platform_audit ORDER BY id DESC LIMIT 200')]
+    return {'tenants': tenants, 'guests': guests, 'audit': audit, 'platformAudit': platform_audit, 'system': system,
+            'counts': {'otpsLastDay': c.execute('SELECT COUNT(*) FROM otp_log WHERE created>?', (now - 86400,)).fetchone()[0],
+                       'guestSessions': c.execute('SELECT COUNT(*) FROM guest_sessions WHERE expires>?', (now,)).fetchone()[0],
+                       'staffSessions': len(active), 'uploads': c.execute('SELECT COUNT(*) FROM uploads').fetchone()[0]}}
 
 
 class ApiError(Exception):
@@ -331,6 +414,7 @@ class AdminHandler(BaseHandler):
         u = c.execute('SELECT u.* FROM users u JOIN sessions s ON s."user"=u.id WHERE s.token=? AND s.expires>?', (digest(token), time.time())).fetchone()
         if not u:
             raise PermissionError('Please sign in to continue.')
+        ensure_active(c, u['tenant'])
         return dict(u)
 
     def bundle(self, c, u):
@@ -345,7 +429,75 @@ class AdminHandler(BaseHandler):
     def cookie(self, value, maxage=ADMIN_SESSION_DAYS * 86400):
         return self.make_cookie('encore_session', value, maxage, 'Strict')
 
+    # ------------------------------------------------ platform operators (Encore staff, not organizers)
+
+    def platform_admin(self, c):
+        token = self.cookies().get('encore_platform', '')
+        a = c.execute('SELECT a.* FROM platform_admins a JOIN platform_sessions s ON s.admin=a.id WHERE s.token=? AND s.expires>?',
+                      (digest(token), time.time())).fetchone() if token else None
+        if not a:
+            raise PermissionError('Sign in as a platform administrator to continue.')
+        return dict(a)
+
+    def platform_cookie(self, value, maxage=PLATFORM_SESSION_HOURS * 3600):
+        return self.make_cookie('encore_platform', value, maxage, 'Strict')
+
+    def platform_get(self, c, path, q):
+        a = self.platform_admin(c)
+        if path == '/api/platform/me':
+            return self.send({'admin': {k: a[k] for k in ['id', 'name', 'email']}, 'system': self.platform_system(c)})
+        if path == '/api/platform/data':
+            return self.send(platform_snapshot(c, self.platform_system(c)))
+        raise LookupError('Not found')
+
+    def platform_system(self, c):
+        sms_status = {'provider': 'demo', 'delivers': False, 'label': 'Demo mode: sign-in codes are shown on screen, no SMS is sent'} if DEMO else sms.status()
+        return {'database': db.describe(), 'demo': DEMO, 'production': PROD, 'sms': sms_status,
+                'payments': {'ready': False, 'label': 'Simulated (demo mode)' if DEMO else 'AfroPay not connected — checkout is closed'},
+                'guestOrigin': GUEST_ORIGIN, 'adminOrigin': ADMIN_ORIGIN, 'serverTime': int(time.time())}
+
+    def platform_post(self, c, path, v):
+        if path == '/api/platform/signin':
+            if rate_limited('platform-auth:' + self.client_ip(), 10, 900):
+                raise ApiError(429, 'Too many attempts. Try again in 15 minutes.')
+            a = c.execute('SELECT * FROM platform_admins WHERE email=?', (email(v.get('email')),)).fetchone()
+            if not a or not verify(text(v.get('password'), 200), a['password']):
+                raise PermissionError('Email or password is incorrect.')
+            token = uid() + uid()
+            c.execute('INSERT INTO platform_sessions VALUES(?,?,?)', (digest(token), a['id'], int(time.time()) + PLATFORM_SESSION_HOURS * 3600))
+            platform_log(c, a['id'], 'signin')
+            return self.send({'admin': {k: a[k] for k in ['id', 'name', 'email']}, 'system': self.platform_system(c)}, cookie=self.platform_cookie(token))
+        if path == '/api/platform/signout':
+            c.execute('DELETE FROM platform_sessions WHERE token=?', (digest(self.cookies().get('encore_platform', '')),))
+            return self.send({'ok': True}, cookie=self.platform_cookie('', 0))
+        a = self.platform_admin(c)
+        if path == '/api/platform/tenant/status':
+            row = c.execute('SELECT id,name,status FROM tenants WHERE id=?', (text(v.get('tenant')),)).fetchone()
+            if not row:
+                raise LookupError('Organization not found.')
+            status = v.get('status')
+            if status not in ('active', 'suspended'):
+                raise ValueError('Choose active or suspended.')
+            note = text(v.get('note'), 300, False) if status == 'suspended' else ''
+            if status == 'suspended' and not note:
+                raise ValueError('Add a reason for the suspension.')
+            c.execute('UPDATE tenants SET status=?,status_note=? WHERE id=?', (status, note, row['id']))
+            if status == 'suspended':
+                c.execute('DELETE FROM sessions WHERE "user" IN (SELECT id FROM users WHERE tenant=?)', (row['id'],))
+            platform_log(c, a['id'], 'suspend' if status == 'suspended' else 'reactivate', row['name'], note)
+            return self.send({'ok': True})
+        if path == '/api/platform/user/signout':
+            u = c.execute('SELECT id,name,email FROM users WHERE id=?', (text(v.get('user')),)).fetchone()
+            if not u:
+                raise LookupError('Account not found.')
+            c.execute('DELETE FROM sessions WHERE "user"=?', (u['id'],))
+            platform_log(c, a['id'], 'end_sessions', u['email'])
+            return self.send({'ok': True})
+        raise LookupError('Not found')
+
     def get_api(self, c, path, q):
+        if path.startswith('/api/platform/'):
+            return self.platform_get(c, path, q)
         if path == '/api/me':
             return self.send(self.bundle(c, self.user(c)))
         if path == '/api/notifications':
@@ -355,6 +507,8 @@ class AdminHandler(BaseHandler):
         raise LookupError('Not found')
 
     def post_api(self, c, path, v):
+        if path.startswith('/api/platform/'):
+            return self.platform_post(c, path, v)
         if path in ['/api/signup', '/api/signin', '/api/recover']:
             if rate_limited('auth:' + self.client_ip(), 30, 900):
                 raise ApiError(429, 'Too many attempts. Try again in 15 minutes.')
@@ -364,6 +518,7 @@ class AdminHandler(BaseHandler):
                 u = c.execute('SELECT * FROM users WHERE email=?', (mail,)).fetchone()
                 if not u or not verify(pw, u['password']):
                     raise PermissionError('Email or password is incorrect.')
+                ensure_active(c, u['tenant'])
                 token = uid() + uid()
                 c.execute('INSERT INTO sessions VALUES(?,?,?)', (digest(token), u['id'], int(time.time()) + ADMIN_SESSION_DAYS * 86400))
                 return self.send(self.bundle(c, dict(u)), cookie=self.cookie(token))
@@ -388,7 +543,7 @@ class AdminHandler(BaseHandler):
             else:
                 team = text(v.get('team'), 80)
                 tenant = uid()
-                c.execute('INSERT INTO tenants(id,name,state) VALUES(?,?,?)', (tenant, team, json.dumps(domain.blank(team))))
+                c.execute('INSERT INTO tenants(id,name,state,created) VALUES(?,?,?,?)', (tenant, team, json.dumps(domain.blank(team)), int(time.time())))
             recovery = uid()
             u = {'id': uid(), 'tenant': tenant, 'name': name, 'email': mail, 'role': role}
             c.execute('INSERT INTO users(id,tenant,name,email,password,recovery,role) VALUES(?,?,?,?,?,?,?)', (u['id'], tenant, name, mail, password(pw), digest(recovery), role))
@@ -503,7 +658,7 @@ class GuestHandler(BaseHandler):
     def get_api(self, c, path, q):
         if path == '/api/workspaces':
             out = []
-            for r in c.execute('SELECT id,name,state FROM tenants ORDER BY name'):
+            for r in c.execute("SELECT id,name,state FROM tenants WHERE status<>'suspended' ORDER BY name"):
                 st = domain.upgrade(json.loads(r['state']))
                 profile, theme = st['settings']['profile'], st['settings']['theme']
                 published = sorted((e for e in st['events'] if e.get('published')), key=lambda e: e['date'])
@@ -515,7 +670,7 @@ class GuestHandler(BaseHandler):
                             'rating': rating_summary(c, r['id']), 'mapLink': domain.map_link(st)})
             return self.send(out)
         if path == '/api/public':
-            row, s = read_tenant(c, q.get('tenant', ''))
+            row, s = guest_tenant(c, q.get('tenant', ''))
             out = domain.public_state(s)
             out['id'] = row['id']
             out['paymentReady'] = DEMO
@@ -532,7 +687,7 @@ class GuestHandler(BaseHandler):
         if path == '/api/table':
             if rate_limited('table:' + self.client_ip(), 30, 600):
                 raise ApiError(429, 'Too many attempts. Please wait a few minutes.')
-            row, s = read_tenant(c, q.get('tenant', ''))
+            row, s = guest_tenant(c, q.get('tenant', ''))
             t = domain.find_table(s, code=q.get('code', '')) if q.get('code') else domain.find_table(s, token=q.get('token', ''))
             if not t:
                 raise LookupError('We could not find that table. Check the code printed under the QR.')
@@ -617,7 +772,7 @@ class GuestHandler(BaseHandler):
             c.execute('DELETE FROM guest_sessions WHERE token=?', (digest(self.cookies().get('encore_guest', '')),))
             return self.send({'ok': True}, cookie=self.cookie('', 0))
         if path == '/api/quote':
-            row, s = read_tenant(c, text(v.get('tenant')))
+            row, s = guest_tenant(c, text(v.get('tenant')))
             g = self.guest(c, required=False)
             return self.send(domain.quote_order(s, v, g['id'] if g else None))
         if path == '/api/checkout' and not DEMO:
@@ -633,7 +788,7 @@ class GuestHandler(BaseHandler):
             c.execute('UPDATE guests SET name=? WHERE id=?', (name, g['id']))
             return self.send({'guest': {'id': g['id'], 'name': name, 'phone': g['phone']}})
         if path == '/api/guest/rating':
-            row, st = read_tenant(c, text(v.get('tenant')))
+            row, st = guest_tenant(c, text(v.get('tenant')))
             if not any(r.get('guest') == g['id'] for r in st['bookings'] + st['orders']):
                 raise PermissionError('You can rate an organizer after booking tickets or ordering with them.')
             stars = domain.whole(v.get('stars'), 1, 5, 'Choose 1 to 5 stars.')
@@ -651,7 +806,7 @@ class GuestHandler(BaseHandler):
             demo_payment = path == '/api/checkout'  # only reachable here when DEMO is on
             if rate_limited('order:' + self.client_ip(), 30, 900) or rate_limited('order-guest:' + g['id'], 20, 900):
                 raise ApiError(429, 'Too many orders in a short time. Please wait a few minutes.')
-            row, s = read_tenant(c, text(v.get('tenant')))
+            row, s = guest_tenant(c, text(v.get('tenant')))
             rec = domain.guest_record(s, v, g, demo_payment=demo_payment)
             write_tenant(c, row['id'], s)
             c.execute('INSERT INTO audit(tenant,"user",action,created) VALUES(?,?,?,?)', (row['id'], 'guest:' + g['id'], 'guest_' + str(v.get('kind')), int(time.time())))
@@ -713,7 +868,26 @@ def production_problems():
     return problems
 
 
+def create_platform_admin_cli():
+    import getpass
+    init()
+    mail = email(input('Platform admin email: '))
+    name = text(input('Name: ') or 'Platform admin', 100)
+    pw = getpass.getpass('Password (12+ characters): ')
+    if len(pw) < 12:
+        raise SystemExit('Use at least 12 characters.')
+    with conn() as c:
+        if c.execute('SELECT 1 FROM platform_admins WHERE email=?', (mail,)).fetchone():
+            c.execute('UPDATE platform_admins SET password=?,name=? WHERE email=?', (password(pw), name, mail))
+        else:
+            c.execute('INSERT INTO platform_admins(id,name,email,password,created) VALUES(?,?,?,?,?)', (uid(), name, mail, password(pw), int(time.time())))
+    print(f'Platform admin ready: {mail}. Sign in at {ADMIN_ORIGIN}/admin/platform')
+
+
 if __name__ == '__main__':
+    if '--create-platform-admin' in sys.argv:
+        create_platform_admin_cli()
+        raise SystemExit(0)
     if sys.version_info < (3, 11) or not hasattr(hashlib, 'scrypt'):
         raise SystemExit('Encore requires Python 3.11+ with scrypt support. Run: python3 launch.py')
     problems = production_problems()

@@ -368,6 +368,59 @@ class AppTests(unittest.TestCase):
         self.assertTrue(any('ready' in msg and phone == guest['phone'] for phone, msg in SENT))
 
 
+    # ------------------------------------------------------------ platform console
+
+    def test_platform_admin_console_and_suspension(self):
+        c, b, mail, pw = self.staff()
+        tenant = b['user']['tenant']
+        event = self.concert(c)
+        g, guest = self.guest_client('Platform Guest')
+        s.DEMO = True
+        try:
+            self.assertEqual(g('checkout', {'tenant': tenant, 'kind': 'booking', 'event': event['id'], 'qty': 1, 'wallet': 'mpesa'})[0], 201)
+        finally:
+            s.DEMO = False
+
+        platform = Client(self.admin.server_port)
+        self.assertEqual(platform('platform/data')[0], 401)
+        self.assertEqual(c('platform/data')[0], 401)  # organizer sessions never open the platform console
+        admin_mail, admin_pw = secrets.token_hex(5) + '@encore.test', secrets.token_urlsafe(18)
+        with s.conn() as con:
+            s.os.environ.update(ENCORE_PLATFORM_EMAIL=admin_mail, ENCORE_PLATFORM_PASSWORD=admin_pw)
+            try:
+                s.bootstrap_platform_admin(con)
+            finally:
+                s.os.environ.pop('ENCORE_PLATFORM_EMAIL'); s.os.environ.pop('ENCORE_PLATFORM_PASSWORD')
+        self.assertEqual(platform('platform/signin', {'email': admin_mail, 'password': 'wrong-password'})[0], 401)
+        self.assertEqual(platform('platform/signin', {'email': admin_mail, 'password': admin_pw})[0], 200)
+        self.assertEqual(c('me')[0], 200)  # a platform cookie does not grant organizer access, and vice versa
+
+        status, data = platform('platform/data')
+        self.assertEqual(status, 200)
+        mine = next(t for t in data['tenants'] if t['id'] == tenant)
+        self.assertEqual(mine['bookings'][0]['wallet'], 'mpesa')
+        self.assertEqual(mine['team'][0]['email'], mail)
+        raw = json.dumps(data)
+        for secret_field in ['"token"', '"password"', '"recovery"']:
+            self.assertNotIn(secret_field, raw)
+
+        self.assertEqual(platform('platform/tenant/status', {'tenant': tenant, 'status': 'suspended', 'note': ''})[0], 400)
+        self.assertEqual(platform('platform/tenant/status', {'tenant': tenant, 'status': 'suspended', 'note': 'Review'})[0], 200)
+        self.assertEqual(c('me')[0], 401)  # staff sessions ended
+        status, body = Client(self.admin.server_port)('signin', {'email': mail, 'password': pw})
+        self.assertEqual((status, body.get('code')), (403, 'TENANT_SUSPENDED'))
+        self.assertNotIn(tenant, [w['id'] for w in g('workspaces')[1]])
+        self.assertEqual(g('public?tenant=' + tenant)[0], 404)
+
+        self.assertEqual(platform('platform/tenant/status', {'tenant': tenant, 'status': 'active'})[0], 200)
+        self.assertEqual(Client(self.admin.server_port)('signin', {'email': mail, 'password': pw})[0], 200)
+        self.assertIn(tenant, [w['id'] for w in g('workspaces')[1]])
+        actions = [a['action'] for a in platform('platform/data')[1]['platformAudit']]
+        self.assertEqual(actions[:3], ['reactivate', 'suspend', 'signin'])
+        platform('platform/signout', {})
+        self.assertEqual(platform('platform/data')[0], 401)
+
+
 class EthiopiaTaxCategoryProfileTests(AppTests):
     def test_tax_categories_and_profile(self):
         c, b, _, _ = self.staff()

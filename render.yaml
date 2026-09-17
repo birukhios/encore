@@ -33,3 +33,9 @@ services:
       # successful payment (no money moves). Set to "0" before real guests or real sales.
       - key: ENCORE_DEMO
         value: "1"
+      # PLATFORM CONSOLE (/admin/platform) for Encore operators. Set both values in the Render dashboard
+      # (never commit them). The account is created or its password updated on each start. 12+ characters.
+      - key: ENCORE_PLATFORM_EMAIL
+        sync: false
+      - key: ENCORE_PLATFORM_PASSWORD
+        sync: false

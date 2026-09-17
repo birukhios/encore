@@ -41,7 +41,7 @@ async function toPng(src, size = 256, round = false) {
  * Build and download a report.
  * sections: [{ title, kpis?: [[label, value]], table?: { head: [...], body: [[...]], align?: {colIndex: 'right'} }, note? }]
  */
-export async function exportPdf({ filename, title, subtitle, organization, logo, sections }) {
+export async function exportPdf({ filename, title, subtitle, organization, logo, sections, kind = 'Organizer report' }) {
   const [{ jsPDF }, { default: autoTable }] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
   const doc = new jsPDF({ unit: 'pt', format: 'a4' });
   const W = doc.internal.pageSize.getWidth();
@@ -74,7 +74,7 @@ export async function exportPdf({ filename, title, subtitle, organization, logo,
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8.5);
     doc.setTextColor(180, 180, 188);
-    doc.text('Organizer report', textRight, 58, { align: 'right' });
+    doc.text(kind, textRight, 58, { align: 'right' });
     doc.setFillColor(...CRIMSON);
     doc.rect(0, 96, W, 3, 'F');
   };
@@ -127,15 +127,28 @@ export async function exportPdf({ filename, title, subtitle, organization, logo,
       const cols = 3;
       const gap = 10;
       const cw = (W - M * 2 - gap * (cols - 1)) / cols;
-      section.kpis.forEach(([label, value], i) => {
+      const hints = section.kpis.some(k => k[2]);
+      const th = hints ? 62 : 50;
+      let rowTop = y;
+      section.kpis.forEach(([label, value, hint], i) => {
         const col = i % cols;
-        const row = Math.floor(i / cols);
         const x = M + col * (cw + gap);
-        const top = y + row * 58;
-        if (col === 0) ensure(58);
+        if (col === 0 && i > 0) rowTop += th + 8;
+        if (col === 0 && rowTop + th > H - 60) {
+          doc.addPage();
+          header();
+          rowTop = 130;
+        }
+        const top = rowTop;
         doc.setFillColor(247, 247, 249);
         doc.setDrawColor(...LINE);
-        doc.roundedRect(x, top, cw, 50, 6, 6, 'FD');
+        doc.roundedRect(x, top, cw, th, 6, 6, 'FD');
+        if (hint) {
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(7.5);
+          doc.setTextColor(...MUTED);
+          doc.text(doc.splitTextToSize(String(hint), cw - 20)[0], x + 10, top + 53);
+        }
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(8.5);
         doc.setTextColor(...MUTED);
@@ -145,7 +158,7 @@ export async function exportPdf({ filename, title, subtitle, organization, logo,
         doc.setTextColor(...INK);
         doc.text(String(value), x + 10, top + 38);
       });
-      y += Math.ceil(section.kpis.length / cols) * 58 + 18;
+      y = rowTop + th + 22;
     }
 
     if (section.table) {
@@ -159,6 +172,7 @@ export async function exportPdf({ filename, title, subtitle, organization, logo,
         headStyles: { fillColor: INK, textColor: 255, fontStyle: 'bold' },
         alternateRowStyles: { fillColor: [250, 250, 251] },
         columnStyles: Object.fromEntries(Object.entries(align).map(([k, v]) => [k, { halign: v }])),
+        didParseCell: data => { if (data.section === 'head' && align[data.column.index]) data.cell.styles.halign = align[data.column.index]; },
         didDrawPage: data => { if (data.pageNumber > 1) header(); },  // table continued on a new page
       });
       y = doc.lastAutoTable.finalY + 22;

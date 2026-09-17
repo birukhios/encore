@@ -570,6 +570,9 @@ def reference():
     return 'EN-' + short_code()
 
 
+WALLETS = ('telebirr', 'cbe-birr', 'mpesa', 'awash-birr')
+
+
 def guest_record(s, v, guest, demo_payment=False):
     """Create a booking or table order for a signed-in guest.
 
@@ -596,7 +599,8 @@ def guest_record(s, v, guest, demo_payment=False):
             rec['table'] = find_table(s, token=v['table'])['id']
         s['orders'].append(rec)
     if demo_payment:
-        rec.update(paid=True, settlement='demo', settledBy='Demo payment (simulated)', settledAt=int(time.time()))
+        wallet = v.get('wallet') if v.get('wallet') in WALLETS else 'telebirr'
+        rec.update(paid=True, settlement='demo', settledBy='Demo payment (simulated)', settledAt=int(time.time()), wallet=wallet)
     return rec
 
 

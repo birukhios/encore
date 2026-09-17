@@ -1,11 +1,13 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { api, dateTime, readFileAsBase64, shortDate } from '../shared/api';
 import ImageUpload from '../shared/ImageUpload';
 import { LogoMark } from '../shared/Logo';
 import QR from '../shared/QR';
 import { exportPdf } from './pdf';
-import { buildReport, downloadText, guestHistory, paymentLabel, slug, toCsv, vatOf } from './reportData';
+import { Bars, DataTable, Kpi, TrendChart } from './charts';
+import { compact } from './Reports';
+import { buildReport, change, downloadText, guestHistory, paymentLabel, slug, toCsv, vatOf } from './reportData';
 import Scanner from '../shared/Scanner';
 import { Avatar, copyText, Empty, ErrorText, Field, Icon, Modal, StarIcon, Toggle } from '../shared/ui';
 
@@ -36,40 +38,26 @@ function useRunner() {
 
 const paidBadge = r => r.status === 'Cancelled'
   ? <span className="badge neutral">Cancelled</span>
-  : r.paid ? <span className="badge success">Paid · {r.settledBy}</span> : <span className="badge warning">Pay at venue</span>;
+  : r.paid ? <span className="badge success">Paid · {r.settledBy}</span> : <span className="badge warning">Unpaid</span>;
 
 // ---------------------------------------------------------------- Overview
 
 export function Overview({ ctx }) {
   const { state, money, go, canManage, role, session } = ctx;
   const [exporting, setExporting] = useState(false);
-  async function exportDashboard() {
-    setExporting(true);
-    try {
-      const r = buildReport(state);
-      const sm = r.summary;
-      const stamp = new Date().toISOString().slice(0, 10);
-      await exportPdf({
-        filename: `${slug(state.name)}-dashboard-${stamp}.pdf`,
-        title: 'Dashboard summary',
-        subtitle: `All time · ${state.events.filter(e => e.published).length} live events · Currency ${state.currency}`,
-        organization: state.name,
-        logo: state.settings.theme.logo,
-        sections: [
-          { title: 'At a glance', kpis: [['Gross sales', money(sm.gross)], ['Net sales', money(sm.net)], ['VAT collected', money(sm.vat)], ['Tickets sold', sm.ticketsSold], ['Check-in rate', `${Math.round(sm.checkinRate * 100)}%`], ['Food & drink orders', sm.orders], ['Tips', money(sm.tips)], ['Guest rating', session.ratings.count ? `${session.ratings.average.toFixed(1)} / 5 (${session.ratings.count})` : 'No ratings yet'], ['Active orders', state.orders.filter(o => ['Placed', 'Preparing', 'Ready'].includes(o.status)).length]] },
-          { title: 'Upcoming performances', table: { head: ['Date', 'Event', 'Venue', 'Sold', 'Status'], body: upcoming.map(e => [shortDate(e.date), e.name, e.venue, `${state.bookings.filter(b => b.event === e.id && b.status !== 'Cancelled').reduce((n, b) => n + b.qty, 0)}/${e.capacity}`, e.published ? 'Published' : 'Draft']) } },
-          { title: 'Top sellers', table: { head: ['Item', 'Category', 'Qty', 'Revenue'], body: r.bestSellers.slice(0, 5).map(i => [i.name, i.category, i.qty, money(i.revenue)]), align: { 2: 'right', 3: 'right' } } },
-          { title: 'Latest activity', table: { head: ['When', 'Guest', 'Reference', 'Details', 'Payment', 'Total'], body: [...state.bookings, ...state.orders].sort((a, b) => b.created - a.created).slice(0, 12).map(x => [dateTime(x.created * 1000), x.name, x.ref, x.qty ? `${x.qty} ticket(s) · ${x.eventName}` : `${x.tableName || 'Counter'} · ${x.items}`, paymentLabel(x), money(x.total)]), align: { 5: 'right' } } },
-        ],
-      });
-    } finally {
-      setExporting(false);
-    }
-  }
-  const records = [...state.bookings, ...state.orders];
-  const collected = records.filter(r => r.paid && r.status !== 'Cancelled').reduce((s, r) => s + r.total, 0);
-  const outstanding = records.filter(r => !r.paid && r.status !== 'Cancelled').reduce((s, r) => s + r.total, 0);
+  const [range, setRange] = useState(7);
+  const today = new Date();
+  const iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const report = useMemo(() => buildReport(state, { from: iso(new Date(Date.now() - (range - 1) * 86400000)), to: iso(today) }), [state, range]);
+  const month = useMemo(() => buildReport(state, { from: iso(new Date(Date.now() - 29 * 86400000)), to: iso(today) }), [state]);
+  const s = report.summary;
+  const prev = report.previous?.summary;
+  const delta = key => (prev ? change(s[key], prev[key]) : null);
+  const live = ['Placed', 'Preparing', 'Ready'].map(status => [status, state.orders.filter(o => o.status === status).length]);
+  const activeOrders = live.reduce((n, [, c]) => n + c, 0);
   const upcoming = [...state.events].sort((a, b) => a.date.localeCompare(b.date)).filter(e => new Date(e.date) >= new Date(Date.now() - 86400000));
+  const soldFor = id => state.bookings.filter(b => b.event === id && b.status !== 'Cancelled').reduce((n, b) => n + b.qty, 0);
+  const records = [...state.bookings, ...state.orders].sort((a, b) => b.created - a.created);
   const cfg = state.settings;
   const steps = [
     ['Create your first event', state.events.some(e => e.published), 'Events'],
@@ -80,40 +68,125 @@ export function Overview({ ctx }) {
     ['Publish your terms', !!cfg.legal.terms, 'Settings'],
     ['Set up VAT and TIN', cfg.tax.regime === 'none' || !!cfg.tax.tin, 'Settings'],
   ];
+  const done = steps.filter(x => x[1]).length;
+  const next = upcoming[0];
+  const periodName = range === 7 ? 'last 7 days' : 'last 30 days';
+
+  async function exportDashboard() {
+    setExporting(true);
+    try {
+      const m = month.summary;
+      const vs = (a, b) => { const c = change(a, b); return c === null ? '' : `${c >= 0 ? '+' : '-'}${Math.round(Math.abs(c) * 100)}% vs previous 30 days`; };
+      const mp = month.previous.summary;
+      await exportPdf({
+        filename: `${slug(state.name)}-dashboard-${iso(today)}.pdf`,
+        title: 'Dashboard summary',
+        subtitle: `Last 30 days · ${state.events.filter(e => e.published).length} live events · ${state.currency}`,
+        organization: state.name,
+        logo: cfg.theme.logo,
+        sections: [
+          { title: 'Last 30 days', kpis: [
+            ['Gross sales', money(m.gross), vs(m.gross, mp.gross)], ['Net sales', money(m.net), 'Excludes VAT and tips'], ['VAT collected', money(m.vat), vs(m.vat, mp.vat)],
+            ['Tickets sold', m.ticketsSold, vs(m.ticketsSold, mp.ticketsSold)], ['Check-in rate', `${Math.round(m.checkinRate * 100)}%`, `${m.checkedIn} checked in`], ['Food & drink orders', m.orders, `Average ${money(m.avgOrder)}`],
+            ['Tips', money(m.tips), `${Math.round(m.tipParticipation * 100)}% of orders tipped`], ['Paying guests', m.guests, `${money(m.spendPerGuest)} per guest`],
+            ['Guest rating', session.ratings.count ? `${session.ratings.average.toFixed(1)} / 5` : 'No ratings', session.ratings.count ? `${session.ratings.count} ratings` : ''],
+          ] },
+          { title: 'Upcoming performances', table: { head: ['Date', 'Event', 'Venue', 'Sold', 'Sell-through', 'Status'], body: upcoming.map(e => [shortDate(e.date), e.name, e.venue, `${soldFor(e.id)}/${e.capacity}`, `${Math.round((soldFor(e.id) / (e.capacity || 1)) * 100)}%`, e.published ? 'Published' : 'Draft']), align: { 3: 'right', 4: 'right' } } },
+          { title: 'Best sellers', table: { head: ['#', 'Item', 'Category', 'Qty', 'Revenue'], body: month.bestSellers.slice(0, 8).map((i, n) => [n + 1, i.name, i.category, i.qty, money(i.revenue)]), align: { 3: 'right', 4: 'right' } } },
+          { title: 'Top tipped tables', table: { head: ['#', 'Table', 'Event', 'Tips', 'Tipped orders', 'Avg tip'], body: month.topTipped.slice(0, 8).map((t, n) => [n + 1, t.name, t.event, money(t.tips), `${t.tippedOrders}/${t.orders}`, money(t.avgTip)]), align: { 3: 'right', 4: 'right', 5: 'right' } } },
+          { title: 'Latest activity', table: { head: ['When', 'Guest', 'Reference', 'Details', 'Payment', 'Total'], body: records.slice(0, 12).map(x => [dateTime(x.created * 1000), x.name, x.ref, x.qty ? `${x.qty} ticket(s) · ${x.eventName}` : `${x.tableName || 'Counter'} · ${x.items}`, paymentLabel(x), money(x.total)]), align: { 5: 'right' } } },
+        ],
+      });
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return (
     <>
       <PageActions>
         {canManage && <button onClick={exportDashboard} disabled={exporting}><Icon name="download" />{exporting ? 'Preparing…' : 'Export PDF'}</button>}
         {canManage && <button className="primary" onClick={() => go('Events', 'create')}><Icon name="add" />Create event</button>}
       </PageActions>
-      <div className="stats">
-        {[
-          ['Collected at venue', money(collected), 'wallet', money(outstanding) + ' awaiting payment'],
-          ['Live events', state.events.filter(e => e.published).length, 'calendar', state.events.length + ' in total'],
-          ['Tickets reserved', state.bookings.filter(b => b.status !== 'Cancelled').reduce((s, b) => s + b.qty, 0), 'ticket', state.bookings.filter(b => b.status === 'Checked in').length + ' bookings checked in'],
-          ['Active orders', state.orders.filter(o => ['Placed', 'Preparing', 'Ready'].includes(o.status)).length, 'menu', 'In the kitchen & on the floor'],
-        ].map(([label, value, icon, sub]) => (
-          <article className="stat" key={label}>
-            <div className="row"><span>{label}</span><Icon name={icon} /></div>
-            <strong>{value}</strong>
-            <small>{sub}</small>
-          </article>
-        ))}
-      </div>
-      <div className="grid-2">
+
+      {canManage && done < steps.length && (
+        <section className="card setup-strip">
+          <div className="setup-progress" aria-hidden="true"><span style={{ width: `${(done / steps.length) * 100}%` }} /></div>
+          <div className="row spread wrap">
+            <div><b>Finish setting up · {done} of {steps.length} done</b><p className="small">Next: {steps.find(x => !x[1])[0]}</p></div>
+            <div className="setup-chips">
+              {steps.filter(x => !x[1]).slice(0, 3).map(([label, , to]) => <button key={label} onClick={() => go(to)}>{label}<Icon name="next" /></button>)}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {canManage && (
+        <>
+          <div className="section-bar">
+            <h2>Performance</h2>
+            <div className="segmented" role="group" aria-label="Dashboard period">
+              {[[7, '7 days'], [30, '30 days']].map(([n, label]) => <button key={n} aria-pressed={range === n} className={range === n ? 'active' : ''} onClick={() => setRange(n)}>{label}</button>)}
+            </div>
+          </div>
+          <div className="kpis">
+            <Kpi label="Gross sales" icon="wallet" value={money(s.gross)} delta={delta('gross')} hint={`vs previous ${range} days`} spark={report.daily.map(d => d.gross)} />
+            <Kpi label="Tickets sold" icon="ticket" value={s.ticketsSold} delta={delta('ticketsSold')} hint={`${Math.round(s.checkinRate * 100)}% checked in`} spark={report.daily.map(d => d.ticketsSold)} />
+            <Kpi label="Food & drink orders" icon="menu" value={s.orders} delta={delta('orders')} hint={`${money(s.avgOrder)} average`} spark={report.daily.map(d => d.orders)} />
+            <Kpi label="Tips" icon="money" value={money(s.tips)} delta={delta('tips')} hint={`${Math.round(s.tipParticipation * 100)}% of orders tipped`} spark={report.daily.map(d => d.tips)} />
+          </div>
+        </>
+      )}
+
+      <div className="dash-grid">
+        {canManage && (
+          <section className="card dash-trend">
+            <div className="card-head">
+              <div><h2>Sales, {periodName}</h2><p>{money(s.ticketSales)} tickets · {money(s.menuSales)} food & drinks</p></div>
+              <button onClick={() => go('Reports')}><Icon name="chart" />Full report</button>
+            </div>
+            {s.gross
+              ? <TrendChart rows={report.daily} series={[{ key: 'tickets', label: 'Tickets' }, { key: 'menu', label: 'Food & drinks' }]} format={compact(true)} height={200} label="Daily sales" />
+              : <Empty icon="chart" title="No sales in this period" body="Paid bookings and orders will show here as a daily trend." />}
+          </section>
+        )}
+
+        {role !== 'Gate' && (
+          <section className="card dash-live">
+            <div className="card-head"><div><h2>Live service</h2><p>{activeOrders ? `${activeOrders} order${activeOrders > 1 ? 's' : ''} in progress` : 'No orders in progress'}</p></div><button onClick={() => go('Orders')}>Orders</button></div>
+            <div className="pipeline">
+              {live.map(([status, count]) => (
+                <button key={status} className={'pipe ' + status.toLowerCase()} onClick={() => go('Orders')}>
+                  <strong>{count}</strong><span>{status}</span>
+                </button>
+              ))}
+            </div>
+            {next && (
+              <div className="next-event">
+                <span className="eyebrow accent">Next up</span>
+                <b>{next.name}</b>
+                <small>{dateTime(next.date)} · {next.venue}</small>
+                <div className="meter" aria-label={`${soldFor(next.id)} of ${next.capacity} sold`}><span style={{ width: Math.min(100, (soldFor(next.id) / (next.capacity || 1)) * 100) + '%' }} /></div>
+                <small>{soldFor(next.id)} of {next.capacity} sold · {state.bookings.filter(b => b.event === next.id).flatMap(b => b.tickets || []).filter(t => t.used).length} checked in</small>
+              </div>
+            )}
+          </section>
+        )}
+
         <section className="card">
-          <div className="card-head"><h2>Your next performances</h2>{role !== 'Service' && role !== 'Gate' && <button onClick={() => go('Events')}>View events</button>}</div>
+          <div className="card-head"><h2>Upcoming performances</h2>{canManage && <button onClick={() => go('Events')}>View events</button>}</div>
           {upcoming.length ? (
             <div className="list">
               {upcoming.slice(0, 5).map(e => {
                 const d = new Date(e.date);
-                const sold = state.bookings.filter(b => b.event === e.id && b.status !== 'Cancelled').reduce((s, b) => s + b.qty, 0);
+                const sold = soldFor(e.id);
                 return (
                   <div className="listrow" key={e.id}>
                     <div className="datebox"><b>{d.getDate()}</b><small>{d.toLocaleString('en', { month: 'short' })}</small></div>
                     <div className="grow">
                       <h3>{e.name}</h3>
-                      <small>{e.venue} · {sold}/{e.capacity} reserved</small>
+                      <small>{e.venue} · {sold}/{e.capacity} sold</small>
+                      <div className="meter slim"><span style={{ width: Math.min(100, (sold / (e.capacity || 1)) * 100) + '%' }} /></div>
                     </div>
                     <span className={'badge ' + (e.published ? 'success' : 'neutral')}>{e.published ? 'Published' : 'Draft'}</span>
                   </div>
@@ -122,51 +195,60 @@ export function Overview({ ctx }) {
             </div>
           ) : <Empty title="Your first event awaits" body="Add the lineup, date, venue and a striking cover image." action={canManage ? 'Create event' : null} onAction={() => go('Events', 'create')} />}
         </section>
+
         {canManage && (
-          <section className="card checklist">
-            <span className="eyebrow accent">Ready for showtime</span>
-            <h2 style={{ marginBottom: 8 }}>Set the stage.</h2>
-            {steps.map(([label, done, to]) => (
-              <button key={label} onClick={() => go(to)}>
-                <span className={'step' + (done ? ' done' : '')}><Icon name={done ? 'check' : 'clock'} /></span>
-                <span>{label}</span>
-                <Icon name="next" />
-              </button>
-            ))}
-            {!session.sms.delivers && <p className="notice warning small" style={{ marginTop: 10 }}>Guest SMS: {session.sms.label}.</p>}
+          <section className="card">
+            <div className="card-head"><div><h2>Top tipped tables</h2><p>Last 30 days</p></div><button onClick={() => go('Reports')}>Details</button></div>
+            <DataTable limit={5} rank sort={{ key: 'tips', dir: 'desc' }} rows={month.topTipped} empty="No tips in the last 30 days." columns={[
+              { key: 'name', label: 'Table', render: t => <><b>{t.name}</b><small>{t.event}</small></> },
+              { key: 'tips', label: 'Tips', num: true, render: t => <b>{money(t.tips)}</b> },
+              { key: 'tippedOrders', label: 'Tipped', num: true, render: t => `${t.tippedOrders}/${t.orders}` },
+              { key: 'avgTip', label: 'Avg tip', num: true, render: t => money(t.avgTip) },
+            ]} />
           </section>
         )}
+
+        {canManage && (
+          <section className="card">
+            <div className="card-head"><div><h2>Best sellers</h2><p>Last 30 days, by quantity</p></div></div>
+            {month.bestSellers.length
+              ? <Bars rows={month.bestSellers.slice(0, 5)} value={r => r.qty} format={(v, r) => `${v} · ${money(r.revenue)}`} label={r => <><b>{r.name}</b><small>{r.category}</small></>} />
+              : <p className="small">No food or drink orders in the last 30 days.</p>}
+          </section>
+        )}
+
+        <section className="card">
+          <div className="card-head"><h2>Guest ratings</h2>{session.ratings.count > 0 && <span className="row"><span className="stars" aria-hidden="true">{[1, 2, 3, 4, 5].map(i => <StarIcon key={i} filled={session.ratings.average >= i ? 1 : session.ratings.average >= i - 0.5 ? 0.5 : 0} />)}</span><b>{session.ratings.average.toFixed(1)}</b><span className="muted small">({session.ratings.count})</span></span>}</div>
+          {session.ratings.recent?.length ? (
+            <div className="list">{session.ratings.recent.slice(0, 4).map((r, i) => (
+              <div className="listrow" key={i}><span className="stars" role="img" aria-label={`${r.stars} of 5 stars`}>{[1, 2, 3, 4, 5].map(i => <StarIcon key={i} size={14} filled={r.stars >= i ? 1 : 0} />)}</span><div className="grow"><b>{r.name}</b><small>{r.comment}</small></div></div>
+            ))}</div>
+          ) : <p className="small">{session.ratings.count ? 'No written reviews yet.' : 'Guests who book or order with you can rate your organization.'}</p>}
+        </section>
       </div>
+
       <section className="card">
-        <div className="card-head"><h2>Guest ratings</h2>{session.ratings.count > 0 && <span className="row"><span className="stars" aria-hidden="true">{[1, 2, 3, 4, 5].map(i => <StarIcon key={i} filled={session.ratings.average >= i ? 1 : session.ratings.average >= i - 0.5 ? 0.5 : 0} />)}</span><b>{session.ratings.average.toFixed(1)}</b><span className="muted small">from {session.ratings.count} guest{session.ratings.count > 1 ? 's' : ''}</span></span>}</div>
-        {session.ratings.recent?.length ? (
-          <div className="list">{session.ratings.recent.map((r, i) => (
-            <div className="listrow" key={i}><span className="stars" role="img" aria-label={`${r.stars} of 5 stars`}>{[1, 2, 3, 4, 5].map(i => <StarIcon key={i} size={14} filled={r.stars >= i ? 1 : 0} />)}</span><div className="grow"><b>{r.name}</b><small>{r.comment}</small></div></div>
-          ))}</div>
-        ) : <p className="small">{session.ratings.count ? 'No written reviews yet.' : 'Guests who book or order with you can rate your organization from the guest app.'}</p>}
-      </section>
-      <section className="card">
-        <div className="card-head"><h2>Latest activity</h2>{pagesFor(role).includes('Orders') && <button onClick={() => go('Orders')}>View orders</button>}</div>
+        <div className="card-head"><h2>Latest activity</h2>{role !== 'Gate' && <button onClick={() => go('Orders')}>View orders</button>}</div>
         {records.length ? (
           <div className="list">
-            {records.sort((a, b) => b.created - a.created).slice(0, 8).map(r => (
+            {records.slice(0, 8).map(r => (
               <div className="listrow" key={r.id}>
                 <span className="avatar">{r.name[0]}</span>
                 <div className="grow">
                   <b>{r.name} · {r.qty ? r.eventName : r.tableName || 'Counter pickup'}</b>
                   <small>{r.ref} · {r.qty ? `${r.qty} ticket${r.qty > 1 ? 's' : ''}` : r.items} · {dateTime(r.created * 1000)}</small>
                 </div>
+                <b className="activity-amount">{money(r.total)}</b>
                 {paidBadge(r)}
               </div>
             ))}
           </div>
-        ) : <Empty icon="bell" title="The best is yet to come" body="Bookings and table orders appear here as guests reserve." />}
+        ) : <Empty icon="bell" title="The best is yet to come" body="Bookings and table orders appear here as guests book." />}
       </section>
     </>
   );
 }
 
-const pagesFor = role => ({ Service: ['Overview', 'Orders'], Gate: ['Overview', 'Bookings'] }[role] || ['Overview', 'Events', 'Bookings', 'Tables', 'Menu', 'Orders']);
 
 // ---------------------------------------------------------------- Events
 

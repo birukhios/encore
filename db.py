@@ -30,6 +30,9 @@ CREATE TABLE IF NOT EXISTS otp_log(id {serial} PRIMARY KEY,phone TEXT NOT NULL,i
 CREATE TABLE IF NOT EXISTS notifications(id {serial} PRIMARY KEY,tenant TEXT NOT NULL,audience TEXT NOT NULL,guest TEXT,kind TEXT,title TEXT NOT NULL,body TEXT NOT NULL,ref TEXT,created INTEGER NOT NULL,read INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS ratings(tenant TEXT NOT NULL REFERENCES tenants(id),guest TEXT NOT NULL REFERENCES guests(id),stars INTEGER NOT NULL,comment TEXT NOT NULL DEFAULT '',name TEXT NOT NULL,created INTEGER NOT NULL,updated INTEGER NOT NULL,PRIMARY KEY(tenant,guest));
 CREATE TABLE IF NOT EXISTS uploads(name TEXT PRIMARY KEY,mime TEXT NOT NULL,data {blob} NOT NULL,created INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS platform_admins(id TEXT PRIMARY KEY,name TEXT NOT NULL,email TEXT UNIQUE NOT NULL,password TEXT NOT NULL,created INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS platform_sessions(token TEXT PRIMARY KEY,admin TEXT NOT NULL REFERENCES platform_admins(id) ON DELETE CASCADE,expires INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS platform_audit(id {serial} PRIMARY KEY,admin TEXT NOT NULL,action TEXT NOT NULL,target TEXT NOT NULL DEFAULT '',detail TEXT NOT NULL DEFAULT '',created INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS notifications_guest ON notifications(guest,created);
 CREATE INDEX IF NOT EXISTS notifications_tenant ON notifications(tenant,audience,created);
 '''
@@ -111,12 +114,15 @@ def create_schema(c):
 
 def migrate(c):
     """Additive column migrations for databases created by earlier versions."""
-    if POSTGRES:
-        c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar TEXT NOT NULL DEFAULT ''")
-    else:
-        columns = {r[1] for r in c.execute('PRAGMA table_info(users)')}
-        if 'avatar' not in columns:
-            c.execute("ALTER TABLE users ADD COLUMN avatar TEXT NOT NULL DEFAULT ''")
+    added = [('users', 'avatar', "TEXT NOT NULL DEFAULT ''"),
+             ('tenants', 'status', "TEXT NOT NULL DEFAULT 'active'"),
+             ('tenants', 'status_note', "TEXT NOT NULL DEFAULT ''"),
+             ('tenants', 'created', 'INTEGER NOT NULL DEFAULT 0')]
+    for table, column, definition in added:
+        if POSTGRES:
+            c.execute(f'ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {definition}')
+        elif (columns := {r[1] for r in c.execute(f'PRAGMA table_info({table})')}) and column not in columns:
+            c.execute(f'ALTER TABLE {table} ADD COLUMN {column} {definition}')
 
 
 def describe():

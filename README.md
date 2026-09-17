@@ -20,7 +20,7 @@ python3 launch.py
 or double-click `Start_Encore.command` on a Mac. `dist/` must be built (`npm install && npm run build`, Node 20+).
 
 - **Development with hot reload:** `npm run dev` → admin http://127.0.0.1:5173/admin, guest http://127.0.0.1:5174/
-- **Tests:** `npm test` (21 integration tests, disposable database)
+- **Tests:** `npm test` (27 integration tests, disposable database)
 - **Build:** `npm run build`
 
 There are no default accounts. Create a workspace at `/admin/signup` and save the one-time recovery code.
@@ -69,12 +69,33 @@ In development, SMS messages (sign-in codes, booking and order updates) are **pr
 - **Wallet logos:** official Telebirr, CBE Birr, M-PESA and Awash Birr logo files in `public/wallets/` appear on checkout.
 - **UI/UX pass** (ui-ux-pro-max checklist): SVG icons instead of emoji/text symbols, 44px touch targets on touch screens, 4.5:1 contrast for secondary text, visible focus on composite inputs, minimum text sizes, 16px inputs on phones.
 
-## Reports and PDF exports
+## Dashboard, reports and analytics
 
-- **Reports** (Owner/Admin, under Insights): pick a period and event to see gross sales, ticket and food & drink sales, VAT, tips, check-in rate, daily sales, best-selling items, busiest tables, busiest hours and payment methods. Export as CSV or as a branded PDF.
-- **Dashboard → Export PDF** creates a one-page summary with the Encore and organization branding.
+- **Dashboard:** 7- or 30-day sales, tickets, orders and tips, each compared with the previous period; a daily sales trend; live order status (placed, preparing, ready); upcoming events with how many tickets are sold; top tipped tables; best sellers; ratings; and a setup checklist that disappears once setup is done. **Export PDF** creates a branded summary.
+- **Reports** (Owner/Admin): filter by period (today, 7, 30 or 90 days, all time, or custom dates) and event. Every figure is compared with the previous period of the same length. The report has six tabs:
+  - **Overview:** 8 key figures, a sales trend, key findings, and a breakdown of where the money comes from.
+  - **Sales:** each event's share of tickets sold, no-show rate and food & drink sales per checked-in guest, plus payment methods, weekdays and a daily breakdown.
+  - **Menu:** best sellers with attach rate and revenue share, how much revenue the top items bring in, category mix, and slow movers.
+  - **Tables & tips:** top tipped tables with tip rate and average tip, and the busiest tables.
+  - **Guests:** paying and returning guests, spend per guest, guest segments, and top guests.
+  - **Timing:** a weekday × hour heatmap, the busiest hours and the busiest weekdays.
+
+  Export all of it as CSV (includes the previous period) or as a branded PDF.
 - **Check-ins:** click a guest's name to see their tickets, orders and payments, and export them as CSV or PDF.
-- **VAT** is added on top of listed prices. Existing workspaces were switched automatically. All tickets and orders are paid online; there is no pay-at-venue option.
+- **VAT** is added on top of listed prices. Existing workspaces were switched automatically. All tickets and orders are paid online; there is no pay-at-venue option. The wallet the guest chose is recorded for payment reports.
+
+## Platform console (`/admin/platform`)
+
+For Encore's own operators, separate from organizer accounts: its own table, a 12-hour session cookie, and a stricter sign-in rate limit. Organizer sessions cannot open it, and a platform session does not open an organizer workspace.
+
+- **Create the account:** set `ENCORE_PLATFORM_EMAIL` and `ENCORE_PLATFORM_PASSWORD` (12+ characters) and restart, or run `python3 server.py --create-platform-admin`. On Render, set both in the service's Environment tab.
+- **Overview:** platform sales total (in the most common currency; other currencies are listed but not added up), organizations, paying guests, tickets, orders, VAT and tips, compared with the previous period. Also a platform sales trend, findings (how concentrated sales are, inactive organizations, new guests), each organization's share of sales, an organization leaderboard, and guest account growth.
+- **Organizations:** search, filter by status, CSV export. Each organization's detail view shows a summary, the full analytics tabs, events, team (with **End sessions**), and **Suspend / Reactivate** with a required reason. Suspending signs out and blocks its staff and hides it from guests. Existing guest receipts still work, and nothing is deleted.
+- **Analytics:** the same six report tabs across all organizations or for one, with CSV and PDF export.
+- **Guests:** every guest account with organizations used, tickets, orders, total spent and last activity, plus conversion and lifetime value.
+- **Accounts:** organizer staff across organizations, with role counts, last sign-in and an **End sessions** button.
+- **Activity:** organizer and guest actions (last 300) and the platform admin log (sign-ins, suspensions, ended sessions).
+- **System:** database, environment, demo mode, SMS and payment status, session and sign-in code counts.
 
 ## Appearance
 
