@@ -7,7 +7,7 @@ import { copyText, ErrorText, Field, Glyph, Icon, Toggle } from '../shared/ui';
 const GROUPS = [
   ['Organization', [['profile', 'Profile'], ['theme', 'Appearance']]],
   ['Sales', [['ticketing', 'Tickets'], ['payments', 'Payments'], ['tax', 'VAT']]],
-  ['Food & drinks', [['ordering', 'Table ordering'], ['categories', 'Menu categories'], ['tips', 'Tips & service charge']]],
+  ['Food & drinks', [['ordering', 'Table ordering'], ['categories', 'Menu categories'], ['stockCategories', 'Stock categories'], ['tips', 'Tips & service charge']]],
   ['Guests', [['notifications', 'Notifications'], ['support', 'Help & support'], ['legal', 'Terms & privacy']]],
 ];
 const SECTIONS = GROUPS.flatMap(([, items]) => items);
@@ -30,7 +30,7 @@ export default function Settings({ ctx }) {
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);
   }, [dirty]);
-  const Section = { profile: OrgProfile, categories: Categories, tax: Tax, theme: Theme, ticketing: Ticketing, ordering: Ordering, tips: Tips, payments: Payments, notifications: Notifications, support: Support, legal: Legal }[section];
+  const Section = { profile: OrgProfile, categories: Categories, stockCategories: StockCategories, tax: Tax, theme: Theme, ticketing: Ticketing, ordering: Ordering, tips: Tips, payments: Payments, notifications: Notifications, support: Support, legal: Legal }[section];
   const title = SECTIONS.find(([id]) => id === section)[1];
   return (
     <div className="settings-layout">
@@ -246,14 +246,18 @@ function MultiUpload({ onUploaded }) {
   );
 }
 
-function Categories({ ctx, setDirty }) {
-  const initial = { categories: ctx.state.settings.menu.categories, renames: {} };
+function StockCategories(props) {
+  return <Categories {...props} group="store" collection="inventory" title="Stock categories" intro="Group store stock such as beer, wine, bread or meat. Used on the Stock page filters and reports." noun="stock items" example="Spices" />;
+}
+
+function Categories({ ctx, setDirty, group = 'menu', collection = 'menu', title = 'Menu categories', intro = 'The sections of your menu, in the order guests see them.', noun = 'menu items', example = 'Cocktails' }) {
+  const initial = { categories: ctx.state.settings[group].categories, renames: {} };
   const form = useDraft(initial, setDirty);
   const save = useSaver(ctx, form);
   const [adding, setAdding] = useState('');
   const d = form.draft;
-  const original = ctx.state.settings.menu.categories;
-  const count = name => ctx.state.menu.filter(i => i.category === (Object.entries(d.renames).find(([, to]) => to === name)?.[0] || name)).length;
+  const original = ctx.state.settings[group].categories;
+  const count = name => (ctx.state[collection] || []).filter(i => i.category === (Object.entries(d.renames).find(([, to]) => to === name)?.[0] || name)).length;
   const rename = (i, value) => {
     const cats = [...d.categories];
     const from = original.includes(cats[i]) ? cats[i] : Object.entries(d.renames).find(([, to]) => to === cats[i])?.[0];
@@ -266,13 +270,13 @@ function Categories({ ctx, setDirty }) {
   const add = e => { e.preventDefault(); const v = adding.trim(); if (v && !d.categories.some(c => c.toLowerCase() === v.toLowerCase())) form.set('categories', [...d.categories, v]); setAdding(''); };
   return (
     <>
-      <Head title="Menu categories">The sections of your menu, in the order guests see them.</Head>
+      <Head title={title}>{intro}</Head>
       <Locked ctx={ctx} />
       <div className="list">
         {d.categories.map((c, i) => (
           <div className="listrow" key={i}>
             <input aria-label={`Category ${i + 1}`} value={c} maxLength={60} onChange={e => rename(i, e.target.value)} disabled={!ctx.canManage} />
-            <span className="badge neutral" title="Menu items in this category">{count(c)} items</span>
+            <span className="badge neutral" title={`${noun} in this category`}>{count(c)} items</span>
             {ctx.canManage && <>
               <button type="button" className="ghost" disabled={i === 0} onClick={() => move(i, -1)} aria-label="Move up"><Icon name="up" /></button>
               <button type="button" className="ghost" disabled={i === d.categories.length - 1} onClick={() => move(i, 1)} aria-label="Move down"><Icon name="down" /></button>
@@ -283,13 +287,13 @@ function Categories({ ctx, setDirty }) {
       </div>
       {ctx.canManage && (
         <form className="codeentry" onSubmit={add}>
-          <input placeholder="New category, e.g. Cocktails" value={adding} maxLength={60} onChange={e => setAdding(e.target.value)} style={{ textTransform: 'none', letterSpacing: 0, textAlign: 'left', fontWeight: 500 }} />
+          <input placeholder={`New category, e.g. ${example}`} value={adding} maxLength={60} onChange={e => setAdding(e.target.value)} style={{ textTransform: 'none', letterSpacing: 0, textAlign: 'left', fontWeight: 500 }} />
           <button className="primary" disabled={!adding.trim()}><Icon name="add" />Add</button>
         </form>
       )}
-      <p className="footnote">Renaming a category updates every menu item in it. A category with items cannot be removed.</p>
+      <p className="footnote">Renaming a category updates every one of your {noun} in it. A category with items cannot be removed.</p>
       <ErrorText>{form.error}</ErrorText>
-      {ctx.canManage && <SaveBar form={form} onSave={() => save('config', { group: 'menu', values: d })} />}
+      {ctx.canManage && <SaveBar form={form} onSave={() => save('config', { group, values: d })} />}
     </>
   );
 }

@@ -34,6 +34,8 @@ DEFAULT_SETTINGS = {
     # Organization profile shown to guests: location and a photo gallery.
     'profile': {'city': 'Addis Ababa', 'address': '', 'mapUrl': '', 'photos': []},
     'menu': {'categories': ['Food', 'Drinks']},
+    # Categories for store stock (supplies such as beer, bread or meat); organizers add their own.
+    'store': {'categories': ['Drinks', 'Alcohol', 'Meat', 'Bakery', 'Produce', 'Dry goods', 'Dairy', 'Cleaning', 'Packaging', 'Other']},
     # Ethiopian VAT: 15% standard rate for VAT-registered businesses. Organizers confirm their own obligations.
     'tax': {'regime': 'vat', 'vatRate': 15, 'pricesIncludeTax': False, 'tin': '', 'vatNumber': '', 'tickets': True, 'menu': True, 'addedOnTop': True},
 }
@@ -177,6 +179,9 @@ def upgrade(s):
         tax['regime'] = 'none'
     tax.pop('totRate', None)
 
+    for item in s['inventory']:
+        if item.get('category') and item['category'] not in settings['store']['categories']:
+            settings['store']['categories'].append(item['category'])
     for item in s['menu']:
         item.setdefault('events', [])
         item.setdefault('trackStock', False)
@@ -327,10 +332,11 @@ def configure(s, group, v):
             raise ValueError('Use a Google Maps link (google.com/maps or maps.app.goo.gl).')
         cfg.update(city=text(v.get('city'), 80, False), address=text(v.get('address'), 200, False), mapUrl=map_url,
                    photos=[clean_image(p) for p in photos if p])
-    elif group == 'menu':
+    elif group in ('menu', 'store'):
+        noun, collection = ('menu', 'menu') if group == 'menu' else ('stock', 'inventory')
         raw = v.get('categories', [])
         if not isinstance(raw, list) or not 1 <= len(raw) <= 30:
-            raise ValueError('Keep between 1 and 30 menu categories.')
+            raise ValueError(f'Keep between 1 and 30 {noun} categories.')
         categories = []
         for name in raw:
             name = text(name, 60)
@@ -340,11 +346,11 @@ def configure(s, group, v):
         renames = v.get('renames') or {}
         if not isinstance(renames, dict):
             raise ValueError('Invalid category changes.')
-        for item in s['menu']:
+        for item in s[collection]:
             item['category'] = renames.get(item.get('category'), item.get('category'))
-        in_use = sorted({i['category'] for i in s['menu'] if i['category'] not in categories})
+        in_use = sorted({i['category'] for i in s[collection] if i['category'] not in categories})
         if in_use:
-            raise ValueError(f'Move menu items out of {", ".join(in_use)} before removing it.')
+            raise ValueError(f'Move {noun} items out of {", ".join(in_use)} before removing it.')
         cfg['categories'] = categories
     elif group == 'tax':
         regime = v.get('regime', cfg['regime'])
@@ -532,8 +538,8 @@ def mutate(s, op, v, notices):
             raise ValueError('This store item no longer exists.')
         item = dict(old or {'id': uid(), 'quantity': 0, 'created': int(time.time())})
         category, unit = text(v.get('category'), 40), text(v.get('unit'), 20)
-        if category not in STORE_CATEGORIES:
-            raise ValueError('Choose a category.')
+        if category not in s['settings']['store']['categories']:
+            raise ValueError('Choose a category from your stock categories.')
         if unit not in STORE_UNITS:
             raise ValueError('Choose a unit.')
         item.update(name=text(v.get('name'), 80), category=category, unit=unit, supplier=text(v.get('supplier'), 80, False),

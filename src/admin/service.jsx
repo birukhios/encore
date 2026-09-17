@@ -75,7 +75,6 @@ export function Stock({ ctx }) {
   );
 }
 
-const STORE_CATEGORIES = ['Drinks', 'Alcohol', 'Meat', 'Bakery', 'Produce', 'Dry goods', 'Dairy', 'Cleaning', 'Packaging', 'Other'];
 const STORE_UNITS = ['bottles', 'cans', 'crates', 'kegs', 'kg', 'g', 'liters', 'ml', 'loaves', 'pieces', 'packs', 'boxes', 'bags', 'trays', 'dozen'];
 const QUICK_ADD = [
   ['Beer', 'Alcohol', 'bottles', 24], ['Wine', 'Alcohol', 'bottles', 6], ['Spirits', 'Alcohol', 'bottles', 3], ['Soft drinks', 'Drinks', 'bottles', 24],
@@ -98,7 +97,7 @@ function StoreStock({ ctx }) {
     const used = (state.stockLog || []).filter(x => x.store && x.item === i.id && x.change < 0 && x.at >= now() - 7 * DAY).reduce((t, x) => t - x.change, 0);
     return { ...i, status: st, value: Math.round(i.quantity * i.cost), used7: used, cover: used ? i.quantity / (used / 7) : null };
   });
-  const categories = ['All', ...STORE_CATEGORIES.filter(c => items.some(i => i.category === c))];
+  const categories = ['All', ...state.settings.store.categories.filter(c => items.some(i => i.category === c))];
   const shown = rows.filter(r => (category === 'All' || r.category === category) && (status === 'all' || r.status === status || (status === 'low' && r.status === 'out')) && (!query || `${r.name} ${r.supplier}`.toLowerCase().includes(query.toLowerCase())));
   const low = rows.filter(r => r.status !== 'ok').length;
   const log = [...(state.stockLog || [])].filter(x => x.store && (logItem === 'all' || x.item === logItem)).reverse();
@@ -118,6 +117,7 @@ function StoreStock({ ctx }) {
     <>
       <PageActions>
         <button onClick={exportCsv} disabled={!items.length}><Icon name="download" />CSV</button>
+        {canManage && <button onClick={() => { ctx.go('Settings'); history.replaceState(null, '', '/admin?page=Settings&section=stockCategories'); }}><Icon name="settings" />Categories</button>}
         {canManage && <button className="primary" onClick={() => setEditing({})}><Icon name="add" />Add store item</button>}
       </PageActions>
       <div className="kpis">
@@ -193,10 +193,32 @@ function StoreItemForm({ ctx, item, onClose }) {
   const { state } = ctx;
   const { busy, error, run } = useRunner();
   const existing = !!item.id;
+  const [categories, setCategories] = useState(state.settings.store.categories);
+  const [category, setCategory] = useState(() => (item.category && categories.includes(item.category) ? item.category : categories.includes(item.category) ? item.category : item.category ? '__new' : categories[0]));
+  const [newCategory, setNewCategory] = useState(item.category && !categories.includes(item.category) ? item.category : '');
   const submit = e => {
     e.preventDefault();
     const v = Object.fromEntries(new FormData(e.currentTarget));
-    run(async () => { await ctx.action('inventory', { ...v, id: item.id }); onClose(); });
+    run(async () => {
+      let chosen = category;
+      if (category === '__new') {
+        chosen = newCategory.trim();
+        if (!chosen) throw new Error('Enter a name for the new category.');
+        const match = categories.find(c => c.toLowerCase() === chosen.toLowerCase());
+        if (match) chosen = match;
+        else {
+          await ctx.action('config', { group: 'store', values: { categories: [...categories, chosen], renames: {} } }, { quiet: true });
+          setCategories([...categories, chosen]);
+        }
+      }
+      await ctx.action('inventory', { ...v, category: chosen, id: item.id });
+      onClose();
+    });
+  };
+  const pickQuick = (name, cat, unit, level) => {
+    const f = document.getElementById('store-form');
+    f.name.value = name; f.unit.value = unit; f.reorderLevel.value = level;
+    if (categories.includes(cat)) setCategory(cat); else { setCategory('__new'); setNewCategory(cat); }
   };
   const remove = () => confirm(`Delete ${item.name}? Its movement history stays in the log.`) && run(async () => { await ctx.action('delete', { kind: 'inventory', id: item.id }); onClose(); });
   return (
@@ -211,18 +233,21 @@ function StoreItemForm({ ctx, item, onClose }) {
           <div className="quick-add">
             <span className="small muted">Quick add</span>
             {QUICK_ADD.map(([name, cat, unit, level]) => (
-              <button key={name} type="button" className="chip" onClick={() => {
-                const f = document.getElementById('store-form');
-                f.name.value = name; f.category.value = cat; f.unit.value = unit; f.reorderLevel.value = level;
-              }}>{name}</button>
+              <button key={name} type="button" className="chip" onClick={() => pickQuick(name, cat, unit, level)}>{name}</button>
             ))}
           </div>
         )}
         <Field label="Item name" name="name" defaultValue={item.name} maxLength={80} required placeholder="e.g. St. George beer" />
         <div className="formrow">
-          <Field label="Category"><select name="category" defaultValue={item.category || 'Drinks'}>{STORE_CATEGORIES.map(c => <option key={c}>{c}</option>)}</select></Field>
+          <Field label="Category">
+            <select value={category} onChange={e => setCategory(e.target.value)}>
+              {categories.map(c => <option key={c} value={c}>{c}</option>)}
+              <option value="__new">+ New category…</option>
+            </select>
+          </Field>
           <Field label="Unit"><select name="unit" defaultValue={item.unit || 'bottles'}>{STORE_UNITS.map(u => <option key={u}>{u}</option>)}</select></Field>
         </div>
+        {category === '__new' && <Field label="New category name" value={newCategory} maxLength={60} placeholder="e.g. Spices" onChange={e => setNewCategory(e.target.value)} required autoFocus />}
         <div className="formrow">
           {existing
             ? <Field label="On hand"><input value={`${qty(item.quantity)} ${item.unit}`} readOnly /><small>Use Adjust to change quantities so every change is logged.</small></Field>

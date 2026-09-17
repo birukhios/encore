@@ -368,6 +368,23 @@ class AppTests(unittest.TestCase):
         self.assertTrue(any('ready' in msg and phone == guest['phone'] for phone, msg in SENT))
 
 
+    def test_head_robots_and_gzip(self):
+        import gzip as gz
+        c = http.client.HTTPConnection('127.0.0.1', self.guest.server_port)
+        c.request('HEAD', '/api/health')
+        r = c.getresponse()
+        self.assertEqual((r.status, r.read()), (200, b''))
+        self.assertGreater(int(r.getheader('Content-Length')), 0)
+        c.request('GET', '/robots.txt')
+        r = c.getresponse()
+        self.assertIn(b'Disallow: /admin', r.read())
+        c.request('GET', '/api/workspaces', headers={'Accept-Encoding': 'gzip'})
+        r = c.getresponse()
+        body = r.read()
+        data = gz.decompress(body) if r.getheader('Content-Encoding') == 'gzip' else body
+        self.assertIsInstance(json.loads(data), list)
+        c.close()
+
     # ------------------------------------------------------------ platform console
 
     def test_platform_admin_console_and_suspension(self):
@@ -618,8 +635,13 @@ class DomainTests(unittest.TestCase):
         store_log = [x for x in s['stockLog'] if x.get('store')]
         self.assertEqual([(x['name'], x['change'], x['after']) for x in store_log], [('St. George beer', 48, 48), ('Beef', 12.5, 12.5), ('Beef', -2.25, 10.25), ('St. George beer', 24, 72), ('St. George beer', -2, 70), ('Beef', -0.25, 10)])
         self.assertEqual(store_log[2]['reason'], 'Used in kitchen/bar · Tibs')
+        domain.configure(s, 'store', {'categories': ['Beverages', 'Meat', 'Spices'], 'renames': {'Alcohol': 'Beverages'}})
+        self.assertEqual(beer['category'], 'Beverages')
+        domain.mutate(s, 'inventory', {'name': 'Berbere', 'category': 'Spices', 'unit': 'kg', 'quantity': 2}, [])
+        with self.assertRaisesRegex(ValueError, 'Move stock items out of Meat'):
+            domain.configure(s, 'store', {'categories': ['Beverages', 'Spices']})
         domain.mutate(s, 'delete', {'kind': 'inventory', 'id': beef['id']}, [])
-        self.assertEqual([i['name'] for i in s['inventory']], ['St. George beer'])
+        self.assertEqual([i['name'] for i in s['inventory']], ['St. George beer', 'Berbere'])
 
     def test_guests_can_choose_cash_for_orders(self):
         s = self.state

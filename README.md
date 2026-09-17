@@ -1,5 +1,7 @@
 # Encore concert platform
 
+> Deploying for real guests and money? Follow **[PRODUCTION.md](PRODUCTION.md)** and run `python3 server.py --check`.
+
 Two separate web apps backed by one Python/SQLite server:
 
 | App | Default address | Who |
@@ -20,7 +22,7 @@ python3 launch.py
 or double-click `Start_Encore.command` on a Mac. `dist/` must be built (`npm install && npm run build`, Node 20+).
 
 - **Development with hot reload:** `npm run dev` → admin http://127.0.0.1:5173/admin, guest http://127.0.0.1:5174/
-- **Tests:** `npm test` (32 integration tests, disposable database)
+- **Tests:** `npm test` (33 integration tests, disposable database)
 - **Build:** `npm run build`
 
 There are no default accounts. Create a workspace at `/admin/signup` and save the one-time recovery code.
@@ -86,7 +88,7 @@ In development, SMS messages (sign-in codes, booking and order updates) are **pr
 
 ## Stock, waiters, staff orders and printing
 
-- **Store stock** (Owner/Admin, Stock → Store items): add supplies such as beer, wine, bread, meat or cleaning products, with a category, unit (bottles, crates, kg, liters, loaves, pieces…), reorder level, cost per unit and supplier. Quick add suggests common items. **Adjust** records deliveries (and updates the cost), kitchen or bar use, waste and counts; decimals are allowed (e.g. 2.25 kg). The page shows reorder alerts, store value at cost, 7-day usage and days of cover, and exports a CSV including a shopping list.
+- **Store stock** (Owner/Admin, Stock → Store items): add supplies grouped by your own **stock categories** (Settings → Stock categories, or **+ New category** in the item form), such as beer, wine, bread, meat or cleaning products, with a category, unit (bottles, crates, kg, liters, loaves, pieces…), reorder level, cost per unit and supplier. Quick add suggests common items. **Adjust** records deliveries (and updates the cost), kitchen or bar use, waste and counts; decimals are allowed (e.g. 2.25 kg). The page shows reorder alerts, store value at cost, 7-day usage and days of cover, and exports a CSV including a shopping list.
 - **Menu item stock** (Stock → Menu items): turn on **Track stock** for a menu item and set its opening count and low-stock alert. Guest orders and staff orders reduce stock; cancelling an unpaid order puts it back. Nobody can order more than is in stock, sold-out items are hidden from guests, and guests see "Only N left" at or below the alert. The Stock page shows levels, low and out-of-stock counts, stock value, 7-day sales and days of cover. You can record deliveries, waste and counts; every change is logged with who made it. Exports to CSV.
 - **Waiters** (Owner/Admin): each waiter gets a unique random 4-digit number, which is never reused in the workspace and can be regenerated if a badge is lost. Print a badge. Guests can enter the number in their bag, and the tip is credited to that waiter. The page shows tips, orders and average tip per waiter for 7 days, 30 days or all time, with CSV export. Reports → Tables & tips includes **Tips by waiter**.
 - **Staff orders** (Owner/Admin/Service): **Orders → New order** lets a waiter take an order at the table: choose items (stock-aware), table, waiter, optional guest name and tip, then **Cash**, **Card at venue** or **Not paid yet**. Prices, service charge, VAT and stock are checked on the server.

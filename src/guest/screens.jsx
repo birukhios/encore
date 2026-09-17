@@ -61,7 +61,7 @@ export function Directory({ workspaces, error, onPick }) {
       <section className="home-hero">
         <div className="home-hero-glow" aria-hidden="true" />
         <span className="eyebrow accent">Live music · great food · your table</span>
-        <h1>Good nights<br />start here.</h1>
+        <h1>Good nights <br />start here.</h1>
         <p>Find concerts near you, book your tickets in seconds, and order to your table when you arrive.</p>
         <label className="home-search">
           <Icon name="search" />

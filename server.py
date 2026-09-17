@@ -6,6 +6,7 @@ Two listeners share one database:
 Each listener serves only its own web app and API routes.
 """
 import base64
+import gzip
 import hashlib
 import hmac
 import json
@@ -54,6 +55,9 @@ STAFF_ROLES = {
     'Service': ['order_status', 'settle', 'cancel', 'staff_order'],
     'Gate': ['checkin', 'checkin_ticket'],
 }
+COMPRESSIBLE = ('.js', '.css', '.html', '.svg', '.json', '.webmanifest')
+GZIP_CACHE = {}  # (path, mtime) -> gzipped bytes for static files
+ROBOTS = b'User-agent: *\nDisallow: /admin\nDisallow: /api/\n'
 LOCK = threading.Lock()
 ATTEMPTS = {}
 _SECRET = None
@@ -273,8 +277,12 @@ class BaseHandler(BaseHTTPRequestHandler):
         if status < 400 and getattr(self, 'db', None) is not None and self.db.in_transaction:
             self.db.commit()
         body = json.dumps(data).encode()
+        body, encoded = self.maybe_gzip(body)
         self.send_response(status)
         self.send_header('Content-Type', 'application/json')
+        if encoded:
+            self.send_header('Content-Encoding', 'gzip')
+        self.send_header('Vary', 'Accept-Encoding')
         self.send_header('Content-Length', str(len(body)))
         self.send_header('Cache-Control', 'no-store')
         self.security_headers()
@@ -283,6 +291,22 @@ class BaseHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def accepts_gzip(self):
+        return 'gzip' in (self.headers.get('Accept-Encoding') or '')
+
+    def maybe_gzip(self, body, cache_key=None):
+        if len(body) < 1024 or not self.accepts_gzip():
+            return body, False
+        if cache_key is None:
+            return gzip.compress(body, 6), True
+        with LOCK:
+            packed = GZIP_CACHE.get(cache_key)
+        if packed is None:
+            packed = gzip.compress(body, 9)
+            with LOCK:
+                GZIP_CACHE[cache_key] = packed
+        return packed, True
+
     def make_cookie(self, name, value, maxage, samesite):
         return f'{name}={value}; Path=/; HttpOnly; SameSite={samesite}; Max-Age={maxage}' + ('; Secure' if PROD else '')
 
@@ -290,6 +314,13 @@ class BaseHandler(BaseHTTPRequestHandler):
         return dict(p.strip().split('=', 1) for p in self.headers.get('Cookie', '').split(';') if '=' in p)
 
     def serve_file(self, path):
+        if path == '/robots.txt':
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/plain; charset=utf-8')
+            self.send_header('Content-Length', str(len(ROBOTS)))
+            self.security_headers()
+            self.end_headers()
+            return self.wfile.write(ROBOTS)
         if path.startswith('/uploads/'):
             name = Path(path).name
             with conn() as c:
@@ -318,14 +349,22 @@ class BaseHandler(BaseHTTPRequestHandler):
             if not file.is_file():
                 return self.send({'error': 'Build the client before starting the application.'}, 404)
         body = file.read_bytes()
+        csp_source = body
+        encoded = False
+        if file.suffix in COMPRESSIBLE:
+            body, encoded = self.maybe_gzip(body, (str(file), file.stat().st_mtime_ns))
         self.send_response(200)
         self.send_header('Content-Type', 'application/manifest+json' if file.suffix == '.webmanifest' else mimetypes.guess_type(file.name)[0] or 'application/octet-stream')
+        if encoded:
+            self.send_header('Content-Encoding', 'gzip')
+        if file.suffix in COMPRESSIBLE:
+            self.send_header('Vary', 'Accept-Encoding')
         self.send_header('Content-Length', str(len(body)))
         self.send_header('Cache-Control', 'public, max-age=31536000, immutable' if path.startswith('/assets/') else 'no-cache')
         self.security_headers()
         if file.suffix == '.html':
             hashes = ' '.join("'sha256-" + base64.b64encode(hashlib.sha256(s).digest()).decode() + "'"
-                              for s in re.findall(rb'<script[^>]*>(.*?)</script>', body, re.S) if s.strip())
+                              for s in re.findall(rb'<script[^>]*>(.*?)</script>', csp_source, re.S) if s.strip())
             self.send_header('Content-Security-Policy', "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; "
                              "style-src 'self' 'unsafe-inline'; script-src 'self' " + hashes +
                              "; font-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
@@ -353,6 +392,26 @@ class BaseHandler(BaseHTTPRequestHandler):
             self.send({'error': str(e)}, 400)
         except Exception:
             self.send({'error': 'The request could not be completed. Please try again.'}, 500)
+
+    def do_HEAD(self):
+        """Uptime monitors and proxies use HEAD: same status and headers as GET, no body."""
+        self._head = True
+        try:
+            self.do_GET()
+        finally:
+            self._head = False
+            if getattr(self, '_real_wfile', None):
+                self.wfile, self._real_wfile = self._real_wfile, None
+
+    def end_headers(self):
+        super().end_headers()
+        if getattr(self, '_head', False) and not getattr(self, '_real_wfile', None):
+            class _Discard:
+                def write(self, data):
+                    return len(data)
+                def flush(self):
+                    pass
+            self._real_wfile, self.wfile = self.wfile, _Discard()
 
     def do_POST(self):
         self.strip_admin_prefix()
@@ -857,6 +916,9 @@ class CombinedHandler(BaseHandler):
     def do_POST(self):
         return self.dispatch('do_POST')
 
+    def do_HEAD(self):
+        return self.dispatch('do_HEAD')
+
 
 def serve(handler, host, port):
     http = ThreadingHTTPServer((host, port), handler)
@@ -898,6 +960,23 @@ def create_platform_admin_cli():
 
 
 if __name__ == '__main__':
+    if '--check' in sys.argv:
+        problems = production_problems()
+        if not PROD:
+            problems.insert(0, 'ENCORE_ENV is not "production": secure cookies, HSTS and origin checks are relaxed.')
+        notes = []
+        if not db.POSTGRES:
+            notes.append('DATABASE_URL is not set: using SQLite in ENCORE_DATA. Back it up, or use PostgreSQL.')
+        if not DEMO:
+            notes.append('Online wallet payments (AfroPay) are not connected: tickets cannot be bought online yet; food & drink orders work with cash if enabled.')
+        if not os.environ.get('ENCORE_PLATFORM_EMAIL'):
+            notes.append('ENCORE_PLATFORM_EMAIL / ENCORE_PLATFORM_PASSWORD not set: no platform console account is created at startup.')
+        print('Encore production check')
+        for label, items in [('Must fix', problems), ('Also note', notes)]:
+            print(f'\n{label}:')
+            for item in items or ['Nothing.']:
+                print(' - ' + item)
+        raise SystemExit(1 if problems else 0)
     if '--create-platform-admin' in sys.argv:
         create_platform_admin_cli()
         raise SystemExit(0)
