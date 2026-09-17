@@ -1,0 +1,7 @@
+{
+  "name": "HTML & Websites → Figma · Motion",
+  "id": "html-websites-figma-motion",
+  "api": "1.0.0", "main": "code.js", "ui": "ui.html",
+  "editorType": ["figma"], "documentAccess": "dynamic-page",
+  "networkAccess": {"allowedDomains": ["none"], "devAllowedDomains": ["http://127.0.0.1:3847"], "reasoning": "Development plugin connects only to your local browser capture companion. JSON captures can also be imported offline."}
+}

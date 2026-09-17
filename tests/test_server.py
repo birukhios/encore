@@ -417,6 +417,16 @@ class AppTests(unittest.TestCase):
         self.assertIn(tenant, [w['id'] for w in g('workspaces')[1]])
         actions = [a['action'] for a in platform('platform/data')[1]['platformAudit']]
         self.assertEqual(actions[:3], ['reactivate', 'suspend', 'signin'])
+        user_id = mine['team'][0]['id']
+        self.assertEqual(Client(self.admin.server_port)('platform/user/reset', {'user': user_id})[0], 401)
+        status, reset = platform('platform/user/reset', {'user': user_id})
+        self.assertEqual((status, reset['email']), (200, mail))
+        new_pw = secrets.token_urlsafe(18)
+        anon = Client(self.admin.server_port)
+        self.assertEqual(anon('recover', {'email': mail, 'password': new_pw, 'recovery': 'old-or-wrong'})[0], 401)
+        self.assertEqual(anon('recover', {'email': mail, 'password': new_pw, 'recovery': reset['recovery']})[0], 200)
+        self.assertEqual(anon('signin', {'email': mail, 'password': new_pw})[0], 200)
+        self.assertEqual(platform('platform/data')[1]['platformAudit'][0]['action'], 'reset_access')
         platform('platform/signout', {})
         self.assertEqual(platform('platform/data')[0], 401)
 

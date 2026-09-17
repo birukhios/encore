@@ -93,7 +93,7 @@ For Encore's own operators, separate from organizer accounts: its own table, a 1
 - **Organizations:** search, filter by status, CSV export. Each organization's detail view shows a summary, the full analytics tabs, events, team (with **End sessions**), and **Suspend / Reactivate** with a required reason. Suspending signs out and blocks its staff and hides it from guests. Existing guest receipts still work, and nothing is deleted.
 - **Analytics:** the same six report tabs across all organizations or for one, with CSV and PDF export.
 - **Guests:** every guest account with organizations used, tickets, orders, total spent and last activity, plus conversion and lifetime value.
-- **Accounts:** organizer staff across organizations, with role counts, last sign-in and an **End sessions** button.
+- **Accounts:** organizer staff across organizations, with role counts, last sign-in, **End sessions**, and **Reset password**. A reset shows a one-time recovery code; the person then uses **Forgot password?** to choose a new password. Every reset is logged.
 - **Activity:** organizer and guest actions (last 300) and the platform admin log (sign-ins, suspensions, ended sessions).
 - **System:** database, environment, demo mode, SMS and payment status, session and sign-in code counts.
 

@@ -486,6 +486,16 @@ class AdminHandler(BaseHandler):
                 c.execute('DELETE FROM sessions WHERE "user" IN (SELECT id FROM users WHERE tenant=?)', (row['id'],))
             platform_log(c, a['id'], 'suspend' if status == 'suspended' else 'reactivate', row['name'], note)
             return self.send({'ok': True})
+        if path == '/api/platform/user/reset':
+            # Issues a one-time recovery code; the person sets their own password on the "Forgot password?" page.
+            u = c.execute('SELECT id,name,email FROM users WHERE id=?', (text(v.get('user')),)).fetchone()
+            if not u:
+                raise LookupError('Account not found.')
+            recovery = uid()
+            c.execute('UPDATE users SET recovery=? WHERE id=?', (digest(recovery), u['id']))
+            c.execute('DELETE FROM sessions WHERE "user"=?', (u['id'],))
+            platform_log(c, a['id'], 'reset_access', u['email'])
+            return self.send({'recovery': recovery, 'email': u['email']})
         if path == '/api/platform/user/signout':
             u = c.execute('SELECT id,name,email FROM users WHERE id=?', (text(v.get('user')),)).fetchone()
             if not u:

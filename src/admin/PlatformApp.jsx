@@ -160,6 +160,52 @@ function PlatformSignIn({ onAuth }) {
   );
 }
 
+// ---------------------------------------------------------------- password reset
+
+/** Button + confirmation that issues a new one-time recovery code for an organizer account. */
+function ResetAccess({ user, reload }) {
+  const [step, setStep] = useState(null);  // null | 'confirm' | { recovery, email }
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  async function reset() {
+    setBusy(true);
+    setError('');
+    try {
+      setStep(await api('platform/user/reset', { user: user.id }));
+      await reload();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <>
+      <button className="small-btn" onClick={e => { e.stopPropagation(); setStep('confirm'); }}>Reset password</button>
+      {step && (
+        <Modal title={step === 'confirm' ? `Reset password for ${user.name}?` : 'New recovery code'} eyebrow={user.email} onClose={() => setStep(null)}
+          footer={step === 'confirm'
+            ? <><button onClick={() => setStep(null)}>Cancel</button><button className="primary" disabled={busy} onClick={reset}>{busy ? 'Resetting…' : 'Reset password'}</button></>
+            : <button className="primary block" onClick={() => setStep(null)}>Done</button>}>
+          {step === 'confirm' ? (
+            <>
+              <p>This signs {user.name} out everywhere and creates a new one-time recovery code. Their old recovery code stops working. Their current password keeps working until they choose a new one.</p>
+              <ErrorText>{error}</ErrorText>
+            </>
+          ) : (
+            <div className="stack">
+              <p>Give this code to <b>{step.email}</b> privately. It is shown only once.</p>
+              <code className="recovery">{step.recovery}</code>
+              <button onClick={() => navigator.clipboard?.writeText(step.recovery)}><Icon name="copy" />Copy code</button>
+              <p className="small">To set a new password: open <b>/admin/signin</b> → <b>Forgot password?</b> → enter the email, this code and a new password (12+ characters).</p>
+            </div>
+          )}
+        </Modal>
+      )}
+    </>
+  );
+}
+
 // ---------------------------------------------------------------- helpers
 
 const moneyIn = currency => cents => formatMoney(cents, currency);
@@ -414,7 +460,10 @@ function OrgDetail({ ctx, id, onClose }) {
               <div className="listrow" key={u.id}>
                 <Avatar name={u.name} src={u.avatar} size={36} />
                 <div className="grow"><b>{u.name}</b><small>{u.email} · {u.role} · {u.lastSeen ? `last sign-in ${timeAgo(u.lastSeen)}` : 'never signed in'}</small></div>
-                {u.signedIn ? <button onClick={() => endSessions(u)}>End sessions</button> : <span className="badge neutral">Signed out</span>}
+                <div className="row wrap">
+                  <ResetAccess user={u} reload={reload} />
+                  {u.signedIn ? <button className="small-btn" onClick={() => endSessions(u)}>End sessions</button> : <span className="badge neutral">Signed out</span>}
+                </div>
               </div>
             ))}
           </div>
@@ -594,7 +643,7 @@ function Accounts({ ctx }) {
           { key: 'org', label: 'Organization', render: u => <><b>{u.org}</b>{u.orgStatus === 'suspended' && <small>Suspended</small>}</> },
           { key: 'role', label: 'Role', render: u => <span className="badge neutral">{u.role}</span> },
           { key: 'lastSeen', label: 'Last sign-in', num: true, render: u => (u.lastSeen ? timeAgo(u.lastSeen) : 'Never') },
-          { key: 'signedIn', label: 'Session', num: true, value: u => (u.signedIn ? 1 : 0), render: u => (u.signedIn ? <button className="small-btn" onClick={() => endSessions(u)}>End sessions</button> : <span className="muted small">Signed out</span>) },
+          { key: 'signedIn', label: 'Actions', num: true, value: u => (u.signedIn ? 1 : 0), render: u => <span className="row" style={{ justifyContent: 'flex-end', flexWrap: 'wrap' }}><ResetAccess user={u} reload={reload} />{u.signedIn ? <button className="small-btn" onClick={() => endSessions(u)}>End sessions</button> : <span className="muted small">Signed out</span>}</span> },
         ]} empty="No accounts match." />
       </section>
     </>
@@ -606,7 +655,7 @@ function Accounts({ ctx }) {
 const ACTION_LABELS = {
   settings: 'Updated workspace', config: 'Changed settings', event: 'Saved event', menu: 'Saved menu item', table: 'Saved table', delete: 'Deleted item',
   order_status: 'Updated order status', checkin: 'Checked in booking', checkin_ticket: 'Checked in ticket', settle: 'Recorded payment', cancel: 'Cancelled',
-  guest_booking: 'Guest bought tickets', guest_menu: 'Guest placed order', signin: 'Signed in', suspend: 'Suspended organization', reactivate: 'Reactivated organization', end_sessions: 'Ended sessions',
+  guest_booking: 'Guest bought tickets', guest_menu: 'Guest placed order', signin: 'Signed in', suspend: 'Suspended organization', reactivate: 'Reactivated organization', end_sessions: 'Ended sessions', reset_access: 'Reset password',
 };
 
 function Activity({ ctx }) {
