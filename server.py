@@ -49,8 +49,8 @@ DEMO = os.environ.get('ENCORE_DEMO') == '1'
 ADMIN_SESSION_DAYS, GUEST_SESSION_DAYS, PLATFORM_SESSION_HOURS = 7, 30, 12
 OTP_TTL, OTP_RESEND, OTP_MAX_ATTEMPTS = 300, 60, 5
 STAFF_ROLES = {
-    'Owner': ['settings', 'config', 'event', 'menu', 'table', 'delete', 'order_status', 'checkin', 'checkin_ticket', 'settle', 'cancel', 'waiter', 'stock', 'staff_order'],
-    'Admin': ['settings', 'config', 'event', 'menu', 'table', 'delete', 'order_status', 'checkin', 'checkin_ticket', 'settle', 'cancel', 'waiter', 'stock', 'staff_order'],
+    'Owner': ['settings', 'config', 'event', 'menu', 'table', 'delete', 'order_status', 'checkin', 'checkin_ticket', 'settle', 'cancel', 'waiter', 'stock', 'staff_order', 'inventory', 'inventory_adjust'],
+    'Admin': ['settings', 'config', 'event', 'menu', 'table', 'delete', 'order_status', 'checkin', 'checkin_ticket', 'settle', 'cancel', 'waiter', 'stock', 'staff_order', 'inventory', 'inventory_adjust'],
     'Service': ['order_status', 'settle', 'cancel', 'staff_order'],
     'Gate': ['checkin', 'checkin_ticket'],
 }
@@ -628,7 +628,7 @@ class AdminHandler(BaseHandler):
             notices, data = [], v.get('data', {})
             if isinstance(data, dict):
                 data.pop('_by', None)
-                if op in ('checkin', 'checkin_ticket', 'stock', 'staff_order', 'menu', 'cancel'):
+                if op in ('checkin', 'checkin_ticket', 'stock', 'staff_order', 'menu', 'cancel', 'inventory', 'inventory_adjust'):
                     data['_by'] = u['name']
             s = domain.mutate(s, op, data, notices)
             write_tenant(c, u['tenant'], s)
@@ -817,7 +817,8 @@ class GuestHandler(BaseHandler):
             if rate_limited('order:' + self.client_ip(), 30, 900) or rate_limited('order-guest:' + g['id'], 20, 900):
                 raise ApiError(429, 'Too many orders in a short time. Please wait a few minutes.')
             row, s = guest_tenant(c, text(v.get('tenant')))
-            rec = domain.guest_record(s, v, g, demo_payment=demo_payment)
+            cash = path == '/api/order' and v.get('payment') == 'cash'
+            rec = domain.guest_record(s, v, g, demo_payment=demo_payment, cash=cash)
             write_tenant(c, row['id'], s)
             c.execute('INSERT INTO audit(tenant,"user",action,created) VALUES(?,?,?,?)', (row['id'], 'guest:' + g['id'], 'guest_' + str(v.get('kind')), int(time.time())))
             prefs = s['settings']['notifications']
@@ -829,8 +830,10 @@ class GuestHandler(BaseHandler):
                     text_guest(g['phone'], f'{s["name"]}: {body}')
             else:
                 title, body = 'Order received', f'{rec["items"]} for {rec.get("tableName") or "counter pickup"}. Ref {rec["ref"]}.'
+                if cash:
+                    body += f' Please pay {rec["currency"]} {rec["total"] / 100:,.2f} in cash when your order arrives.'
                 if prefs['staffNewOrders']:
-                    notify(c, row['id'], 'staff', f'New order · {rec["ref"]}', f'{rec.get("tableName") or "Counter"}: {rec["items"]}', kind='order', ref=rec['ref'])
+                    notify(c, row['id'], 'staff', f'New {"cash " if cash else ""}order · {rec["ref"]}', f'{rec.get("tableName") or "Counter"}: {rec["items"]}' + (f' · collect {rec["currency"]} {rec["total"] / 100:,.2f} cash' if cash else ''), kind='order', ref=rec['ref'])
             notify(c, row['id'], 'guest', title, body, g['id'], 'placed', rec['ref'])
             return self.send(domain.receipt(s, rec), 201)
         raise LookupError('Not found')

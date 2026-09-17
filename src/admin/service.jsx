@@ -60,6 +60,212 @@ export function priceOrder(state, subtotal, tip = 0) {
 // ---------------------------------------------------------------- Stock
 
 export function Stock({ ctx }) {
+  const [tab, setTab] = useState(() => new URLSearchParams(location.search).get('tab') === 'menu' ? 'Menu items' : 'Store items');
+  const lowStore = (ctx.state.inventory || []).filter(i => i.quantity <= i.reorderLevel).length;
+  const lowMenu = ctx.state.menu.filter(i => i.trackStock && i.stock <= i.lowStock).length;
+  return (
+    <>
+      <div className="report-tabs" role="tablist" aria-label="Stock sections">
+        {[['Store items', lowStore], ['Menu items', lowMenu]].map(([t, n]) => (
+          <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>{t}{n > 0 && <span className="tab-count">{n}</span>}</button>
+        ))}
+      </div>
+      {tab === 'Store items' ? <StoreStock ctx={ctx} /> : <MenuStock ctx={ctx} />}
+    </>
+  );
+}
+
+const STORE_CATEGORIES = ['Drinks', 'Alcohol', 'Meat', 'Bakery', 'Produce', 'Dry goods', 'Dairy', 'Cleaning', 'Packaging', 'Other'];
+const STORE_UNITS = ['bottles', 'cans', 'crates', 'kegs', 'kg', 'g', 'liters', 'ml', 'loaves', 'pieces', 'packs', 'boxes', 'bags', 'trays', 'dozen'];
+const QUICK_ADD = [
+  ['Beer', 'Alcohol', 'bottles', 24], ['Wine', 'Alcohol', 'bottles', 6], ['Spirits', 'Alcohol', 'bottles', 3], ['Soft drinks', 'Drinks', 'bottles', 24],
+  ['Water', 'Drinks', 'bottles', 24], ['Coffee beans', 'Dry goods', 'kg', 2], ['Bread', 'Bakery', 'loaves', 10], ['Injera', 'Bakery', 'pieces', 30],
+  ['Beef', 'Meat', 'kg', 5], ['Chicken', 'Meat', 'kg', 5], ['Vegetables', 'Produce', 'kg', 5], ['Cooking oil', 'Dry goods', 'liters', 5],
+];
+const qty = n => Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 3 });
+
+function StoreStock({ ctx }) {
+  const { state, money, canManage } = ctx;
+  const [editing, setEditing] = useState(null);
+  const [adjusting, setAdjusting] = useState(null);
+  const [category, setCategory] = useState('All');
+  const [status, setStatus] = useState('all');
+  const [query, setQuery] = useState('');
+  const [logItem, setLogItem] = useState('all');
+  const items = state.inventory || [];
+  const rows = items.map(i => {
+    const st = i.quantity <= 0 ? 'out' : i.quantity <= i.reorderLevel ? 'low' : 'ok';
+    const used = (state.stockLog || []).filter(x => x.store && x.item === i.id && x.change < 0 && x.at >= now() - 7 * DAY).reduce((t, x) => t - x.change, 0);
+    return { ...i, status: st, value: Math.round(i.quantity * i.cost), used7: used, cover: used ? i.quantity / (used / 7) : null };
+  });
+  const categories = ['All', ...STORE_CATEGORIES.filter(c => items.some(i => i.category === c))];
+  const shown = rows.filter(r => (category === 'All' || r.category === category) && (status === 'all' || r.status === status || (status === 'low' && r.status === 'out')) && (!query || `${r.name} ${r.supplier}`.toLowerCase().includes(query.toLowerCase())));
+  const low = rows.filter(r => r.status !== 'ok').length;
+  const log = [...(state.stockLog || [])].filter(x => x.store && (logItem === 'all' || x.item === logItem)).reverse();
+
+  function exportCsv() {
+    downloadText(`${slug(state.name)}-store-stock-${isoDay(new Date())}.csv`, toCsv([
+      ['Item', 'Category', 'Quantity', 'Unit', 'Reorder level', 'Status', `Cost per unit (${state.currency})`, `Value (${state.currency})`, 'Used/wasted last 7 days', 'Days of cover', 'Supplier'],
+      ...rows.map(r => [r.name, r.category, r.quantity, r.unit, r.reorderLevel, r.status === 'out' ? 'Out of stock' : r.status === 'low' ? 'Reorder' : 'OK', (r.cost / 100).toFixed(2), (r.value / 100).toFixed(2), r.used7, r.cover === null ? '' : r.cover.toFixed(1), r.supplier]),
+      [], ['Shopping list (at or below reorder level)'], ['Item', 'Have', 'Reorder level', 'Unit', 'Supplier'],
+      ...rows.filter(r => r.status !== 'ok').map(r => [r.name, r.quantity, r.reorderLevel, r.unit, r.supplier]),
+      [], ['Store movements'], ['When', 'Item', 'Change', 'Unit', 'After', 'Reason', 'By'],
+      ...log.map(x => [new Date(x.at * 1000).toISOString(), x.name, x.change, x.unit, x.after, x.reason, x.by]),
+    ]));
+  }
+
+  return (
+    <>
+      <PageActions>
+        <button onClick={exportCsv} disabled={!items.length}><Icon name="download" />CSV</button>
+        {canManage && <button className="primary" onClick={() => setEditing({})}><Icon name="add" />Add store item</button>}
+      </PageActions>
+      <div className="kpis">
+        <Kpi label="Store items" icon="grid" value={items.length} hint={`${categories.length - 1} categories`} />
+        <Kpi label="Need reordering" icon="clock" value={low} tone={low ? 'warn' : ''} hint="At or below the reorder level" />
+        <Kpi label="Out of stock" icon="menu" value={rows.filter(r => r.status === 'out').length} tone={rows.some(r => r.status === 'out') ? 'bad' : ''} />
+        <Kpi label="Store value" icon="wallet" value={money(rows.reduce((t, r) => t + r.value, 0))} hint="At cost" />
+      </div>
+      {!items.length ? (
+        <section className="card">
+          <Empty icon="grid" title="Add what you keep in the store" body="Track beer, wine, bread, meat and other supplies with their unit, cost and reorder level. Record deliveries, what the kitchen and bar use, waste and counts." action={canManage ? 'Add store item' : null} onAction={() => setEditing({})} />
+          {canManage && (
+            <div className="quick-add">
+              <span className="small muted">Quick add</span>
+              {QUICK_ADD.map(([name, cat, unit]) => <button key={name} type="button" className="chip" onClick={() => setEditing({ name, category: cat, unit })}>{name}</button>)}
+            </div>
+          )}
+        </section>
+      ) : (
+        <section className="card">
+          <div className="card-head">
+            <div><h2>Store</h2><p>Days of cover uses what was used or wasted in the last 7 days.</p></div>
+            <div className="row wrap">
+              <div className="search inline"><Icon name="search" /><input type="search" aria-label="Search store items" placeholder="Item or supplier" value={query} onChange={e => setQuery(e.target.value)} /></div>
+              <div className="segmented" role="group" aria-label="Status">
+                {[['all', 'All'], ['low', `Reorder ${low}`]].map(([id, label]) => <button key={id} aria-pressed={status === id} className={status === id ? 'active' : ''} onClick={() => setStatus(id)}>{label}</button>)}
+              </div>
+            </div>
+          </div>
+          {categories.length > 2 && (
+            <div className="chips" role="tablist" aria-label="Categories" style={{ marginBottom: 12 }}>
+              {categories.map(c => <button key={c} role="tab" aria-selected={category === c} className={'chip' + (category === c ? ' active' : '')} onClick={() => setCategory(c)}>{c}</button>)}
+            </div>
+          )}
+          <DataTable limit={50} sort={{ key: 'status', dir: 'asc' }} rows={shown} empty="No store items match." columns={[
+            { key: 'name', label: 'Item', render: r => <><b>{r.name}</b><small>{r.category}{r.supplier ? ` · ${r.supplier}` : ''}</small></> },
+            { key: 'quantity', label: 'On hand', num: true, render: r => <b className={'stock-count ' + r.status}>{qty(r.quantity)} <span className="unit">{r.unit}</span></b> },
+            { key: 'status', label: 'Status', value: r => ({ out: 0, low: 1, ok: 2 })[r.status], render: r => <span className={'badge ' + (r.status === 'out' ? 'danger' : r.status === 'low' ? 'warning' : 'success')}>{r.status === 'out' ? 'Out' : r.status === 'low' ? `Reorder (≤ ${qty(r.reorderLevel)})` : 'OK'}</span> },
+            { key: 'used7', label: 'Used 7 days', num: true, render: r => (r.used7 ? `${qty(r.used7)} ${r.unit}` : '—') },
+            { key: 'cover', label: 'Days of cover', num: true, value: r => (r.cover === null ? 9999 : r.cover), render: r => (r.cover === null ? '—' : r.cover < 1 ? '< 1 day' : `${r.cover.toFixed(1)} days`) },
+            { key: 'cost', label: 'Cost / unit', num: true, render: r => money(r.cost) },
+            { key: 'value', label: 'Value', num: true, render: r => money(r.value) },
+            ...(canManage ? [{ key: 'actions', label: '', num: true, value: () => 0, render: r => <span className="row" style={{ justifyContent: 'flex-end', flexWrap: 'nowrap' }}><button className="small-btn" onClick={e => { e.stopPropagation(); setAdjusting(r); }}>Adjust</button><button className="small-btn ghost" aria-label={`Edit ${r.name}`} onClick={e => { e.stopPropagation(); setEditing(r); }}><Icon name="pencil" /></button></span> }] : []),
+          ]} />
+        </section>
+      )}
+      {items.length > 0 && (
+        <section className="card">
+          <div className="card-head">
+            <div><h2>Store movements</h2><p>Deliveries, kitchen and bar use, waste and counts.</p></div>
+            <select aria-label="Filter movements by item" value={logItem} onChange={e => setLogItem(e.target.value)}>
+              <option value="all">All store items</option>
+              {items.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
+            </select>
+          </div>
+          <DataTable limit={20} sort={{ key: 'at', dir: 'desc' }} rows={log} empty="No movements yet." columns={[
+            { key: 'at', label: 'When', render: x => dateTime(x.at * 1000) },
+            { key: 'name', label: 'Item', render: x => <b>{x.name}</b> },
+            { key: 'change', label: 'Change', num: true, render: x => <b className={x.change < 0 ? 'neg' : 'pos'}>{x.change > 0 ? '+' : ''}{qty(x.change)} {x.unit}</b> },
+            { key: 'after', label: 'After', num: true, render: x => `${qty(x.after)} ${x.unit}` },
+            { key: 'reason', label: 'Reason' },
+            { key: 'by', label: 'By' },
+          ]} />
+        </section>
+      )}
+      {editing && <StoreItemForm ctx={ctx} item={editing} onClose={() => setEditing(null)} />}
+      {adjusting && <AdjustStore ctx={ctx} item={adjusting} onClose={() => setAdjusting(null)} />}
+    </>
+  );
+}
+
+function StoreItemForm({ ctx, item, onClose }) {
+  const { state } = ctx;
+  const { busy, error, run } = useRunner();
+  const existing = !!item.id;
+  const submit = e => {
+    e.preventDefault();
+    const v = Object.fromEntries(new FormData(e.currentTarget));
+    run(async () => { await ctx.action('inventory', { ...v, id: item.id }); onClose(); });
+  };
+  const remove = () => confirm(`Delete ${item.name}? Its movement history stays in the log.`) && run(async () => { await ctx.action('delete', { kind: 'inventory', id: item.id }); onClose(); });
+  return (
+    <Modal title={existing ? `Edit ${item.name}` : 'Add store item'} eyebrow="Store stock" onClose={onClose}
+      footer={<>
+        {existing && <button type="button" className="ghost danger-text" style={{ marginRight: 'auto' }} onClick={remove} disabled={busy}>Delete</button>}
+        <button type="button" onClick={onClose}>Cancel</button>
+        <button className="primary" form="store-form" disabled={busy}>{busy ? 'Saving…' : existing ? 'Save' : 'Add item'}</button>
+      </>}>
+      <form id="store-form" className="form" onSubmit={submit}>
+        {!existing && (
+          <div className="quick-add">
+            <span className="small muted">Quick add</span>
+            {QUICK_ADD.map(([name, cat, unit, level]) => (
+              <button key={name} type="button" className="chip" onClick={() => {
+                const f = document.getElementById('store-form');
+                f.name.value = name; f.category.value = cat; f.unit.value = unit; f.reorderLevel.value = level;
+              }}>{name}</button>
+            ))}
+          </div>
+        )}
+        <Field label="Item name" name="name" defaultValue={item.name} maxLength={80} required placeholder="e.g. St. George beer" />
+        <div className="formrow">
+          <Field label="Category"><select name="category" defaultValue={item.category || 'Drinks'}>{STORE_CATEGORIES.map(c => <option key={c}>{c}</option>)}</select></Field>
+          <Field label="Unit"><select name="unit" defaultValue={item.unit || 'bottles'}>{STORE_UNITS.map(u => <option key={u}>{u}</option>)}</select></Field>
+        </div>
+        <div className="formrow">
+          {existing
+            ? <Field label="On hand"><input value={`${qty(item.quantity)} ${item.unit}`} readOnly /><small>Use Adjust to change quantities so every change is logged.</small></Field>
+            : <Field label="Opening quantity" name="quantity" type="number" min="0" step="0.001" defaultValue={0} required />}
+          <Field label="Reorder when at or below" name="reorderLevel" type="number" min="0" step="0.001" defaultValue={item.reorderLevel ?? 0} required />
+        </div>
+        <div className="formrow">
+          <Field label={`Cost per unit (${state.currency})`} name="cost" type="number" min="0" step="0.01" defaultValue={item.cost ? item.cost / 100 : ''} placeholder="0.00" />
+          <Field label="Supplier (optional)" name="supplier" defaultValue={item.supplier} maxLength={80} />
+        </div>
+        <ErrorText>{error}</ErrorText>
+      </form>
+    </Modal>
+  );
+}
+
+function AdjustStore({ ctx, item, onClose }) {
+  const [mode, setMode] = useState('add');
+  const [amount, setAmount] = useState('');
+  const [cost, setCost] = useState(item.cost ? String(item.cost / 100) : '');
+  const [note, setNote] = useState('');
+  const { busy, error, run } = useRunner();
+  const n = Number(amount || 0);
+  const after = Math.round((mode === 'add' ? item.quantity + n : mode === 'set' ? n : item.quantity - n) * 1000) / 1000;
+  const labels = { add: ['Delivery', 'Received', 'Invoice number'], use: ['Used', 'Used by kitchen or bar', 'What for'], waste: ['Waste', 'Wasted or broken', 'What happened'], set: ['Count', 'Counted on hand', 'Who counted'] };
+  return (
+    <Modal title={`Adjust ${item.name}`} eyebrow={`${qty(item.quantity)} ${item.unit} on hand`} onClose={onClose}
+      footer={<><button onClick={onClose}>Cancel</button><button className="primary" disabled={busy || amount === '' || after < 0} onClick={() => run(async () => { await ctx.action('inventory_adjust', { id: item.id, mode, qty: n, note, ...(mode === 'add' ? { cost } : {}) }); onClose(); })}>{busy ? 'Saving…' : 'Save'}</button></>}>
+      <div className="form">
+        <div className="segmented" role="group" aria-label="Adjustment type">
+          {Object.entries(labels).map(([id, [label]]) => <button key={id} type="button" aria-pressed={mode === id} className={mode === id ? 'active' : ''} onClick={() => setMode(id)}>{label}</button>)}
+        </div>
+        <Field label={`${labels[mode][1]} (${item.unit})`} type="number" min="0" step="0.001" value={amount} onChange={e => setAmount(e.target.value)} autoFocus />
+        {mode === 'add' && <Field label={`Cost per unit (${ctx.state.currency})`} type="number" min="0" step="0.01" value={cost} onChange={e => setCost(e.target.value)} hint="Updates the item's cost for stock value." />}
+        <Field label="Note (optional)" value={note} maxLength={120} placeholder={labels[mode][2]} onChange={e => setNote(e.target.value)} />
+        <p className={'notice' + (after < 0 ? ' warning' : '')}>{after < 0 ? `Only ${qty(item.quantity)} ${item.unit} on hand.` : <>After: <b>{qty(after)} {item.unit}</b>{after <= item.reorderLevel ? ' · time to reorder' : ''}</>}</p>
+        <ErrorText>{error}</ErrorText>
+      </div>
+    </Modal>
+  );
+}
+
+function MenuStock({ ctx }) {
   const { state, money, canManage } = ctx;
   const [adjusting, setAdjusting] = useState(null);
   const [filter, setFilter] = useState('all');
@@ -85,14 +291,14 @@ export function Stock({ ctx }) {
   const shown = rows.filter(r => filter === 'all' || r.status === filter);
   const low = rows.filter(r => r.status === 'low').length;
   const out = rows.filter(r => r.status === 'out').length;
-  const log = [...(state.stockLog || [])].reverse().filter(x => logItem === 'all' || x.item === logItem);
+  const log = [...(state.stockLog || [])].reverse().filter(x => !x.store && (logItem === 'all' || x.item === logItem));
 
   function exportCsv() {
     downloadText(`${slug(state.name)}-stock-${isoDay(new Date())}.csv`, toCsv([
       ['Item', 'Category', 'In stock', 'Low-stock alert', 'Status', 'Sold last 7 days', 'Days of cover', `Retail value (${state.currency})`],
       ...rows.map(r => [r.name, r.category, r.stock, r.lowStock, r.status === 'out' ? 'Out of stock' : r.status === 'low' ? 'Low' : 'OK', r.sold7, r.cover === null ? '' : r.cover.toFixed(1), (r.value / 100).toFixed(2)]),
       [], ['Stock movements'], ['When', 'Item', 'Change', 'After', 'Reason', 'By'],
-      ...(state.stockLog || []).slice().reverse().map(x => [new Date(x.at * 1000).toISOString(), x.name, x.change, x.after, x.reason, x.by]),
+      ...(state.stockLog || []).filter(x => !x.store).slice().reverse().map(x => [new Date(x.at * 1000).toISOString(), x.name, x.change, x.after, x.reason, x.by]),
     ]));
   }
 

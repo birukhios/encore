@@ -39,7 +39,7 @@ function useRunner() {
 
 const paidBadge = r => r.status === 'Cancelled'
   ? <span className="badge neutral">Cancelled</span>
-  : r.paid ? <span className="badge success">Paid · {r.settledBy}</span> : <span className="badge warning">Unpaid</span>;
+  : r.paid ? <span className="badge success">Paid · {r.settledBy}</span> : <span className="badge warning">{r.settlement === 'cash' ? 'Pay cash' : 'Unpaid'}</span>;
 
 // ---------------------------------------------------------------- Overview
 

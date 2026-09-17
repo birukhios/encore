@@ -13,7 +13,8 @@ function WalletLogo({ id, name }) {
 }
 
 /** Provider-styled review screen. All payments are online; the server fails closed until AfroPay is configured (demo mode simulates it). */
-export default function AfroPayCheckout({ quote, payload, onBack, onClose, onPay, demo = false }) {
+export default function AfroPayCheckout({ quote, payload, onBack, onClose, onPay, onCash, cashAllowed = false, demo = false }) {
+  const [method, setMethod] = useState('wallet');
   const [wallet, setWallet] = useState('telebirr');
   const [phone, setPhone] = useState('');
   const [busy, setBusy] = useState(false);
@@ -24,6 +25,17 @@ export default function AfroPayCheckout({ quote, payload, onBack, onClose, onPay
   async function pay(e) {
     e.preventDefault();
     setError('');
+    if (method === 'cash') {
+      setBusy(true);
+      try {
+        await onCash(payload);
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
     const normalized = phone.replace(/[\s()-]/g, '').replace(/^\+?251/, '').replace(/^0/, '');
     if (!/^[79]\d{8}$/.test(normalized)) return setError('Enter a valid Ethiopian mobile number.');
     setBusy(true);
@@ -44,7 +56,9 @@ export default function AfroPayCheckout({ quote, payload, onBack, onClose, onPay
         <div className="afro-top"><b>afropay</b><button aria-label="Close checkout" onClick={onClose}><Glyph name="x" size={22} /></button></div>
         <div className="afro-merchant"><small>Paying</small><strong>{quote.merchant}</strong>{quote.tableName && <span>{quote.tableName}</span>}</div>
         <form onSubmit={pay}>
-          {demo
+          {method === 'cash'
+            ? <p className="notice" role="status"><b>Pay with cash.</b> Your order goes to the kitchen now. Pay your waiter {amount(quote.total)} when it arrives.</p>
+            : demo
             ? <p className="notice" role="status"><b>Demo mode.</b> Paying online simulates a successful wallet payment — no money moves and no wallet is contacted.</p>
             : <p className="notice" role="status">Online wallet payments are not available yet, so no payment will be taken here.</p>}
           <h2 style={{ marginTop: 22 }}>Review your {booking ? 'booking' : 'order'}</h2>
@@ -57,6 +71,16 @@ export default function AfroPayCheckout({ quote, payload, onBack, onClose, onPay
             <div className="afro-total"><strong>Total</strong><strong>{amount(quote.total)}</strong></div>
           </div>
           {error && <p className="error" role="alert" style={{ marginTop: 16 }}>{error}</p>}
+          {cashAllowed && (
+            <fieldset className="pay-choice">
+              <legend className="afro-legend">How would you like to pay?</legend>
+              <div className="pay-choice-options">
+                <label className={method === 'wallet' ? 'chosen' : ''}><input type="radio" name="method" checked={method === 'wallet'} onChange={() => setMethod('wallet')} /><b>Mobile wallet</b><small>Pay now</small></label>
+                <label className={method === 'cash' ? 'chosen' : ''}><input type="radio" name="method" checked={method === 'cash'} onChange={() => setMethod('cash')} /><b>Cash</b><small>Pay your waiter</small></label>
+              </div>
+            </fieldset>
+          )}
+          {method === 'wallet' && <>
           <fieldset>
             <legend className="afro-legend">Choose your wallet</legend>
             <div className="wallets">
@@ -71,8 +95,11 @@ export default function AfroPayCheckout({ quote, payload, onBack, onClose, onPay
           <label className="afro-phone-label">Wallet mobile number
             <div className="afro-phone"><span>+251</span><input aria-label="Wallet mobile number" type="tel" inputMode="tel" autoComplete="tel-national" placeholder="0912345678" value={phone} onChange={e => setPhone(e.target.value)} /></div>
           </label>
-          <button className="afro-pay" disabled={busy}>{busy ? (demo ? 'Simulating payment…' : 'Connecting…') : (demo ? 'Pay (demo) · ' : 'Pay online · ') + amount(quote.total)}</button>
-          <p className="afro-foot">Never share your wallet PIN or one-time code.</p>
+          </>}
+          {method === 'cash'
+            ? <button className="afro-pay cash" disabled={busy}>{busy ? 'Placing order…' : 'Place order · pay cash ' + amount(quote.total)}</button>
+            : <button className="afro-pay" disabled={busy}>{busy ? (demo ? 'Simulating payment…' : 'Connecting…') : (demo ? 'Pay (demo) · ' : 'Pay online · ') + amount(quote.total)}</button>}
+          {method === 'wallet' && <p className="afro-foot">Never share your wallet PIN or one-time code.</p>}
           <button type="button" className="afro-back" onClick={onBack}>Back to {booking ? 'booking' : 'order'}</button>
         </form>
       </section>

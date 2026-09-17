@@ -1263,3 +1263,15 @@ button.danger:hover:not(:disabled) { background: #a51524; }
   .print-root, .print-root * { visibility: visible !important; }
   .print-root .print-slip, .print-root .print-badge { position: static !important; }
 }
+.tab-count { margin-left: 6px; font-size: 11px; background: var(--accent); color: var(--on-accent); border-radius: 10px; padding: 1px 6px; }
+.quick-add { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 12px; }
+.quick-add .chip { min-height: 32px; }
+.stock-count .unit { font-weight: 500; color: var(--muted); font-size: 12px; }
+.pay-choice { border: 0; padding: 0; margin: 18px 0 6px; }
+.pay-choice-options { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.pay-choice-options label { border: 2px solid #e2e5ed; border-radius: 12px; padding: 12px; display: grid; gap: 2px; cursor: pointer; color: #344058; position: relative; }
+.pay-choice-options label.chosen { border-color: #195aff; background: #f8faff; color: #195aff; }
+.pay-choice-options input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.pay-choice-options label:focus-within { outline: 2px solid #121a2b; outline-offset: 3px; }
+.pay-choice-options small { color: #68758a; font-size: 12px; }
+.afro-pay.cash { background: #0D0D12; }

@@ -266,7 +266,9 @@ export default function GuestApp() {
       {sheet?.type === 'checkout' && (
         <AfroPayCheckout quote={sheet.quote} payload={sheet.payload}
           onClose={() => setSheet(null)} onBack={() => setSheet(sheet.previous)}
-          demo={data.demo} onPay={payload => completeCheckout(payload, 'checkout')} />
+          demo={data.demo} onPay={payload => completeCheckout(payload, 'checkout')}
+          cashAllowed={sheet.payload.kind === 'menu' && data.settings.payments?.cash !== false}
+          onCash={payload => completeCheckout({ ...payload, payment: 'cash' }, 'order')} />
       )}
       {auth && (
         <PhoneAuth reason={auth.reason} openTerms={() => setLegal(true)} onClose={() => setAuth(null)}

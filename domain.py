@@ -26,7 +26,8 @@ DEFAULT_SETTINGS = {
     'tips': {'enabled': True, 'unit': 'amount', 'presets': [20, 50, 100], 'custom': True},
     # Service charge on food & drink orders, as a percentage of the item subtotal. VAT applies to it; tips are never taxed.
     'service': {'enabled': False, 'rate': 10},
-    'payments': {'venue': True},
+    # cash: guests may choose to pay for food & drink orders in cash; staff record the payment.
+    'payments': {'venue': True, 'cash': True},
     'notifications': {'smsBookings': True, 'smsOrderReady': True, 'staffNewOrders': True},
     'support': {'email': '', 'phone': '', 'hours': '', 'faq': []},
     'legal': {'terms': '', 'privacy': ''},
@@ -40,6 +41,8 @@ TAX_REGIMES = ['vat', 'none']
 MAX_TIP_CENTS = 5_000_000  # 50,000 in the workspace currency
 STAFF_PAYMENT_METHODS = ['Cash', 'Card at venue']
 STOCK_LOG_LIMIT = 500
+STORE_CATEGORIES = ['Drinks', 'Alcohol', 'Meat', 'Bakery', 'Produce', 'Dry goods', 'Dairy', 'Cleaning', 'Packaging', 'Other']
+STORE_UNITS = ['bottles', 'cans', 'crates', 'kegs', 'kg', 'g', 'liters', 'ml', 'loaves', 'pieces', 'packs', 'boxes', 'bags', 'trays', 'dozen']
 
 
 def uid():
@@ -141,7 +144,7 @@ def contrast_with_white(hex_color):
 
 def blank(name):
     return {'name': name, 'description': 'Extraordinary nights, beautifully simple.', 'currency': 'ETB',
-            'events': [], 'tables': [], 'menu': [], 'orders': [], 'bookings': [], 'waiters': [], 'stockLog': [],
+            'events': [], 'tables': [], 'menu': [], 'orders': [], 'bookings': [], 'waiters': [], 'stockLog': [], 'inventory': [],
             'settings': copy.deepcopy(DEFAULT_SETTINGS)}
 
 
@@ -156,7 +159,7 @@ def upgrade(s):
         current = settings.setdefault(group, {})
         for key, value in defaults.items():
             current.setdefault(key, copy.deepcopy(value))
-    for key in ['events', 'tables', 'menu', 'orders', 'bookings', 'waiters', 'stockLog']:
+    for key in ['events', 'tables', 'menu', 'orders', 'bookings', 'waiters', 'stockLog', 'inventory']:
         s.setdefault(key, [])
     codes = {t.get('code') for t in s['tables']}
     for t in s['tables']:
@@ -294,7 +297,7 @@ def configure(s, group, v):
         if tips['enabled'] and not tips['presets'] and not tips['custom']:
             tips['custom'] = True
     elif group == 'payments':
-        cfg.update(venue=flag(v.get('venue')))
+        cfg.update(venue=flag(v.get('venue', cfg['venue'])), cash=flag(v.get('cash', cfg['cash'])))
     elif group == 'notifications':
         cfg.update(smsBookings=flag(v.get('smsBookings')), smsOrderReady=flag(v.get('smsOrderReady')),
                    staffNewOrders=flag(v.get('staffNewOrders')))
@@ -423,7 +426,7 @@ def mutate(s, op, v, notices):
         s[collection] = [item if a['id'] == item['id'] else a for a in s[collection]] if old else s[collection] + [item]
     elif op == 'delete':
         kind = v.get('kind')
-        collection = {'event': 'events', 'menu': 'menu', 'table': 'tables', 'waiter': 'waiters'}.get(kind)
+        collection = {'event': 'events', 'menu': 'menu', 'table': 'tables', 'waiter': 'waiters', 'inventory': 'inventory'}.get(kind)
         if not collection or not any(a['id'] == v.get('id') for a in s[collection]):
             raise ValueError('This item no longer exists in your workspace.')
         if kind == 'event' and (any(b.get('event') == v['id'] for b in s['bookings']) or any(t['event'] == v['id'] for t in s['tables'])):
@@ -523,6 +526,48 @@ def mutate(s, op, v, notices):
             raise ValueError('Choose add, remove or count.')
         item['stock'] += change
         _stock_log(s, item, change, reason or {'add': 'Delivery', 'remove': 'Waste or breakage', 'set': 'Stock count'}[mode], v.get('_by'))
+    elif op == 'inventory':
+        old = next((i for i in s['inventory'] if i['id'] == v.get('id')), None)
+        if v.get('id') and not old:
+            raise ValueError('This store item no longer exists.')
+        item = dict(old or {'id': uid(), 'quantity': 0, 'created': int(time.time())})
+        category, unit = text(v.get('category'), 40), text(v.get('unit'), 20)
+        if category not in STORE_CATEGORIES:
+            raise ValueError('Choose a category.')
+        if unit not in STORE_UNITS:
+            raise ValueError('Choose a unit.')
+        item.update(name=text(v.get('name'), 80), category=category, unit=unit, supplier=text(v.get('supplier'), 80, False),
+                    reorderLevel=_quantity(v.get('reorderLevel', 0)), cost=money_cents(v.get('cost', 0), 100_000_000, 'Enter a valid cost per unit.'))
+        if any(i['name'].lower() == item['name'].lower() and i['id'] != item['id'] for i in s['inventory']):
+            raise ValueError(f'{item["name"]} is already in your store.')
+        if not old:
+            opening = _quantity(v.get('quantity', 0))
+            s['inventory'].append(item)
+            _store_log(s, item, opening, 'Opening count', v.get('_by'))
+        else:
+            s['inventory'] = [item if i['id'] == item['id'] else i for i in s['inventory']]
+    elif op == 'inventory_adjust':
+        item = next((i for i in s['inventory'] if i['id'] == v.get('id')), None)
+        if not item:
+            raise ValueError('This store item no longer exists.')
+        mode, qty = v.get('mode'), _quantity(v.get('qty'))
+        note = text(v.get('note'), 120, False)
+        if mode in ('add', 'use', 'waste') and qty <= 0:
+            raise ValueError('Enter a quantity greater than zero.')
+        if mode == 'add':
+            change = qty
+            if v.get('cost') not in (None, ''):
+                item['cost'] = money_cents(v.get('cost'), 100_000_000, 'Enter a valid cost per unit.')
+        elif mode in ('use', 'waste'):
+            if qty > item['quantity']:
+                raise ValueError(f'Only {_fmt_qty(item["quantity"])} {item["unit"]} in the store.')
+            change = -qty
+        elif mode == 'set':
+            change = round(qty - item['quantity'], 3)
+        else:
+            raise ValueError('Choose delivery, used, waste or count.')
+        label = {'add': 'Delivery', 'use': 'Used in kitchen/bar', 'waste': 'Waste or breakage', 'set': 'Stock count'}[mode]
+        _store_log(s, item, change, f'{label}{" · " + note if note else ""}', v.get('_by'))
     elif op == 'staff_order':
         v['result'] = staff_order(s, v)
     else:
@@ -604,6 +649,23 @@ def _stock_log(s, item, change, reason, by=None):
         return
     s['stockLog'].append({'id': uid(), 'item': item['id'], 'name': item['name'], 'change': change, 'after': item.get('stock', 0) + change if reason == 'Opening count' else item['stock'],
                           'reason': reason, 'by': by or '', 'at': int(time.time())})
+    del s['stockLog'][:-STOCK_LOG_LIMIT]
+
+
+def _quantity(v):
+    n = number(v if v not in (None, '') else 0, 0, 10_000_000)
+    return round(n, 3)
+
+
+def _fmt_qty(n):
+    return f'{n:g}'
+
+
+def _store_log(s, item, change, reason, by=None):
+    """Apply and record a change to a store item (ingredients and supplies such as beer, bread or meat)."""
+    item['quantity'] = round(item.get('quantity', 0) + change, 3)
+    s['stockLog'].append({'id': uid(), 'store': True, 'item': item['id'], 'name': item['name'], 'unit': item['unit'], 'change': round(change, 3),
+                          'after': item['quantity'], 'reason': reason, 'by': by or '', 'at': int(time.time())})
     del s['stockLog'][:-STOCK_LOG_LIMIT]
 
 
@@ -717,13 +779,18 @@ def reference():
 WALLETS = ('telebirr', 'cbe-birr', 'mpesa', 'awash-birr')
 
 
-def guest_record(s, v, guest, demo_payment=False):
+def guest_record(s, v, guest, demo_payment=False, cash=False):
     """Create a booking or table order for a signed-in guest.
 
     Normally settled in person at the venue and created unpaid. `demo_payment` is used only by the
     server's explicit demo mode: the record is marked paid by a clearly labelled simulated payment.
     """
-    if not demo_payment:
+    if cash:
+        if v.get('kind') != 'menu':
+            raise ValueError('Tickets are paid online only.')
+        if not s['settings']['payments']['cash']:
+            raise ValueError('This organizer only accepts online payment for orders.')
+    elif not demo_payment:
         raise ValueError('Tickets are paid online only.' if v.get('kind') == 'booking' else 'Orders are paid online only.')
     q = quote_order(s, v, guest['id'])
     rec = {'id': uid(), 'ref': reference(), 'token': uid(), 'guest': guest['id'], 'name': guest['name'], 'phone': guest['phone'],
@@ -743,8 +810,10 @@ def guest_record(s, v, guest, demo_payment=False):
         _attach_waiter(s, rec, q)
         if v.get('table'):
             rec['table'] = find_table(s, token=v['table'])['id']
+        if cash:
+            rec['settlement'] = 'cash'  # unpaid until staff record the cash payment
         s['orders'].append(rec)
-    if demo_payment:
+    if demo_payment and not cash:
         wallet = v.get('wallet') if v.get('wallet') in WALLETS else 'telebirr'
         rec.update(paid=True, settlement='demo', settledBy='Demo payment (simulated)', settledAt=int(time.time()), wallet=wallet)
     return rec

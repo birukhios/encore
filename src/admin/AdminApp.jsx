@@ -17,7 +17,7 @@ const PAGES = {
   Reports: { icon: 'chart', sub: 'Sales, best sellers, busy tables and payments — ready to export.' },
   Tables: { icon: 'table', sub: 'A place for every guest. A QR code for every table.' },
   Menu: { icon: 'menu', sub: 'Food and drinks, served at the concerts you choose.' },
-  Stock: { icon: 'grid', sub: 'What you have, what is running low, and every change.' },
+  Stock: { icon: 'grid', sub: 'Store supplies like beer, wine, bread and meat, plus menu item stock.' },
   Waiters: { icon: 'team', sub: 'Unique waiter numbers, badges and tips per waiter.' },
   Orders: { icon: 'wallet', sub: 'Keep every order moving, from kitchen to table.' },
   Team: { icon: 'team', sub: 'The people who make the night happen.' },
@@ -122,7 +122,7 @@ export default function AdminApp() {
   const activeOrders = state.orders.filter(o => ['Placed', 'Preparing', 'Ready'].includes(o.status)).length;
   const meta = PAGES[current];
   const Page = { Overview, Events, Bookings, 'Check-ins': CheckIns, Reports, Tables, Menu, Stock, Waiters, Orders, Team, Settings, Profile }[current];
-  const lowStock = state.menu.filter(i => i.trackStock && i.stock <= i.lowStock).length;
+  const lowStock = state.menu.filter(i => i.trackStock && i.stock <= i.lowStock).length + (state.inventory || []).filter(i => i.quantity <= i.reorderLevel).length;
 
   return (
     <div className="admin-app">

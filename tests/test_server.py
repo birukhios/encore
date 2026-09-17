@@ -598,6 +598,44 @@ class DomainTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             domain.mutate(s, 'settle', {'id': s['orders'][0]['id'], 'method': 'Bank transfer'}, [])
 
+    def test_store_inventory_items_with_units(self):
+        s = self.state
+        domain.mutate(s, 'inventory', {'name': 'St. George beer', 'category': 'Alcohol', 'unit': 'bottles', 'quantity': 48, 'reorderLevel': 24, 'cost': '45.50', 'supplier': 'BGI', '_by': 'Owner'}, [])
+        domain.mutate(s, 'inventory', {'name': 'Beef', 'category': 'Meat', 'unit': 'kg', 'quantity': '12.5', 'reorderLevel': 5, 'cost': '800'}, [])
+        beer, beef = s['inventory']
+        self.assertEqual((beer['quantity'], beer['cost'], beef['quantity']), (48, 4550, 12.5))
+        with self.assertRaisesRegex(ValueError, 'already in your store'):
+            domain.mutate(s, 'inventory', {'name': 'beef', 'category': 'Meat', 'unit': 'kg'}, [])
+        with self.assertRaises(ValueError):
+            domain.mutate(s, 'inventory', {'name': 'Bread', 'category': 'Bakery', 'unit': 'spoons'}, [])
+        domain.mutate(s, 'inventory_adjust', {'id': beef['id'], 'mode': 'use', 'qty': '2.25', 'note': 'Tibs'}, [])
+        domain.mutate(s, 'inventory_adjust', {'id': beer['id'], 'mode': 'add', 'qty': 24, 'cost': '47'}, [])
+        domain.mutate(s, 'inventory_adjust', {'id': beer['id'], 'mode': 'waste', 'qty': 2}, [])
+        with self.assertRaisesRegex(ValueError, 'Only 70 bottles'):
+            domain.mutate(s, 'inventory_adjust', {'id': beer['id'], 'mode': 'use', 'qty': 71}, [])
+        domain.mutate(s, 'inventory_adjust', {'id': beef['id'], 'mode': 'set', 'qty': 10}, [])
+        self.assertEqual((beer['quantity'], beer['cost'], beef['quantity']), (70, 4700, 10))
+        store_log = [x for x in s['stockLog'] if x.get('store')]
+        self.assertEqual([(x['name'], x['change'], x['after']) for x in store_log], [('St. George beer', 48, 48), ('Beef', 12.5, 12.5), ('Beef', -2.25, 10.25), ('St. George beer', 24, 72), ('St. George beer', -2, 70), ('Beef', -0.25, 10)])
+        self.assertEqual(store_log[2]['reason'], 'Used in kitchen/bar · Tibs')
+        domain.mutate(s, 'delete', {'kind': 'inventory', 'id': beef['id']}, [])
+        self.assertEqual([i['name'] for i in s['inventory']], ['St. George beer'])
+
+    def test_guests_can_choose_cash_for_orders(self):
+        s = self.state
+        guest = {'id': 'g', 'name': 'Guest', 'phone': '+251911000009'}
+        rec = domain.guest_record(s, {'kind': 'menu', 'items': {'food': 1}, 'tipAmount': '10'}, guest, cash=True)
+        self.assertEqual((rec['paid'], rec['settlement'], rec['total']), (False, 'cash', 12500))
+        with self.assertRaisesRegex(ValueError, 'Tickets are paid online only'):
+            domain.guest_record(s, {'kind': 'booking', 'event': 'event', 'qty': 1}, guest, cash=True)
+        domain.mutate(s, 'settle', {'id': rec['id'], 'method': 'Cash'}, [])
+        self.assertEqual((rec['paid'], rec['settledBy']), (True, 'Cash'))
+        domain.configure(s, 'payments', {'cash': False})
+        with self.assertRaisesRegex(ValueError, 'only accepts online payment'):
+            domain.guest_record(s, {'kind': 'menu', 'items': {'food': 1}}, guest, cash=True)
+        with self.assertRaisesRegex(ValueError, 'paid online only'):
+            domain.guest_record(s, {'kind': 'menu', 'items': {'food': 1}}, guest)
+
     def test_phone_normalization(self):
         for raw in ['0911 234 567', '911234567', '+251911234567', '00251 911-234-567']:
             self.assertEqual(domain.normalize_phone(raw), '+251911234567')
