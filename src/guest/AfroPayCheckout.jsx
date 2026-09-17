@@ -51,8 +51,9 @@ export default function AfroPayCheckout({ quote, payload, onBack, onClose, onPay
           <div className="afro-lines">
             {quote.lines.map((line, i) => <div key={i}><span>{line.qty} × {line.name}</span><b>{amount(line.total)}</b></div>)}
             {quote.lines.length > 1 && <div><span>Subtotal</span><b>{amount(quote.subtotal)}</b></div>}
+            {quote.service && <div><span>{quote.service.label}</span><b>+ {amount(quote.service.amount)}</b></div>}
             {quote.tax && <div><span>{quote.tax.label}{quote.tax.included ? ' (included in prices)' : ''}</span><b>{quote.tax.included ? '' : '+ '}{amount(quote.tax.amount)}</b></div>}
-            {!booking && quote.tip > 0 && <div><span>Tip</span><b>+ {amount(quote.tip)}</b></div>}
+            {!booking && quote.tip > 0 && <div><span>Tip{quote.waiter ? ` for ${quote.waiter.name}` : ''}</span><b>+ {amount(quote.tip)}</b></div>}
             <div className="afro-total"><strong>Total</strong><strong>{amount(quote.total)}</strong></div>
           </div>
           {error && <p className="error" role="alert" style={{ marginTop: 16 }}>{error}</p>}

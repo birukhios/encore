@@ -7,6 +7,7 @@ import Auth from './Auth';
 import { Bookings, CheckIns, Events, Menu, Orders, Overview, Profile, Tables, Team } from './pages';
 import Reports from './Reports';
 import Settings from './Settings';
+import { Stock, Waiters } from './service';
 
 const PAGES = {
   Overview: { icon: 'grid', title: 'Every detail. One place.', sub: 'Your events, your guests, and everything in between.' },
@@ -16,6 +17,8 @@ const PAGES = {
   Reports: { icon: 'chart', sub: 'Sales, best sellers, busy tables and payments — ready to export.' },
   Tables: { icon: 'table', sub: 'A place for every guest. A QR code for every table.' },
   Menu: { icon: 'menu', sub: 'Food and drinks, served at the concerts you choose.' },
+  Stock: { icon: 'grid', sub: 'What you have, what is running low, and every change.' },
+  Waiters: { icon: 'team', sub: 'Unique waiter numbers, badges and tips per waiter.' },
   Orders: { icon: 'wallet', sub: 'Keep every order moving, from kitchen to table.' },
   Team: { icon: 'team', sub: 'The people who make the night happen.' },
   Settings: { icon: 'settings', sub: 'Your organization, sales and guest experience.' },
@@ -25,13 +28,13 @@ const PAGES = {
 const NAV_GROUPS = [
   ['Run the night', ['Overview', 'Orders', 'Bookings', 'Check-ins']],
   ['Insights', ['Reports']],
-  ['Set up', ['Events', 'Menu', 'Tables']],
+  ['Set up', ['Events', 'Menu', 'Stock', 'Tables', 'Waiters']],
   ['Workspace', ['Team', 'Settings']],
 ];
 
 export const ROLE_PAGES = {
-  Owner: ['Overview', 'Events', 'Bookings', 'Check-ins', 'Reports', 'Tables', 'Menu', 'Orders', 'Team', 'Settings'],
-  Admin: ['Overview', 'Events', 'Bookings', 'Check-ins', 'Reports', 'Tables', 'Menu', 'Orders', 'Team', 'Settings'],
+  Owner: ['Overview', 'Events', 'Bookings', 'Check-ins', 'Reports', 'Tables', 'Menu', 'Stock', 'Waiters', 'Orders', 'Team', 'Settings'],
+  Admin: ['Overview', 'Events', 'Bookings', 'Check-ins', 'Reports', 'Tables', 'Menu', 'Stock', 'Waiters', 'Orders', 'Team', 'Settings'],
   Service: ['Overview', 'Orders'],
   Gate: ['Overview', 'Bookings', 'Check-ins'],
 };
@@ -118,7 +121,8 @@ export default function AdminApp() {
   const { state } = session;
   const activeOrders = state.orders.filter(o => ['Placed', 'Preparing', 'Ready'].includes(o.status)).length;
   const meta = PAGES[current];
-  const Page = { Overview, Events, Bookings, 'Check-ins': CheckIns, Reports, Tables, Menu, Orders, Team, Settings, Profile }[current];
+  const Page = { Overview, Events, Bookings, 'Check-ins': CheckIns, Reports, Tables, Menu, Stock, Waiters, Orders, Team, Settings, Profile }[current];
+  const lowStock = state.menu.filter(i => i.trackStock && i.stock <= i.lowStock).length;
 
   return (
     <div className="admin-app">
@@ -143,6 +147,7 @@ export default function AdminApp() {
                     <Icon name={PAGES[name].icon} />
                     <span>{name}</span>
                     {name === 'Orders' && activeOrders > 0 && <span className="count" aria-label={activeOrders + ' active orders'}>{activeOrders}</span>}
+                    {name === 'Stock' && lowStock > 0 && <span className="count" aria-label={lowStock + ' items low or out of stock'}>{lowStock}</span>}
                   </button>
                 ))}
               </div>
@@ -158,7 +163,7 @@ export default function AdminApp() {
       <div className="shell">
         <header className="topbar">
           <button className="icon-btn menu-toggle" aria-label="Open navigation" onClick={() => setNavOpen(true)}><Icon name="grid" /></button>
-          {!['Overview', 'Settings', 'Profile', 'Check-ins', 'Reports'].includes(current) ? (
+          {!['Overview', 'Settings', 'Profile', 'Check-ins', 'Reports', 'Stock', 'Waiters'].includes(current) ? (
             <div className="search">
               <Icon name="search" />
               <input type="search" placeholder={'Search ' + current.toLowerCase() + '…'} aria-label={'Search ' + current} value={search} onChange={e => setSearch(e.target.value)} />

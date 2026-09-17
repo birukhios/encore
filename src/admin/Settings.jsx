@@ -7,7 +7,7 @@ import { copyText, ErrorText, Field, Glyph, Icon, Toggle } from '../shared/ui';
 const GROUPS = [
   ['Organization', [['profile', 'Profile'], ['theme', 'Appearance']]],
   ['Sales', [['ticketing', 'Tickets'], ['payments', 'Payments'], ['tax', 'VAT']]],
-  ['Food & drinks', [['ordering', 'Table ordering'], ['categories', 'Menu categories'], ['tips', 'Tips']]],
+  ['Food & drinks', [['ordering', 'Table ordering'], ['categories', 'Menu categories'], ['tips', 'Tips & service charge']]],
   ['Guests', [['notifications', 'Notifications'], ['support', 'Help & support'], ['legal', 'Terms & privacy']]],
 ];
 const SECTIONS = GROUPS.flatMap(([, items]) => items);
@@ -448,23 +448,55 @@ function Ordering({ ctx, setDirty }) {
 }
 
 function Tips({ ctx, setDirty }) {
-  const form = useDraft(ctx.state.settings.tips, setDirty);
-  const save = useSaver(ctx, form);
-  const [text, setText] = useState(form.draft.presets.join(', '));
-  const d = form.draft;
+  const { state } = ctx;
+  const mode = state.settings.tips.enabled ? (state.settings.service.enabled ? 'both' : 'tips') : state.settings.service.enabled ? 'service' : 'none';
+  const charge = useDraft({ mode, rate: state.settings.service.rate }, setDirty);
+  const saveCharge = useSaver(ctx, charge);
+  const tipForm = useDraft({ custom: state.settings.tips.custom, presets: state.settings.tips.presets }, setDirty);
+  const saveTips = useSaver(ctx, tipForm);
+  const [text, setText] = useState(tipForm.draft.presets.join(', '));
+  const c = charge.draft;
+  const d = tipForm.draft;
+  const tipsOn = mode === 'tips' || mode === 'both';
+  const example = 100000;
+  const service = ['service', 'both'].includes(c.mode) ? Math.round(example * Number(c.rate || 0) / 100) : 0;
+  const options = [
+    ['tips', 'Tips only', 'Guests may add an optional tip. Nothing is added automatically.'],
+    ['service', 'Service charge only', 'A fixed percentage is added to every food & drink order. No tips.'],
+    ['both', 'Service charge and tips', 'The service charge is added, and guests can still tip.'],
+    ['none', 'Neither', 'Guests pay for items and VAT only.'],
+  ];
   return (
     <>
-      <Head title="Tips">Optional tip amounts on food & drink orders. No tip is ever preselected, and tips are not taxed.</Head>
+      <Head title="Tips & service charge">Choose how guests reward service on food & drink orders. Tickets never carry a service charge. VAT applies to the service charge; tips are never taxed.</Head>
       <Locked ctx={ctx} />
-      <div>
-        <Toggle label="Allow tips" checked={d.enabled} onChange={v => form.set('enabled', v)} disabled={!ctx.canManage} />
-        <Toggle label="Allow guests to enter their own amount" checked={d.custom} onChange={v => form.set('custom', v)} disabled={!ctx.canManage || !d.enabled} />
-      </div>
-      <Field label={`Tip amounts (${ctx.state.currency})`} hint="Up to five whole amounts, separated by commas — for example 20, 50, 100." value={text} disabled={!ctx.canManage || !d.enabled}
-        onChange={e => { setText(e.target.value); form.set('presets', e.target.value.split(/[\s,]+/).filter(Boolean).map(Number)); }} />
-      {d.enabled && <div className="tips" style={{ maxWidth: 460 }} aria-label="Preview"><button className="active">No tip</button>{d.presets.filter(n => n > 0).map(n => <button key={n} type="button">{ctx.money(n * 100).replace(/\.00$/, '')}</button>)}</div>}
-      <ErrorText>{form.error}</ErrorText>
-      {ctx.canManage && <SaveBar form={form} onSave={() => save('config', { group: 'tips', values: d })} />}
+      <Block title="How guests reward service">
+        <div className="choice-list" role="radiogroup" aria-label="Tips or service charge">
+          {options.map(([id, label, hint]) => (
+            <label key={id} className={'choice' + (c.mode === id ? ' active' : '')}>
+              <input type="radio" name="charge-mode" checked={c.mode === id} disabled={!ctx.canManage} onChange={() => charge.set('mode', id)} />
+              <span><b>{label}</b><small>{hint}</small></span>
+            </label>
+          ))}
+        </div>
+        {['service', 'both'].includes(c.mode) && (
+          <Field label="Service charge (%)" type="number" min="0.5" max="30" step="0.5" value={c.rate} disabled={!ctx.canManage}
+            hint={`Example: on ${ctx.money(example)} of food & drinks, guests pay ${ctx.money(service)} service charge before VAT.`}
+            onChange={e => charge.set('rate', e.target.value)} />
+        )}
+        <ErrorText>{charge.error}</ErrorText>
+        {ctx.canManage && <SaveBar form={charge} onSave={() => saveCharge('config', { group: 'service', values: { mode: c.mode, rate: Number(c.rate) } })} />}
+      </Block>
+      {tipsOn && (
+        <Block title="Tip amounts" hint="No tip is ever preselected. When guests enter their waiter's number, the tip is credited to that waiter.">
+          <Toggle label="Allow guests to enter their own amount" checked={d.custom} onChange={v => tipForm.set('custom', v)} disabled={!ctx.canManage} />
+          <Field label={`Tip amounts (${state.currency})`} hint="Up to five whole amounts, separated by commas — for example 20, 50, 100." value={text} disabled={!ctx.canManage}
+            onChange={e => { setText(e.target.value); tipForm.set('presets', e.target.value.split(/[\s,]+/).filter(Boolean).map(Number)); }} />
+          <div className="tips" style={{ maxWidth: 460 }} aria-label="Preview"><button className="active">No tip</button>{d.presets.filter(n => n > 0).map(n => <button key={n} type="button">{ctx.money(n * 100).replace(/\.00$/, '')}</button>)}</div>
+          <ErrorText>{tipForm.error}</ErrorText>
+          {ctx.canManage && <SaveBar form={tipForm} onSave={() => saveTips('config', { group: 'tips', values: d })} />}
+        </Block>
+      )}
     </>
   );
 }

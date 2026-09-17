@@ -414,7 +414,7 @@ export function ReceiptModal({ ctx, receipt: r, onClose }) {
       footer={<button className="primary block" onClick={onClose}>Done</button>}>
       <p>Reference <b style={{ color: 'var(--ink)' }}>{r.ref}</b> · {r.name}</p>
       {booking && <p className="small">{r.venue} · {dateTime(r.date)}</p>}
-      {!booking && <p className="small">{r.tableName ? 'Delivering to ' + r.tableName : 'Collect at the counter'}</p>}
+      {!booking && <p className="small">{r.tableName ? 'Delivering to ' + r.tableName : 'Collect at the counter'}{r.waiterName ? ` · Served by ${r.waiterName.split(' ')[0]} (#${r.waiterNumber})` : ''}</p>}
       <p className={'notice' + (r.paid ? ' success' : r.status === 'Cancelled' ? '' : ' warning')}>{status}</p>
       {booking && r.status !== 'Cancelled' && r.tickets.map(t => (
         <div className={'ticket-qr' + (t.used ? ' used' : '')} key={t.token}>
@@ -425,6 +425,7 @@ export function ReceiptModal({ ctx, receipt: r, onClose }) {
       ))}
       <div className="totals">
         {r.lines.map((l, i) => <div className="line" key={i}><span>{l.qty} × {l.name}</span><b>{money(l.total)}</b></div>)}
+        {r.service && <div className="line"><span>{r.service.label}</span><b>{money(r.service.amount)}</b></div>}
         {r.tax && <div className="line"><span>{r.tax.label} {r.tax.included ? '(included)' : ''}</span><b>{money(r.tax.amount)}</b></div>}
         {!booking && <div className="line"><span>Tip</span><b>{money(r.tip || 0)}</b></div>}
         <div className="line total"><span>Total</span><span>{money(r.total)}</span></div>
@@ -511,6 +512,7 @@ export function MenuScreen({ ctx }) {
                   <h3>{i.name}</h3>
                   <p>{i.description}</p>
                   <b style={{ display: 'block', marginTop: 4 }}>{money(i.price)}</b>
+                  {i.available && i.left > 0 && <small className="left-badge">Only {i.left} left</small>}
                 </div>
                 {i.available ? (
                   <button className={'add' + (n ? ' has' : '')} aria-label={n ? `Add another ${i.name}, ${n} in bag` : `Add ${i.name}`} disabled={!canOrder}
@@ -580,21 +582,27 @@ export function Bag({ ctx }) {
   const notServed = lines.filter(i => !served.some(s => s.id === i.id) || !i.available);
   const subtotal = lines.reduce((s, i) => s + i.price * cart[i.id], 0);
   const tipAmount = tips.enabled ? Math.round(Number(tip || 0) * 100) : 0;
-  const tax = taxFor(data.settings.tax, 'menu', subtotal);
+  const serviceCfg = data.settings.service || { enabled: false, rate: 0 };
+  const service = serviceCfg.enabled && subtotal > 0 ? { label: `Service charge ${serviceCfg.rate}%`, amount: Math.round((subtotal * serviceCfg.rate) / 100) } : null;
+  const tax = taxFor(data.settings.tax, 'menu', subtotal + (service?.amount || 0));
+  const [waiter, setWaiter] = useState('');
+  const [quoteError, setQuoteError] = useState('');
   const [quote, setQuote] = useState(null);
   useEffect(() => {
     // The server's quote is authoritative; the local figures above only fill the gap while it loads.
     setQuote(null);  // show local figures immediately; replaced by the server quote moments later
     if (!lines.length || !canOrder) return;
     const id = setTimeout(() => {
-      api('quote', { tenant: ctx.tenant, kind: 'menu', items: cart, tipAmount: String(tips.enabled ? Number(tip || 0) : 0), table: table?.token || '' })
-        .then(setQuote).catch(() => setQuote(null));
-    }, 250);
+      api('quote', { tenant: ctx.tenant, kind: 'menu', items: cart, tipAmount: String(tips.enabled ? Number(tip || 0) : 0), table: table?.token || '', waiter })
+        .then(q => { setQuote(q); setQuoteError(''); }).catch(e => { setQuote(null); setQuoteError(e.message); });
+    }, 350);
     return () => clearTimeout(id);
-  }, [JSON.stringify(cart), tip, table?.token, canOrder]);
+  }, [JSON.stringify(cart), tip, table?.token, canOrder, waiter]);
   const shownTax = quote ? quote.tax : tax;
+  const shownService = quote ? quote.service : service;
   const shownTip = quote ? quote.tip : tipAmount;
-  const shownTotal = quote ? quote.total : subtotal + (tax && !tax.included ? tax.amount : 0) + tipAmount;
+  const shownTotal = quote ? quote.total : subtotal + (service?.amount || 0) + (tax && !tax.included ? tax.amount : 0) + tipAmount;
+  const askWaiter = data.waiters && (tips.enabled || serviceCfg.enabled);
   const change = (id, delta) => {
     const next = { ...cart, [id]: Math.max(0, Math.min(50, (cart[id] || 0) + delta)) };
     if (!next[id]) delete next[id];
@@ -604,7 +612,7 @@ export function Bag({ ctx }) {
     setBusy(true);
     setError('');
     try {
-      await startCheckout({ kind: 'menu', items: cart, tipAmount: String(tips.enabled ? Number(tip || 0) : 0), table: table?.token || '' }, null);
+      await startCheckout({ kind: 'menu', items: cart, tipAmount: String(tips.enabled ? Number(tip || 0) : 0), table: table?.token || '', waiter }, null);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -648,10 +656,20 @@ export function Bag({ ctx }) {
           )}
         </section>
       )}
+      {askWaiter && (
+        <section className="card stack">
+          <div><h3>Who is serving you?</h3><p className="small">Optional. Enter the number on your waiter's badge{tips.enabled ? ' so your tip goes to them' : ''}.</p></div>
+          <label className="field">Waiter number
+            <input type="text" inputMode="numeric" placeholder="e.g. 4821" maxLength={6} value={waiter} onChange={e => setWaiter(e.target.value.replace(/\D/g, '').slice(0, 4))} />
+          </label>
+          {waiter.length === 4 && quote?.waiter && <p className="notice success small">Served by {quote.waiter.name} · #{quote.waiter.number}</p>}
+        </section>
+      )}
       </div>
       <section className="card stack bag-summary">
         <div className="totals">
           <div className="line"><span>Items</span><b>{money(subtotal)}</b></div>
+          {shownService && <div className="line"><span>{shownService.label}</span><b>{money(shownService.amount)}</b></div>}
           {shownTax && <div className="line"><span>{shownTax.label} {shownTax.included ? '(included)' : ''}</span><b>{money(shownTax.amount)}</b></div>}
           {tips.enabled && <div className="line"><span>Tip</span><b>{money(shownTip)}</b></div>}
           <div className="line total"><span>Total</span><span>{money(shownTotal)}</span></div>
@@ -661,11 +679,11 @@ export function Bag({ ctx }) {
         ) : needsTicket ? (
           <p className="notice warning">This table is for ticket holders. <button className="linklike" onClick={() => go('menu')}>See options</button></p>
         ) : (
-          <button className="primary lg-btn block" disabled={busy || !canOrder || notServed.length > 0} onClick={checkout}>
+          <button className="primary lg-btn block" disabled={busy || !canOrder || notServed.length > 0 || (waiter.length > 0 && !quote?.waiter)} onClick={checkout}>
             {busy ? 'Checking your order…' : 'Continue to checkout'}<Icon name="next" />
           </button>
         )}
-        <ErrorText>{error}</ErrorText>
+        <ErrorText>{error || (lines.length && canOrder ? quoteError : '')}</ErrorText>
       </section>
       </div>
     </>

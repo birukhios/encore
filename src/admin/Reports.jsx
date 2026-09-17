@@ -141,7 +141,7 @@ export function ReportBody({ report, money, tab }) {
         </section>
         <section className="card">
           <div className="card-head"><div><h2>Where the money comes from</h2><p>Gross sales broken down.</p></div></div>
-          <Donut parts={[{ label: 'Tickets', value: s.ticketSales }, { label: 'Food & drinks', value: s.menuSales }, { label: 'VAT', value: s.vat }, { label: 'Tips', value: s.tips }]} format={money} />
+          <Donut parts={[{ label: 'Tickets', value: s.ticketSales }, { label: 'Food & drinks', value: s.menuSales }, { label: 'Service charge', value: s.service }, { label: 'VAT', value: s.vat }, { label: 'Tips', value: s.tips }].filter(x => x.label !== 'Service charge' || x.value)} format={money} />
         </section>
       </div>
       <section className="card">
@@ -244,7 +244,20 @@ export function ReportBody({ report, money, tab }) {
         <Kpi label="Tip rate" value={pct(s.tipRate, 1)} delta={d('tipRate')} hint="Tips ÷ food & drink sales" />
         <Kpi label="Orders with a tip" value={pct(s.tipParticipation)} delta={d('tipParticipation')} />
         <Kpi label="Average tip" value={money(s.avgTip)} delta={d('avgTip')} hint="When a tip was given" />
+        {s.service > 0 && <Kpi label="Service charge" value={money(s.service)} delta={d('service')} hint="Included in gross and net sales" />}
       </div>
+      <section className="card">
+        <div className="card-head"><div><h2>Tips by waiter</h2><p>Credited when guests or staff enter a waiter number.{s.service ? ` Service charge collected: ${money(s.service)}.` : ''}</p></div></div>
+        <DataTable rank sort={{ key: 'tips', dir: 'desc' }} rows={report.byWaiter} empty="No food & drink orders in this period." columns={[
+          { key: 'name', label: 'Waiter', render: w => <><b>{w.number ? `#${w.number} · ` : ''}{w.name}</b></> },
+          { key: 'orders', label: 'Orders', num: true },
+          { key: 'tipped', label: 'Tipped', num: true, render: w => `${w.tipped}/${w.orders}` },
+          { key: 'avgTip', label: 'Avg tip', num: true, render: w => money(w.avgTip) },
+          { key: 'sales', label: 'F&B sales', num: true, render: w => money(w.sales) },
+          { key: 'service', label: 'Service charge', num: true, render: w => money(w.service) },
+          { key: 'tips', label: 'Tips', num: true, render: w => <b>{money(w.tips)}</b> },
+        ]} />
+      </section>
       <section className="card">
         <div className="card-head"><div><h2>Top tipped tables</h2><p>Where guests tip the most. Useful for recognizing service staff.</p></div></div>
         <DataTable rank sort={{ key: 'tips', dir: 'desc' }} rows={report.topTipped} columns={[
@@ -350,6 +363,7 @@ export function reportPdfSections(report, money, { taxNote = '' } = {}) {
     { title: 'Best-selling items', table: { head: ['#', 'Item', 'Category', 'Qty', 'Attach', 'Revenue', 'Share'], body: report.bestSellers.slice(0, 25).map((i, n) => [n + 1, i.name, i.category, i.qty, pct(i.attach), money(i.revenue), pct(i.share, 1)]), align: right(3, 4, 5, 6) } },
     { title: 'Category mix', table: { head: ['Category', 'Items', 'Qty', 'Revenue', 'Share'], body: report.categories.map(c => [c.category, c.items, c.qty, money(c.revenue), pct(c.share, 1)]), align: right(1, 2, 3, 4) } },
     { title: 'Slow movers', table: { head: ['Item', 'Category', 'Price', 'Sold'], body: report.slowMovers.map(i => [i.name, i.category, money(i.price), i.qty]), align: right(2, 3) } },
+    { title: 'Tips by waiter', table: { head: ['#', 'Waiter', 'Orders', 'Tipped', 'Avg tip', 'Service charge', 'Tips'], body: report.byWaiter.map((w, n) => [n + 1, `${w.number ? `#${w.number} ` : ''}${w.name}`, w.orders, `${w.tipped}/${w.orders}`, money(w.avgTip), money(w.service), money(w.tips)]), align: right(2, 3, 4, 5, 6) } },
     { title: 'Top tipped tables', table: { head: ['#', 'Table', 'Event', 'Tips', 'Tipped orders', 'Avg tip', 'Tip rate'], body: report.topTipped.slice(0, 20).map((t, n) => [n + 1, t.name, t.event, money(t.tips), `${t.tippedOrders}/${t.orders}`, money(t.avgTip), pct(t.tipRate, 1)]), align: right(3, 4, 5, 6) } },
     { title: 'Busiest tables', table: { head: ['#', 'Table', 'Event', 'Orders', 'Items', 'Avg order', 'Revenue'], body: report.busyTables.slice(0, 20).map((t, n) => [n + 1, t.name, t.event, t.orders, t.items, money(t.avgOrder), money(t.revenue)]), align: right(3, 4, 5, 6) } },
     { title: 'Top guests', table: { head: ['#', 'Guest', 'Phone', 'Events', 'Tickets', 'Orders', 'Spent'], body: report.topGuests.slice(0, 20).map((g, n) => [n + 1, g.name, g.phone || '', g.events, g.tickets, g.orders, money(g.spent)]), align: right(3, 4, 5, 6) } },
@@ -357,13 +371,13 @@ export function reportPdfSections(report, money, { taxNote = '' } = {}) {
     { title: 'Payment methods', table: { head: ['Method', 'Transactions', 'Amount', 'Share'], body: report.payments.map(x => [x.method, x.count, money(x.amount), pct(x.share)]), align: right(1, 2, 3) } },
     { title: 'Latest activity', table: { head: ['When', 'Guest', 'Reference', 'Details', 'Payment', 'Total'], body: report.latest.map(x => [dateTime(x.created * 1000), x.name, x.ref, x.qty ? `${x.qty} ticket(s) · ${x.eventName}` : `${x.tableName || 'Counter'} · ${x.items}`, paymentLabel(x), money(x.total)]), align: right(5) } },
     { title: 'Daily sales', table: { head: ['Date', 'Tickets', 'Orders', 'Ticket sales', 'F&B sales', 'Tips', 'VAT', 'Gross'], body: report.daily.filter(r => r.gross).map(r => [r.date, r.ticketsSold, r.orders, money(r.tickets), money(r.menu), money(r.tips), money(r.vat), money(r.gross)]), align: right(1, 2, 3, 4, 5, 6, 7) } },
-    { title: 'Notes', note: `Sales include paid, non-cancelled bookings and orders only. Net sales exclude VAT and tips. Attach rate is the share of ticket holders who also ordered food or drinks at the same event. Comparisons use the period of equal length immediately before.${taxNote} Encore reports are not fiscal receipts.` },
+    { title: 'Notes', note: `Sales include paid, non-cancelled bookings and orders only. Net sales exclude VAT and tips; service charge is included. Attach rate is the share of ticket holders who also ordered food or drinks at the same event. Comparisons use the period of equal length immediately before.${taxNote} Encore reports are not fiscal receipts.` },
   ];
 }
 
 export function reportCsvRows(report, money, header) {
   const s = report.summary;
-  const metrics = [['Gross sales', 'gross', money], ['Net sales', 'net', money], ['VAT', 'vat', money], ['Ticket sales', 'ticketSales', money], ['Food & drink sales', 'menuSales', money], ['Tips', 'tips', money],
+  const metrics = [['Gross sales', 'gross', money], ['Net sales', 'net', money], ['VAT', 'vat', money], ['Ticket sales', 'ticketSales', money], ['Food & drink sales', 'menuSales', money], ['Tips', 'tips', money], ['Service charge', 'service', money],
     ['Tickets sold', 'ticketsSold'], ['Checked in', 'checkedIn'], ['Check-in rate', 'checkinRate', pct], ['Sell-through', 'sellThrough', pct], ['Bookings', 'bookings'], ['Orders', 'orders'],
     ['Items sold', 'itemsSold'], ['Average order', 'avgOrder', money], ['Average tip', 'avgTip', money], ['Tip rate', 'tipRate', pct], ['Orders with a tip', 'tipParticipation', pct],
     ['Paying guests', 'guests'], ['Spend per guest', 'spendPerGuest', money], ['Attach rate', 'attachRate', pct], ['Cancelled', 'cancelled'], ['Unpaid', 'unpaid']];
@@ -383,6 +397,8 @@ export function reportCsvRows(report, money, header) {
     [], ['Menu items'], ['Item', 'Category', 'Price', 'Quantity', 'Orders', 'Attach rate', 'Revenue', 'Revenue share'],
     ...[...report.bestSellers, ...report.slowMovers.filter(i => !i.qty)].map(i => [i.name, i.category, money(i.price || 0), i.qty, i.orders, pct(i.attach), money(i.revenue), pct(i.share, 1)]),
     [], ['Categories'], ['Category', 'Items sold', 'Quantity', 'Revenue', 'Share'], ...report.categories.map(c => [c.category, c.items, c.qty, money(c.revenue), pct(c.share, 1)]),
+    [], ['Tips by waiter'], ['Waiter number', 'Waiter', 'Orders', 'Orders with a tip', 'Average tip', 'F&B sales', 'Service charge', 'Tips'],
+    ...report.byWaiter.map(w => [w.number, w.name, w.orders, w.tipped, money(w.avgTip), money(w.sales), money(w.service), money(w.tips)]),
     [], ['Tables'], ['Table', 'Event', 'Orders', 'Items', 'Average order', 'Tips', 'Tipped orders', 'Average tip', 'Tip rate', 'Revenue'],
     ...report.busyTables.map(t => [t.name, t.event, t.orders, t.items, money(t.avgOrder), money(t.tips), t.tippedOrders, money(t.avgTip), pct(t.tipRate, 1), money(t.revenue)]),
     [], ['Guests'], ['Guest', 'Phone', 'Events', 'Bookings', 'Tickets', 'Orders', 'Tips', 'Spent', 'First purchase', 'Last purchase'],

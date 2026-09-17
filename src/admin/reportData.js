@@ -55,6 +55,7 @@ function summarize(state, bookings, orders, eventId) {
     ticketSales: sum(soldBookings, r => r.subtotal),
     menuSales: sum(soldOrders, r => r.subtotal),
     tips: sum(soldOrders, r => r.tip),
+    service: sum(soldOrders, r => r.service?.amount),
     vat: sum(sales, vatOf),
     ticketsSold: tickets.length,
     checkedIn: tickets.filter(t => t.used).length,
@@ -226,8 +227,20 @@ export function buildReport(state, filters = {}) {
     top10Share: ratio(sum(topGuests.slice(0, 10), g => g.spent), summary.gross),
   };
 
+  const waiterRows = new Map();
+  for (const o of soldOrders) {
+    const key = o.waiter || '';
+    const row = waiterRows.get(key) || { key, name: o.waiterName || 'No waiter entered', number: o.waiterNumber || '', orders: 0, tipped: 0, tips: 0, sales: 0, service: 0 };
+    row.orders += 1;
+    row.tipped += (o.tip || 0) > 0 ? 1 : 0;
+    row.tips += o.tip || 0;
+    row.sales += o.subtotal;
+    row.service += o.service?.amount || 0;
+    waiterRows.set(key, row);
+  }
+  const byWaiter = [...waiterRows.values()].map(w => ({ ...w, avgTip: w.tipped ? Math.round(w.tips / w.tipped) : 0 })).sort((a, b) => b.tips - a.tips);
   const latest = [...bookings, ...orders].sort((a, b) => b.created - a.created).slice(0, 10);
-  const report = { latest, summary, previous, byEvent, bestSellers, slowMovers, pareto, categories, busyTables, topTipped, byHour, byWeekday, heatmap, payments, daily, topGuests, guests };
+  const report = { byWaiter, latest, summary, previous, byEvent, bestSellers, slowMovers, pareto, categories, busyTables, topTipped, byHour, byWeekday, heatmap, payments, daily, topGuests, guests };
   report.insights = insights(report);
   report.suggestions = suggestions(report);
   return report;

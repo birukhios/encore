@@ -7,6 +7,7 @@ import QR from '../shared/QR';
 import { exportPdf } from './pdf';
 import { Bars, DataTable, Kpi, TrendChart } from './charts';
 import { compact, Suggestions } from './Reports';
+import { NewOrder, PrintOrder } from './service';
 import { buildReport, change, downloadText, guestHistory, paymentLabel, slug, toCsv, vatOf } from './reportData';
 import Scanner from '../shared/Scanner';
 import { Avatar, copyText, Empty, ErrorText, Field, Icon, Modal, StarIcon, Toggle } from '../shared/ui';
@@ -605,7 +606,7 @@ function GuestDetail({ ctx, person, onClose }) {
         <div className="history-card" key={o.id}>
           <div className="row spread wrap"><b>{o.tableName || 'Counter pickup'}</b><span className="badge neutral">{o.status}</span></div>
           <p style={{ color: 'var(--ink)' }}>{o.items}</p>
-          <div className="meta"><span>{o.ref}</span><span>{dateTime(o.created * 1000)}</span><span>Items {money(o.subtotal)}</span>{o.tax && <span>{o.tax.label} {money(vatOf(o))}</span>}<span>Tip {money(o.tip || 0)}</span><b style={{ color: 'var(--ink)' }}>Total {money(o.total)}</b></div>
+          <div className="meta"><span>{o.ref}</span><span>{dateTime(o.created * 1000)}</span><span>Items {money(o.subtotal)}</span>{o.service && <span>Service {money(o.service.amount)}</span>}{o.tax && <span>{o.tax.label} {money(vatOf(o))}</span>}<span>Tip {money(o.tip || 0)}</span><b style={{ color: 'var(--ink)' }}>Total {money(o.total)}</b></div>
         </div>
       )) : <p className="small">No food or drink orders.</p>)}
       {tab === 'Payments' && (h.payments.length ? (
@@ -817,13 +818,14 @@ function MenuForm({ ctx, item, onClose }) {
   const [available, setAvailable] = useState(item.available !== false);
   const [allEvents, setAllEvents] = useState(!item.events?.length);
   const [events, setEvents] = useState(item.events || []);
+  const [trackStock, setTrackStock] = useState(!!item.trackStock);
   const { busy, error, run } = useRunner();
   const categories = state.settings.menu.categories;
   const submit = e => {
     e.preventDefault();
     const v = Object.fromEntries(new FormData(e.currentTarget));
     if (!allEvents && !events.length) return run(async () => { throw new Error('Choose at least one concert, or serve this item at all concerts.'); });
-    run(async () => { await ctx.action('menu', { ...v, id: item.id, image, available, events: allEvents ? [] : events }); onClose(); });
+    run(async () => { await ctx.action('menu', { ...v, id: item.id, image, available, trackStock, events: allEvents ? [] : events }); onClose(); });
   };
   const remove = () => confirm(`Delete ${item.name}?`) && run(async () => { await ctx.action('delete', { kind: 'menu', id: item.id }); onClose(); });
   return (
@@ -843,7 +845,18 @@ function MenuForm({ ctx, item, onClose }) {
         </div>
         <Field label="Description"><textarea name="description" defaultValue={item.description} maxLength={500} required /></Field>
         <Field label={`Price (${state.currency})`} name="price" type="number" step="0.01" min="0" defaultValue={(item.price || 0) / 100} required />
-        <Toggle label="Available to order" description="Turn off when an item sells out." checked={available} onChange={setAvailable} />
+        <Toggle label="Available to order" description="Turn off to hide the item from guests." checked={available} onChange={setAvailable} />
+        <div>
+          <Toggle label="Track stock" description="Orders reduce stock automatically and guests can't order more than you have. Manage counts on the Stock page." checked={trackStock} onChange={setTrackStock} />
+          {trackStock && (
+            <div className="formrow" style={{ paddingTop: 6 }}>
+              {item.trackStock
+                ? <Field label="In stock"><input value={item.stock} readOnly aria-describedby="stock-hint" /><small id="stock-hint">Change counts on the Stock page so every change is logged.</small></Field>
+                : <Field label="Opening stock" name="stock" type="number" min="0" step="1" defaultValue={0} required />}
+              <Field label="Low-stock alert at" name="lowStock" type="number" min="0" step="1" defaultValue={item.lowStock ?? 5} required hint="Guests see “Only N left” at or below this." />
+            </div>
+          )}
+        </div>
         <div>
           <Toggle label="Served at all concerts" description="Turn off to choose specific concerts. Guests at a table only see that concert's menu." checked={allEvents} onChange={setAllEvents} />
           {!allEvents && (
@@ -869,7 +882,10 @@ export function Orders({ ctx }) {
   const { state, money, matches } = ctx;
   const [filter, setFilter] = useState('Active');
   const [settling, setSettling] = useState(null);
+  const [printing, setPrinting] = useState(null);
+  const [taking, setTaking] = useState(false);
   const [rowError, setRowError] = useState('');
+  const canTakeOrders = ['Owner', 'Admin', 'Service'].includes(ctx.role);
   const filters = {
     Active: o => ['Placed', 'Preparing', 'Ready'].includes(o.status),
     Unpaid: o => !o.paid && o.status !== 'Cancelled',
@@ -885,6 +901,7 @@ export function Orders({ ctx }) {
   };
   return (
     <section className="card">
+      {canTakeOrders && <PageActions><button className="primary" onClick={() => setTaking(true)}><Icon name="add" />New order</button></PageActions>}
       <div className="card-head">
         <div className="segmented" role="tablist" aria-label="Filter orders">
           {Object.keys(filters).map(f => (
@@ -901,7 +918,7 @@ export function Orders({ ctx }) {
           <div className="row spread wrap">
             <div>
               <h3>{o.tableName || 'Counter pickup'} <span className="muted small">· {o.ref}</span></h3>
-              <div className="meta"><span>{o.name}</span><span>{o.phone}</span><span>{dateTime(o.created * 1000)}</span></div>
+              <div className="meta"><span>{o.name}</span>{o.phone && <span>{o.phone}</span>}<span>{dateTime(o.created * 1000)}</span>{o.waiterName && <span>Waiter #{o.waiterNumber} {o.waiterName}</span>}{o.takenBy && <span>Taken by {o.takenBy}</span>}</div>
             </div>
             <div className="row wrap">{paidBadge(o)}<span className="badge dark">{o.status}</span></div>
           </div>
@@ -909,6 +926,7 @@ export function Orders({ ctx }) {
           <div className="row spread wrap">
             <div className="meta"><span>Items {money(o.subtotal)}</span>{o.tax && <span>{o.tax.label} {o.tax.included ? 'incl.' : '+'} {money(o.tax.amount)}</span>}<span>Tip {money(o.tip || 0)}</span><b style={{ color: 'var(--ink)' }}>Total {money(o.total)}</b></div>
             <div className="actions">
+              <button onClick={() => setPrinting(o)} aria-label={`Print order ${o.ref}`}><Icon name="download" />Print</button>
               {['Placed', 'Preparing'].includes(o.status) && !o.paid && <button onClick={() => confirm(`Cancel order ${o.ref}?`) && act('cancel', { id: o.id })}>Cancel</button>}
               {o.status !== 'Cancelled' && !o.paid && <button onClick={() => setSettling(o)}>Record payment</button>}
               {next[o.status] && <button className="primary" onClick={() => act('order_status', { id: o.id, status: next[o.status] })}>Mark {next[o.status].toLowerCase()}</button>}
@@ -917,6 +935,8 @@ export function Orders({ ctx }) {
         </div>
       )) : <Empty icon="menu" title={filter === 'Active' ? 'All caught up' : 'Nothing here'} body="Table and counter orders appear here with items, tip, payment and preparation status. Guests are notified as you update them." />}
       {settling && <SettleModal ctx={ctx} record={settling} onClose={() => setSettling(null)} />}
+      {printing && <PrintOrder ctx={ctx} order={state.orders.find(o => o.id === printing.id) || printing} onClose={() => setPrinting(null)} />}
+      {taking && <NewOrder ctx={ctx} onClose={() => setTaking(false)} onCreated={order => { setTaking(false); setFilter('Active'); if (order) setPrinting(order); }} />}
     </section>
   );
 }

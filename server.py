@@ -49,9 +49,9 @@ DEMO = os.environ.get('ENCORE_DEMO') == '1'
 ADMIN_SESSION_DAYS, GUEST_SESSION_DAYS, PLATFORM_SESSION_HOURS = 7, 30, 12
 OTP_TTL, OTP_RESEND, OTP_MAX_ATTEMPTS = 300, 60, 5
 STAFF_ROLES = {
-    'Owner': ['settings', 'config', 'event', 'menu', 'table', 'delete', 'order_status', 'checkin', 'checkin_ticket', 'settle', 'cancel'],
-    'Admin': ['settings', 'config', 'event', 'menu', 'table', 'delete', 'order_status', 'checkin', 'checkin_ticket', 'settle', 'cancel'],
-    'Service': ['order_status', 'settle', 'cancel'],
+    'Owner': ['settings', 'config', 'event', 'menu', 'table', 'delete', 'order_status', 'checkin', 'checkin_ticket', 'settle', 'cancel', 'waiter', 'stock', 'staff_order'],
+    'Admin': ['settings', 'config', 'event', 'menu', 'table', 'delete', 'order_status', 'checkin', 'checkin_ticket', 'settle', 'cancel', 'waiter', 'stock', 'staff_order'],
+    'Service': ['order_status', 'settle', 'cancel', 'staff_order'],
     'Gate': ['checkin', 'checkin_ticket'],
 }
 LOCK = threading.Lock()
@@ -628,7 +628,7 @@ class AdminHandler(BaseHandler):
             notices, data = [], v.get('data', {})
             if isinstance(data, dict):
                 data.pop('_by', None)
-                if op in ('checkin', 'checkin_ticket'):
+                if op in ('checkin', 'checkin_ticket', 'stock', 'staff_order', 'menu', 'cancel'):
                     data['_by'] = u['name']
             s = domain.mutate(s, op, data, notices)
             write_tenant(c, u['tenant'], s)

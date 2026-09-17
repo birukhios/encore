@@ -502,8 +502,8 @@ class DomainTests(unittest.TestCase):
         self.state['settings']['ordering']['requireScan'] = False
         self.state['settings']['ordering']['ticketHoldersOnly'] = False
         self.state['menu'] = [{'id': 'food', 'name': 'Meal', 'price': 10000, 'available': True, 'events': []}]
-        self.state['events'] = [{'id': 'event', 'name': 'Concert', 'price': 50000, 'published': True, 'capacity': 2}]
-        self.state['tables'] = [{'id': 't', 'token': 'unique-table', 'code': 'ABCDEF', 'name': 'Table 8', 'event': 'event', 'status': 'Available'}]
+        self.state['events'] = [{'id': 'event', 'name': 'Concert', 'price': 50000, 'published': True, 'capacity': 2, 'date': '2026-11-02T18:00'}]
+        self.state['tables'] = [{'id': 't', 'token': 'unique-table', 'code': 'ABCDEF', 'name': 'Table 8', 'event': 'event', 'seats': 4, 'status': 'Available'}]
 
     def test_server_prices_and_table_context(self):
         q = domain.quote_order(self.state, {'kind': 'menu', 'items': {'food': 2}, 'table': 'unique-table', 'tipAmount': '30', 'total': 1})
@@ -523,6 +523,80 @@ class DomainTests(unittest.TestCase):
                      {'kind': 'booking', 'event': 'event', 'qty': 3}, {'kind': 'menu', 'items': {'food': 1.5}}]:
             with self.assertRaises(ValueError):
                 domain.quote_order(self.state, data)
+
+    def test_service_charge_is_taxed_and_tips_are_not(self):
+        domain.configure(self.state, 'service', {'mode': 'both', 'rate': 10})
+        q = domain.quote_order(self.state, {'kind': 'menu', 'items': {'food': 1}, 'tipAmount': '5'})
+        # 100.00 items + 10.00 service + 15% VAT on 110.00 (16.50) + 5.00 tip = 131.50
+        self.assertEqual((q['subtotal'], q['service']['amount'], q['tax']['amount'], q['tip'], q['total']), (10000, 1000, 1650, 500, 13150))
+        domain.configure(self.state, 'service', {'mode': 'service', 'rate': 12.5})
+        self.assertFalse(self.state['settings']['tips']['enabled'])
+        with self.assertRaises(ValueError):
+            domain.quote_order(self.state, {'kind': 'menu', 'items': {'food': 1}, 'tipAmount': '5'})
+        booking = domain.quote_order(self.state, {'kind': 'booking', 'event': 'event', 'qty': 1})
+        self.assertIsNone(booking['service'])  # tickets never carry a service charge
+        with self.assertRaises(ValueError):
+            domain.configure(self.state, 'service', {'mode': 'service', 'rate': 0})
+        domain.configure(self.state, 'service', {'mode': 'none', 'rate': 10})
+        self.assertEqual(domain.quote_order(self.state, {'kind': 'menu', 'items': {'food': 1}})['total'], 11500)
+
+    def test_stock_blocks_overselling_and_cancel_restores(self):
+        s = self.state
+        domain.mutate(s, 'menu', {'id': 'food', 'name': 'Meal', 'description': 'Hot', 'price': '100', 'category': 'Food', 'available': True, 'trackStock': True, 'stock': 3, 'lowStock': 1}, [])
+        guest = {'id': 'g1', 'name': 'Guest', 'phone': '+251911000000'}
+        rec = domain.guest_record(s, {'kind': 'menu', 'items': {'food': 2}}, guest, demo_payment=True)
+        self.assertEqual(s['menu'][0]['stock'], 1)
+        self.assertEqual(domain.public_state(s)['menu'][0]['left'], 1)
+        with self.assertRaisesRegex(ValueError, 'Only 1 Meal left'):
+            domain.guest_record(s, {'kind': 'menu', 'items': {'food': 2}}, guest, demo_payment=True)
+        self.assertEqual(s['menu'][0]['stock'], 1)
+        domain.mutate(s, 'stock', {'id': 'food', 'mode': 'add', 'qty': 10, 'reason': 'Delivery'}, [])
+        domain.mutate(s, 'stock', {'id': 'food', 'mode': 'remove', 'qty': 1, 'reason': 'Dropped'}, [])
+        domain.mutate(s, 'stock', {'id': 'food', 'mode': 'set', 'qty': 0}, [])
+        self.assertTrue(domain.public_state(s)['menu'][0]['soldOut'])
+        with self.assertRaises(ValueError):
+            domain.mutate(s, 'stock', {'id': 'food', 'mode': 'remove', 'qty': 1}, [])
+        domain.mutate(s, 'stock', {'id': 'food', 'mode': 'add', 'qty': 2}, [])
+        domain.mutate(s, 'staff_order', staff := {'items': {'food': 2}, 'tableId': 't', 'method': '', '_by': 'Sara'}, [])
+        self.assertEqual(s['menu'][0]['stock'], 0)
+        unpaid = next(o for o in s['orders'] if o['ref'] == staff['result']['ref'])
+        domain.mutate(s, 'cancel', {'id': unpaid['id'], '_by': 'Sara'}, [])
+        self.assertEqual(s['menu'][0]['stock'], 2)
+        self.assertEqual([x['reason'] for x in s['stockLog']][-1], f'Cancelled {unpaid["ref"]}')
+        self.assertEqual(s['stockLog'][0]['reason'], 'Opening count')
+        self.assertEqual([x['after'] for x in s['stockLog']], [3, 1, 11, 10, 0, 2, 0, 2])
+
+    def test_waiter_numbers_tips_and_cash_orders(self):
+        s = self.state
+        for name in ['Abel Tesfaye', 'Sara Bekele', 'Old Waiter']:
+            domain.mutate(s, 'waiter', {'name': name}, [])
+        numbers = [w['number'] for w in s['waiters']]
+        self.assertEqual(len(set(numbers)), 3)
+        self.assertTrue(all(re.fullmatch(r'[1-9]\d{3}', n) for n in numbers))
+        old = s['waiters'][2]
+        domain.mutate(s, 'waiter', {'id': old['id'], 'name': old['name'], 'active': False}, [])
+        self.assertTrue(domain.public_state(s)['waiters'])
+        with self.assertRaisesRegex(ValueError, 'could not find a waiter'):
+            domain.quote_order(s, {'kind': 'menu', 'items': {'food': 1}, 'waiter': old['number']})
+        abel = s['waiters'][0]
+        q = domain.quote_order(s, {'kind': 'menu', 'items': {'food': 1}, 'tipAmount': '20', 'waiter': f'#{abel["number"]}'})
+        self.assertEqual(q['waiter'], {'id': abel['id'], 'name': 'Abel', 'number': abel['number']})
+        rec = domain.guest_record(s, {'kind': 'menu', 'items': {'food': 1}, 'tipAmount': '20', 'waiter': abel['number']}, {'id': 'g', 'name': 'G', 'phone': '+251911000001'}, demo_payment=True)
+        self.assertEqual((rec['waiter'], rec['waiterName'], rec['tip']), (abel['id'], 'Abel Tesfaye', 2000))
+        self.assertNotIn('waiter', domain.receipt(s, rec))  # internal waiter id stays private; name and number are shown
+        data = {'items': {'food': 2}, 'tableId': 't', 'waiter': abel['number'], 'tipAmount': '10', 'method': 'Cash', 'name': 'Table guest', '_by': 'Sara'}
+        domain.mutate(s, 'staff_order', data, [])
+        o = s['orders'][-1]
+        self.assertEqual((o['paid'], o['settledBy'], o['takenBy'], o['waiterNumber'], o['total'], o['tableName']), (True, 'Cash', 'Sara', abel['number'], 20000 + 3000 + 1000, 'Table 8'))
+        with self.assertRaises(ValueError):
+            domain.mutate(s, 'staff_order', {**data, 'method': 'Bank transfer'}, [])
+        with self.assertRaisesRegex(ValueError, 'has orders'):
+            domain.mutate(s, 'delete', {'kind': 'waiter', 'id': abel['id']}, [])
+        before = abel['number']
+        domain.mutate(s, 'waiter', {'id': abel['id'], 'name': abel['name'], 'regenerate': True}, [])
+        self.assertNotEqual(s['waiters'][0]['number'], before)
+        with self.assertRaises(ValueError):
+            domain.mutate(s, 'settle', {'id': s['orders'][0]['id'], 'method': 'Bank transfer'}, [])
 
     def test_phone_normalization(self):
         for raw in ['0911 234 567', '911234567', '+251911234567', '00251 911-234-567']:

@@ -24,6 +24,8 @@ DEFAULT_SETTINGS = {
     'ticketing': {'enabled': True, 'maxPerOrder': 6, 'showRemaining': False},
     'ordering': {'enabled': True, 'requireScan': True, 'ticketHoldersOnly': True, 'eventMenus': True},
     'tips': {'enabled': True, 'unit': 'amount', 'presets': [20, 50, 100], 'custom': True},
+    # Service charge on food & drink orders, as a percentage of the item subtotal. VAT applies to it; tips are never taxed.
+    'service': {'enabled': False, 'rate': 10},
     'payments': {'venue': True},
     'notifications': {'smsBookings': True, 'smsOrderReady': True, 'staffNewOrders': True},
     'support': {'email': '', 'phone': '', 'hours': '', 'faq': []},
@@ -36,6 +38,8 @@ DEFAULT_SETTINGS = {
 }
 TAX_REGIMES = ['vat', 'none']
 MAX_TIP_CENTS = 5_000_000  # 50,000 in the workspace currency
+STAFF_PAYMENT_METHODS = ['Cash', 'Card at venue']
+STOCK_LOG_LIMIT = 500
 
 
 def uid():
@@ -137,7 +141,7 @@ def contrast_with_white(hex_color):
 
 def blank(name):
     return {'name': name, 'description': 'Extraordinary nights, beautifully simple.', 'currency': 'ETB',
-            'events': [], 'tables': [], 'menu': [], 'orders': [], 'bookings': [],
+            'events': [], 'tables': [], 'menu': [], 'orders': [], 'bookings': [], 'waiters': [], 'stockLog': [],
             'settings': copy.deepcopy(DEFAULT_SETTINGS)}
 
 
@@ -152,7 +156,7 @@ def upgrade(s):
         current = settings.setdefault(group, {})
         for key, value in defaults.items():
             current.setdefault(key, copy.deepcopy(value))
-    for key in ['events', 'tables', 'menu', 'orders', 'bookings']:
+    for key in ['events', 'tables', 'menu', 'orders', 'bookings', 'waiters', 'stockLog']:
         s.setdefault(key, [])
     codes = {t.get('code') for t in s['tables']}
     for t in s['tables']:
@@ -172,13 +176,16 @@ def upgrade(s):
 
     for item in s['menu']:
         item.setdefault('events', [])
+        item.setdefault('trackStock', False)
+        item.setdefault('stock', 0)
+        item.setdefault('lowStock', 5)
         if item.get('category') and item['category'] not in settings['menu']['categories']:
             settings['menu']['categories'].append(item['category'])
     return s
 
 
 def public_settings(s):
-    keep = ['theme', 'ticketing', 'ordering', 'tips', 'payments', 'support', 'legal', 'profile', 'menu', 'tax']
+    keep = ['theme', 'ticketing', 'ordering', 'tips', 'service', 'payments', 'support', 'legal', 'profile', 'menu', 'tax']
     return {k: copy.deepcopy(s['settings'][k]) for k in keep}
 
 
@@ -211,8 +218,16 @@ def public_state(s):
             item['remaining'] = remaining
         out['events'].append(item)
     published = {e['id'] for e in out['events']}
-    out['menu'] = [{k: i.get(k) for k in ['id', 'name', 'description', 'price', 'category', 'available', 'image', 'events']}
-                   for i in s['menu']]
+    out['menu'] = []
+    for i in s['menu']:
+        item = {k: i.get(k) for k in ['id', 'name', 'description', 'price', 'category', 'available', 'image', 'events']}
+        if i.get('trackStock'):
+            item['soldOut'] = i['stock'] <= 0
+            item['available'] = bool(i.get('available')) and i['stock'] > 0
+            if 0 < i['stock'] <= i.get('lowStock', 5):
+                item['left'] = i['stock']
+        out['menu'].append(item)
+    out['waiters'] = any(w.get('active') for w in s['waiters'])  # whether guests can credit a waiter; names stay private
     out['tables'] = [{k: t[k] for k in ['id', 'name', 'event', 'seats', 'status']} for t in s['tables'] if t['event'] in published]
     return out
 
@@ -262,9 +277,22 @@ def configure(s, group, v):
         if not isinstance(presets, list) or len(presets) > 5:
             raise ValueError('Offer up to five tip options.')
         presets = sorted({whole(p, 1, 50000, 'Tip options must be whole amounts from 1 to 50,000.') for p in presets})
-        cfg.update(enabled=flag(v.get('enabled')), custom=flag(v.get('custom')), presets=presets, unit='amount')
+        cfg.update(enabled=flag(v.get('enabled', cfg['enabled'])), custom=flag(v.get('custom')), presets=presets, unit='amount')
         if cfg['enabled'] and not presets and not cfg['custom']:
             raise ValueError('Add at least one tip option or allow custom tips.')
+    elif group == 'service':
+        # One choice for how guests reward service: tips, a service charge, both, or neither.
+        mode = v.get('mode')
+        if mode not in ['tips', 'service', 'both', 'none']:
+            raise ValueError('Choose tips, a service charge, both, or neither.')
+        rate = number(v.get('rate', cfg['rate']), 0, 30)
+        if mode in ['service', 'both'] and rate <= 0:
+            raise ValueError('Enter a service charge between 0.5% and 30%.')
+        cfg.update(enabled=mode in ['service', 'both'], rate=round(rate, 2))
+        tips = s['settings']['tips']
+        tips['enabled'] = mode in ['tips', 'both']
+        if tips['enabled'] and not tips['presets'] and not tips['custom']:
+            tips['custom'] = True
     elif group == 'payments':
         cfg.update(venue=flag(v.get('venue')))
     elif group == 'notifications':
@@ -369,6 +397,14 @@ def mutate(s, op, v, notices):
             item.update(description=text(v.get('description'), 500), price=round(number(v.get('price')) * 100),
                         category=_category(s, v.get('category')), available=flag(v.get('available')),
                         image=clean_image(v.get('image')), events=sorted(set(events)))
+            was_tracked = bool(old and old.get('trackStock'))
+            item['trackStock'] = flag(v.get('trackStock'))
+            item['lowStock'] = whole(v.get('lowStock', item.get('lowStock', 5)), 0, 100000, 'Low-stock alert must be a whole number.')
+            item.setdefault('stock', 0)
+            if item['trackStock'] and not was_tracked:  # starting count; later changes go through stock adjustments
+                count = whole(v.get('stock', 0), 0, 1000000, 'Stock must be a whole number.')
+                _stock_log(s, item, count - item['stock'], 'Opening count', v.get('_by'))
+                item['stock'] = count
         else:
             if old and old['event'] != v.get('event'):
                 raise ValueError('A table QR code stays linked to its original concert. Create a new table for another concert.')
@@ -387,11 +423,13 @@ def mutate(s, op, v, notices):
         s[collection] = [item if a['id'] == item['id'] else a for a in s[collection]] if old else s[collection] + [item]
     elif op == 'delete':
         kind = v.get('kind')
-        collection = {'event': 'events', 'menu': 'menu', 'table': 'tables'}.get(kind)
+        collection = {'event': 'events', 'menu': 'menu', 'table': 'tables', 'waiter': 'waiters'}.get(kind)
         if not collection or not any(a['id'] == v.get('id') for a in s[collection]):
             raise ValueError('This item no longer exists in your workspace.')
         if kind == 'event' and (any(b.get('event') == v['id'] for b in s['bookings']) or any(t['event'] == v['id'] for t in s['tables'])):
             raise ValueError('This concert has bookings or tables. Unpublish it instead of deleting it.')
+        if kind == 'waiter' and any(o.get('waiter') == v['id'] for o in s['orders']):
+            raise ValueError('This waiter has orders. Mark them inactive instead of deleting, so tip reports stay complete.')
         s[collection] = [a for a in s[collection] if a['id'] != v['id']]
         if kind == 'event':
             for item in s['menu']:
@@ -425,6 +463,8 @@ def mutate(s, op, v, notices):
         if rec.get('status') in ['Checked in', 'Delivered', 'Cancelled'] or rec.get('paid'):
             raise ValueError('This record can no longer be cancelled.')
         rec['status'] = 'Cancelled'
+        if 'lines' in rec and 'qty' not in rec:
+            _restock(s, rec, f'Cancelled {rec["ref"]}', v.get('_by'))
         notices.append({'record': rec, 'kind': 'cancelled', 'title': f'{rec["ref"]} was cancelled', 'body': 'The organizer cancelled this reservation. Contact support if you have questions.'})
     elif op == 'checkin':
         b = next((b for b in s['bookings'] if b['id'] == v.get('id')), None)
@@ -450,6 +490,41 @@ def mutate(s, op, v, notices):
         _check_in(b, ticket, v.get('_by'))
         v['result'] = {'name': b['name'], 'event': b['eventName'], 'serial': ticket['serial'], 'qty': b['qty'], 'ref': b['ref'],
                        'remaining': sum(1 for t in b['tickets'] if not t['used'])}
+    elif op == 'waiter':
+        old = next((w for w in s['waiters'] if w['id'] == v.get('id')), None)
+        if v.get('id') and not old:
+            raise ValueError('This waiter no longer exists in your workspace.')
+        w = dict(old or {'id': uid(), 'number': waiter_number(s), 'created': int(time.time())})
+        w.update(name=text(v.get('name'), 80), phone=text(v.get('phone'), 30, False), active=flag(v.get('active', True)))
+        if v.get('regenerate') and old:
+            w['number'] = waiter_number(s)
+        s['waiters'] = [w if x['id'] == w['id'] else x for x in s['waiters']] if old else s['waiters'] + [w]
+        v['result'] = {'id': w['id'], 'number': w['number'], 'name': w['name']}
+    elif op == 'stock':
+        item = next((i for i in s['menu'] if i['id'] == v.get('id')), None)
+        if not item:
+            raise ValueError('This menu item no longer exists.')
+        if not item.get('trackStock'):
+            raise ValueError('Turn on stock tracking for this item first.')
+        mode = v.get('mode')
+        qty = whole(v.get('qty'), 0, 1000000, 'Enter a whole quantity.')
+        reason = text(v.get('reason'), 120, False)
+        if mode == 'add':
+            if qty <= 0:
+                raise ValueError('Enter how many units arrived.')
+            change = qty
+        elif mode == 'remove':
+            if qty <= 0 or qty > item['stock']:
+                raise ValueError(f'Remove between 1 and {item["stock"]} units.')
+            change = -qty
+        elif mode == 'set':
+            change = qty - item['stock']
+        else:
+            raise ValueError('Choose add, remove or count.')
+        item['stock'] += change
+        _stock_log(s, item, change, reason or {'add': 'Delivery', 'remove': 'Waste or breakage', 'set': 'Stock count'}[mode], v.get('_by'))
+    elif op == 'staff_order':
+        v['result'] = staff_order(s, v)
     else:
         raise ValueError('Unknown action.')
     return s
@@ -503,7 +578,65 @@ def guest_event_ids(s, guest_id):
     return {b['event'] for b in s['bookings'] if guest_id and b.get('guest') == guest_id and b.get('status') in HOLDING_STATUSES}
 
 
-def quote_order(s, v, guest_id=None):
+def waiter_number(s):
+    """A random 4-digit waiter number that no current or past waiter in this workspace uses."""
+    taken = {w.get('number') for w in s['waiters']}
+    if len(taken) >= 9000:
+        raise ValueError('No waiter numbers are left.')
+    while True:
+        n = str(1000 + secrets.randbelow(9000))
+        if n not in taken:
+            return n
+
+
+def find_waiter(s, number):
+    value = re.sub(r'\D', '', str(number or ''))
+    if not value:
+        return None
+    w = next((w for w in s['waiters'] if w.get('active') and hmac.compare_digest(w['number'], value)), None)
+    if not w:
+        raise ValueError('We could not find a waiter with that number. Check the number on their badge.')
+    return w
+
+
+def _stock_log(s, item, change, reason, by=None):
+    if not change and reason != 'Opening count':
+        return
+    s['stockLog'].append({'id': uid(), 'item': item['id'], 'name': item['name'], 'change': change, 'after': item.get('stock', 0) + change if reason == 'Opening count' else item['stock'],
+                          'reason': reason, 'by': by or '', 'at': int(time.time())})
+    del s['stockLog'][:-STOCK_LOG_LIMIT]
+
+
+def _take_stock(s, lines, ref, by=None):
+    """Check every tracked line first, then deduct, so an order never half-reserves stock."""
+    for line in lines:
+        item = next((i for i in s['menu'] if i['id'] == line.get('id')), None)
+        if item and item.get('trackStock') and item['stock'] < line['qty']:
+            raise ValueError(f'Only {item["stock"]} {item["name"]} left.' if item['stock'] > 0 else f'{item["name"]} is sold out.')
+    for line in lines:
+        item = next((i for i in s['menu'] if i['id'] == line.get('id')), None)
+        if item and item.get('trackStock'):
+            item['stock'] -= line['qty']
+            _stock_log(s, item, -line['qty'], f'Order {ref}', by)
+
+
+def _restock(s, rec, reason, by=None):
+    for line in rec.get('lines', []):
+        item = next((i for i in s['menu'] if i['id'] == line.get('id')), None)
+        if item and item.get('trackStock'):
+            item['stock'] += line['qty']
+            _stock_log(s, item, line['qty'], reason, by)
+
+
+def service_for(s, subtotal):
+    cfg = s['settings']['service']
+    if not cfg['enabled'] or not cfg['rate'] or subtotal <= 0:
+        return None
+    amount = int(Fraction(subtotal) * Fraction(str(cfg['rate'])) / 100 + Fraction(1, 2))
+    return {'label': f'Service charge {cfg["rate"]:g}%', 'rate': cfg['rate'], 'amount': amount}
+
+
+def quote_order(s, v, guest_id=None, staff=False):
     cfg = s['settings']
     lines, tip, table = [], 0, None
     if v.get('kind') == 'booking':
@@ -522,15 +655,19 @@ def quote_order(s, v, guest_id=None):
     elif v.get('kind') == 'menu':
         if not cfg['ordering']['enabled']:
             raise ValueError('Food and drink ordering is closed right now.')
-        if v.get('table'):
+        if staff and v.get('tableId'):
+            table = next((t for t in s['tables'] if t['id'] == v['tableId']), None)
+            if not table:
+                raise ValueError('Choose a table from your workspace.')
+        elif v.get('table'):
             table = find_table(s, token=v['table'])
             if not table or table['status'] == 'Blocked':
                 raise ValueError('This table is not available for ordering.')
             if not any(e['id'] == table['event'] and e.get('published') for e in s['events']):
                 raise ValueError('Table ordering is not open for this concert.')
-        elif cfg['ordering']['requireScan']:
+        elif cfg['ordering']['requireScan'] and not staff:
             raise ValueError("Scan the QR code on your table to order.")
-        if table and cfg['ordering']['ticketHoldersOnly'] and table['event'] not in guest_event_ids(s, guest_id):
+        if table and not staff and cfg['ordering']['ticketHoldersOnly'] and table['event'] not in guest_event_ids(s, guest_id):
             raise ValueError('Ordering at this table is for ticket holders of this concert.')
         cart = v.get('items')
         if not isinstance(cart, dict) or not cart or len(cart) > 100:
@@ -544,9 +681,12 @@ def quote_order(s, v, guest_id=None):
                 raise ValueError('An item in your bag is no longer available.')
             if table and cfg['ordering']['eventMenus'] and item.get('events') and table['event'] not in item['events']:
                 raise ValueError(f'{item["name"]} is not served at this concert.')
-            lines.append({'name': item['name'], 'qty': qty, 'total': item['price'] * qty})
+            if item.get('trackStock') and item['stock'] < qty:
+                raise ValueError(f'Only {item["stock"]} {item["name"]} left.' if item['stock'] > 0 else f'{item["name"]} is sold out.')
+            lines.append({'id': item['id'], 'name': item['name'], 'qty': qty, 'price': item['price'], 'total': item['price'] * qty})
         if not lines:
             raise ValueError('Your bag is empty.')
+        waiter = find_waiter(s, v.get('waiter'))
         tip = money_cents(v.get('tipAmount', 0), MAX_TIP_CENTS, 'Enter a tip between 0 and 50,000.')
         tips = cfg['tips']
         if tip:
@@ -557,11 +697,15 @@ def quote_order(s, v, guest_id=None):
     else:
         raise ValueError('Choose tickets or a menu order.')
     subtotal = sum(i['total'] for i in lines)
-    tax = tax_for(s, v.get('kind'), subtotal)
+    service = service_for(s, subtotal) if v.get('kind') == 'menu' else None
+    service_amount = service['amount'] if service else 0
+    tax = tax_for(s, v.get('kind'), subtotal + service_amount)  # VAT applies to the service charge too
     extra = tax['amount'] if tax and not tax['included'] else 0
     cfg = s['settings']['tax']
+    w = waiter if v.get('kind') == 'menu' else None
     return {'merchant': s['name'], 'currency': s['currency'], 'lines': lines, 'subtotal': subtotal, 'tip': tip, 'tax': tax,
-            'total': subtotal + extra + tip, 'fee': None, 'tableName': table['name'] if table else None,
+            'service': service, 'waiter': {'id': w['id'], 'name': w['name'].split(' ')[0], 'number': w['number']} if w else None,
+            'total': subtotal + service_amount + extra + tip, 'fee': None, 'tableName': table['name'] if table else None,
             'tableEvent': table['event'] if table else None,
             'tin': cfg['tin'] if tax else '', 'vatNumber': cfg['vatNumber'] if tax else ''}
 
@@ -593,8 +737,10 @@ def guest_record(s, v, guest, demo_payment=False):
                    tickets=[{'serial': i + 1, 'token': uid(), 'used': False} for i in range(qty)])
         s['bookings'].append(rec)
     else:
-        rec.update(tip=q['tip'], tableName=q['tableName'], event=q['tableEvent'], status='Placed',
+        _take_stock(s, q['lines'], rec['ref'])
+        rec.update(tip=q['tip'], tableName=q['tableName'], event=q['tableEvent'], status='Placed', service=q['service'],
                    items=', '.join(f'{l["qty"]} × {l["name"]}' for l in q['lines']))
+        _attach_waiter(s, rec, q)
         if v.get('table'):
             rec['table'] = find_table(s, token=v['table'])['id']
         s['orders'].append(rec)
@@ -604,10 +750,37 @@ def guest_record(s, v, guest, demo_payment=False):
     return rec
 
 
+def _attach_waiter(s, rec, q):
+    if q.get('waiter'):
+        w = next(w for w in s['waiters'] if w['id'] == q['waiter']['id'])
+        rec.update(waiter=w['id'], waiterName=w['name'], waiterNumber=w['number'])
+
+
+def staff_order(s, v):
+    """A food & drink order taken by staff (for example a waiter at the table), optionally paid in cash or card."""
+    q = quote_order(s, {**v, 'kind': 'menu'}, staff=True)
+    method = v.get('method') or ''
+    if method and method not in STAFF_PAYMENT_METHODS:
+        raise ValueError('Choose cash, card at the venue, or not paid yet.')
+    table = next((t for t in s['tables'] if t['id'] == v.get('tableId')), None)
+    rec = {'id': uid(), 'ref': reference(), 'token': uid(), 'guest': None, 'name': text(v.get('name'), 80, False) or 'Walk-in guest', 'phone': '',
+           'email': '', 'currency': s['currency'], 'total': q['total'], 'subtotal': q['subtotal'], 'lines': q['lines'], 'tax': q['tax'],
+           'tin': q['tin'], 'vatNumber': q['vatNumber'], 'tip': q['tip'], 'service': q['service'], 'tableName': q['tableName'],
+           'event': q['tableEvent'] or next((e['id'] for e in sorted(s['events'], key=lambda e: e['date']) if e.get('published')), None),
+           'table': table['id'] if table else None, 'status': 'Placed', 'paid': False, 'settlement': 'staff',
+           'takenBy': v.get('_by') or '', 'created': int(time.time()), 'items': ', '.join(f'{l["qty"]} × {l["name"]}' for l in q['lines'])}
+    _take_stock(s, q['lines'], rec['ref'], v.get('_by'))
+    _attach_waiter(s, rec, q)
+    if method:
+        rec.update(paid=True, settledBy=method, settledAt=rec['created'])
+    s['orders'].append(rec)
+    return {'ref': rec['ref'], 'id': rec['id'], 'total': rec['total']}
+
+
 def receipt(s, rec):
     keep = ['ref', 'token', 'name', 'phone', 'email', 'currency', 'total', 'subtotal', 'lines', 'paid', 'settlement', 'created',
             'status', 'tip', 'tableName', 'items', 'event', 'eventName', 'venue', 'date', 'qty', 'tickets', 'settledBy', 'settledAt',
-            'tax', 'tin', 'vatNumber']
+            'tax', 'tin', 'vatNumber', 'service', 'waiterName', 'waiterNumber']
     out = {k: copy.deepcopy(rec[k]) for k in keep if k in rec}
     for t in out.get('tickets', []):
         t.pop('usedBy', None)  # staff names stay internal
