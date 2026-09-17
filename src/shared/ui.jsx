@@ -8,6 +8,33 @@ export const ICONS = {
   screen: 1237, check: 1242, grid: 1247, success: 1252, up: 1145, filter: 1050,
 };
 
+// Small vector glyphs for controls the extracted Figma set lacks (no emoji or text symbols as icons).
+const GLYPHS = {
+  x: <path d="M6 6l12 12M18 6L6 18" />,
+  'chevron-left': <path d="M15 5l-7 7 7 7" />,
+  'chevron-right': <path d="M9 5l7 7-7 7" />,
+  sun: <><circle cx="12" cy="12" r="4" /><path d="M12 2.5v2M12 19.5v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M2.5 12h2M19.5 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4" /></>,
+  moon: <path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z" />,
+};
+
+export function Glyph({ name, size = 20 }) {
+  return (
+    <svg className="glyph" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {GLYPHS[name]}
+    </svg>
+  );
+}
+
+export function StarIcon({ filled = 1, size = 16 }) {
+  const id = React.useId();
+  return (
+    <svg className="star" width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
+      <defs><linearGradient id={id}><stop offset={filled} stopColor="#F5B301" /><stop offset={filled} stopColor="currentColor" /></linearGradient></defs>
+      <path fill={`url(#${id})`} d="M12 2.8l2.8 5.9 6.4.8-4.7 4.4 1.2 6.4L12 17.2l-5.7 3.1 1.2-6.4-4.7-4.4 6.4-.8z" />
+    </svg>
+  );
+}
+
 export function Icon({ name, id, size = '' }) {
   const svg = icons[id ?? ICONS[name]] || icons[1247];
   return <span className={'icon ' + size} aria-hidden="true" dangerouslySetInnerHTML={{ __html: svg }} />;
@@ -24,7 +51,7 @@ export function ModeToggle({ onChange }) {
         force(n => n + 1);
         onChange?.();
       }}>
-      <span aria-hidden="true" style={{ fontSize: 17, lineHeight: 1 }}>{dark ? '☀' : '☾'}</span>
+      <Glyph name={dark ? 'sun' : 'moon'} />
     </button>
   );
 }
@@ -107,7 +134,7 @@ export function Modal({ title, eyebrow, onClose, children, footer, wide, sheet, 
               {eyebrow && <span className="eyebrow accent">{eyebrow}</span>}
               {title && <h2>{title}</h2>}
             </div>
-            {onClose && <button className="close" aria-label="Close" onClick={onClose}>×</button>}
+            {onClose && <button className="close" aria-label="Close" onClick={onClose}><Glyph name="x" /></button>}
           </header>
         )}
         <div className="dialog-body">{children}</div>

@@ -61,6 +61,14 @@ In development, SMS messages (sign-in codes, booking and order updates) are **pr
 - **Entry:** staff check guests in by scanning each ticket's QR code **or by typing the booking reference** (e.g. `EN-ABC123`, case-insensitive, prefix optional), which admits that booking's tickets one at a time.
 - **Wallet logos:** add official logo files you are permitted to use to `public/wallets/` as `telebirr.png`, `cbe-birr.png`, `mpesa.png`, `awash-birr.png` (svg/webp/jpg also work), then rebuild; otherwise checkout shows the wallet names.
 
+## Check-ins, navigation and brand
+
+- **Check-ins** (admin, Owner/Admin/Gate): per-event arrival totals and progress, one row per ticket with check-in time and the staff member who admitted it, search by name, phone (any format) or reference, filter by arrival status, sort, check in from the list, scan tickets, and export CSV. Staff names are never sent to guests.
+- **Guest back navigation:** every venue screen has a back link — "All venues" on the venue page, "<venue> events" elsewhere; the Encore logo also returns home.
+- **Brand:** the Encore logo (crimson “e” mark + wordmark) is an SVG component (`src/shared/Logo.jsx`) used across both apps, favicon and app icons.
+- **Wallet logos:** official Telebirr, CBE Birr, M-PESA and Awash Birr logo files in `public/wallets/` appear on checkout.
+- **UI/UX pass** (ui-ux-pro-max checklist): SVG icons instead of emoji/text symbols, 44px touch targets on touch screens, 4.5:1 contrast for secondary text, visible focus on composite inputs, minimum text sizes, 16px inputs on phones.
+
 ## Appearance
 
 Organizers choose the default look in Settings → Appearance (guest app and dashboard separately: Light, Black, or follow the device). Anyone can also flip light/dark for themselves with the ☾/☀ button in either app's header; that choice is remembered on their device.

@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { api, dateTime, timeAgo } from '../shared/api';
 import QR from '../shared/QR';
+import Logo, { LogoMark } from '../shared/Logo';
 import Scanner from '../shared/Scanner';
-import { copyText, Empty, ErrorText, Icon, Modal, Spinner } from '../shared/ui';
+import { copyText, Empty, ErrorText, Glyph, Icon, Modal, Spinner, StarIcon } from '../shared/ui';
 import { PLATFORM_FAQ, PLATFORM_PRIVACY, PLATFORM_TERMS } from './content';
 
 const ORDER_STEPS = ['Placed', 'Preparing', 'Ready', 'Delivered'];
@@ -36,7 +37,7 @@ export function Stars({ value = 0, size = 14, label }) {
   const full = Math.round(value * 2) / 2;
   return (
     <span className="stars" style={{ fontSize: size }} role="img" aria-label={label || `${value || 0} out of 5 stars`}>
-      {[1, 2, 3, 4, 5].map(i => <span key={i} className={full >= i ? 'on' : full >= i - 0.5 ? 'half' : ''}>★</span>)}
+      {[1, 2, 3, 4, 5].map(i => <StarIcon key={i} size={size + 2} filled={full >= i ? 1 : full >= i - 0.5 ? 0.5 : 0} />)}
     </span>
   );
 }
@@ -55,7 +56,7 @@ export function Directory({ workspaces, error, onPick }) {
   return (
     <div className="home">
       <header className="home-top">
-        <span className="brand"><span className="brandmark"><Icon name="brand" /></span>encore<span className="dot">.</span></span>
+        <Logo size={30} />
       </header>
       <section className="home-hero">
         <div className="home-hero-glow" aria-hidden="true" />
@@ -80,7 +81,7 @@ export function Directory({ workspaces, error, onPick }) {
           <div className="rail">
             {coming.map(e => (
               <button key={e.org.id + e.id} className="railcard" onClick={() => onPick(e.org.id)}>
-                {e.image || e.org.photo ? <img src={e.image || e.org.photo} alt="" /> : <span className="cover placeholder"><Icon name="brand" /></span>}
+                {e.image || e.org.photo ? <img src={e.image || e.org.photo} alt="" /> : <span className="cover placeholder"><LogoMark size={40} /></span>}
                 <span className="railcard-body">
                   <span className="datechip"><b>{new Date(e.date).getDate()}</b>{new Date(e.date).toLocaleString('en', { month: 'short' })}</span>
                   <b>{e.name}</b>
@@ -99,7 +100,7 @@ export function Directory({ workspaces, error, onPick }) {
           {shown.map(w => (
             <button key={w.id} className="orgtile" onClick={() => onPick(w.id)} aria-label={`${w.name}${w.city ? ', ' + w.city : ''}`}>
               <span className="orgtile-photo">
-                {w.photo ? <img src={w.photo} alt="" /> : <span className="cover placeholder"><Icon name="brand" /></span>}
+                {w.photo ? <img src={w.photo} alt="" /> : <span className="cover placeholder"><LogoMark size={40} /></span>}
                 {w.logo && <img className="orgtile-logo" src={w.logo} alt="" />}
                 {w.events > 0 && <span className="orgtile-pill">{w.events} event{w.events > 1 ? 's' : ''}</span>}
               </span>
@@ -163,7 +164,7 @@ export function EventsScreen({ ctx }) {
             return (
               <article className="eventcard" key={e.id}>
                 <div className="eventmedia">
-                  {e.image ? <img className="cover" src={e.image} alt="" /> : <div className="cover placeholder"><Icon name="brand" /></div>}
+                  {e.image ? <img className="cover" src={e.image} alt="" /> : <div className="cover placeholder"><LogoMark size={44} /></div>}
                   <span className="datechip"><b>{d.getDate()}</b>{d.toLocaleString('en', { month: 'short' })}</span>
                 </div>
                 <div className="eventbody">
@@ -221,9 +222,9 @@ export function EventsScreen({ ctx }) {
       {photo !== null && (
         <Modal label="Photo" onClose={() => setPhoto(null)} wide
           footer={<>
-            <button onClick={() => setPhoto((photo - 1 + profile.photos.length) % profile.photos.length)} aria-label="Previous photo">‹ Previous</button>
+            <button onClick={() => setPhoto((photo - 1 + profile.photos.length) % profile.photos.length)} aria-label="Previous photo"><Glyph name="chevron-left" size={18} />Previous</button>
             <span className="muted small grow center">{photo + 1} / {profile.photos.length}</span>
-            <button onClick={() => setPhoto((photo + 1) % profile.photos.length)} aria-label="Next photo">Next ›</button>
+            <button onClick={() => setPhoto((photo + 1) % profile.photos.length)} aria-label="Next photo">Next<Glyph name="chevron-right" size={18} /></button>
           </>}>
           <img src={profile.photos[photo]} alt={`${data.name} photo ${photo + 1}`} style={{ width: '100%', borderRadius: 12 }} />
         </Modal>
@@ -269,7 +270,7 @@ function Reviews({ ctx }) {
           <>
             <div className="starpicker" role="radiogroup" aria-label="Your rating">
               {[1, 2, 3, 4, 5].map(n => (
-                <button key={n} type="button" role="radio" aria-checked={stars === n} aria-label={`${n} star${n > 1 ? 's' : ''}`} className={stars >= n ? 'on' : ''} onClick={() => setStars(n)}>★</button>
+                <button key={n} type="button" role="radio" aria-checked={stars === n} aria-label={`${n} star${n > 1 ? 's' : ''}`} className={stars >= n ? 'on' : ''} onClick={() => setStars(n)}><StarIcon size={30} filled={stars >= n ? 1 : 0} /></button>
               ))}
             </div>
             <textarea placeholder="What made the night great? (optional)" maxLength={500} value={comment} onChange={e => setComment(e.target.value)} style={{ minHeight: 70 }} />
@@ -714,7 +715,7 @@ export function Account({ ctx, setGuest, signOut, onClose, switchOrganizer }) {
         <Link icon="support" label="Help & support" onClick={() => open('help')} />
         <Link icon="edit" label="Terms & conditions" onClick={() => open('terms')} />
         <Link icon="edit" label="Privacy" onClick={() => open('privacy')} />
-        <Link icon="brand" label="Encore home · all venues" onClick={switchOrganizer} />
+        <Link icon="grid" label="Encore home · all venues" onClick={switchOrganizer} />
       </div>
       {guest && <button className="ghost danger-text" onClick={signOut}>Sign out</button>}
     </Modal>

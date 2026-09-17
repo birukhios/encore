@@ -2,9 +2,10 @@ import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { api, dateTime, readFileAsBase64, shortDate } from '../shared/api';
 import ImageUpload from '../shared/ImageUpload';
+import { LogoMark } from '../shared/Logo';
 import QR from '../shared/QR';
 import Scanner from '../shared/Scanner';
-import { Avatar, copyText, Empty, ErrorText, Field, Icon, Modal, Toggle } from '../shared/ui';
+import { Avatar, copyText, Empty, ErrorText, Field, Icon, Modal, StarIcon, Toggle } from '../shared/ui';
 
 export function PageActions({ children }) {
   const [node, setNode] = useState(null);
@@ -108,10 +109,10 @@ export function Overview({ ctx }) {
         )}
       </div>
       <section className="card">
-        <div className="card-head"><h2>Guest ratings</h2>{session.ratings.count > 0 && <span className="row"><span className="stars" aria-hidden="true">{'★★★★★'.slice(0, Math.round(session.ratings.average))}</span><b>{session.ratings.average.toFixed(1)}</b><span className="muted small">from {session.ratings.count} guest{session.ratings.count > 1 ? 's' : ''}</span></span>}</div>
+        <div className="card-head"><h2>Guest ratings</h2>{session.ratings.count > 0 && <span className="row"><span className="stars" aria-hidden="true">{[1, 2, 3, 4, 5].map(i => <StarIcon key={i} filled={session.ratings.average >= i ? 1 : session.ratings.average >= i - 0.5 ? 0.5 : 0} />)}</span><b>{session.ratings.average.toFixed(1)}</b><span className="muted small">from {session.ratings.count} guest{session.ratings.count > 1 ? 's' : ''}</span></span>}</div>
         {session.ratings.recent?.length ? (
           <div className="list">{session.ratings.recent.map((r, i) => (
-            <div className="listrow" key={i}><span className="stars" aria-label={`${r.stars} stars`}>{'★'.repeat(r.stars)}</span><div className="grow"><b>{r.name}</b><small>{r.comment}</small></div></div>
+            <div className="listrow" key={i}><span className="stars" role="img" aria-label={`${r.stars} of 5 stars`}>{[1, 2, 3, 4, 5].map(i => <StarIcon key={i} size={14} filled={r.stars >= i ? 1 : 0} />)}</span><div className="grow"><b>{r.name}</b><small>{r.comment}</small></div></div>
           ))}</div>
         ) : <p className="small">{session.ratings.count ? 'No written reviews yet.' : 'Guests who book or order with you can rate your organization from the guest app.'}</p>}
       </section>
@@ -153,7 +154,7 @@ export function Events({ ctx }) {
             const sold = state.bookings.filter(b => b.event === e.id && b.status !== 'Cancelled').reduce((s, b) => s + b.qty, 0);
             return (
               <article className="eventcard" key={e.id}>
-                {e.image ? <img className="cover" src={e.image} alt="" /> : <div className="cover placeholder"><Icon name="brand" /></div>}
+                {e.image ? <img className="cover" src={e.image} alt="" /> : <div className="cover placeholder"><LogoMark size={44} /></div>}
                 <div className="eventbody">
                   <div className="row spread">
                     <span className={'badge ' + (e.published ? 'success' : 'neutral')}>{e.published ? 'Published' : 'Draft'}</span>
@@ -280,6 +281,138 @@ export function Bookings({ ctx }) {
         )) : <Empty icon="ticket" title="Nothing here yet" body="Tickets bought online appear here. Scan each ticket's QR code or type its reference number to check guests in." />}
       </section>
       {settling && <SettleModal ctx={ctx} record={settling} onClose={() => setSettling(null)} />}
+      {scanning && <TicketScan ctx={ctx} onClose={() => setScanning(false)} />}
+    </>
+  );
+}
+
+// ---------------------------------------------------------------- Check-ins
+
+const clock = seconds => new Date(seconds * 1000).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+
+export function CheckIns({ ctx }) {
+  const { state } = ctx;
+  const [scanning, setScanning] = useState(false);
+  const [query, setQuery] = useState('');
+  const [status, setStatus] = useState('All');
+  const [sort, setSort] = useState('recent');
+  const [rowError, setRowError] = useState('');
+  const events = [...state.events].sort((a, b) => a.date.localeCompare(b.date));
+  const withTickets = events.filter(e => state.bookings.some(b => b.event === e.id && b.paid && b.status !== 'Cancelled'));
+  const soon = withTickets.find(e => new Date(e.date) >= new Date(Date.now() - 12 * 3600 * 1000)) || withTickets[withTickets.length - 1];
+  const [eventId, setEventId] = useState(soon ? soon.id : 'all');
+
+  const tickets = state.bookings
+    .filter(b => b.paid && b.status !== 'Cancelled' && (eventId === 'all' || b.event === eventId))
+    .flatMap(b => b.tickets.map(t => ({ ...t, booking: b, key: b.id + ':' + t.serial })));
+  const arrived = tickets.filter(t => t.used).length;
+  const pct = tickets.length ? Math.round((arrived / tickets.length) * 100) : 0;
+  const q = query.trim().toLowerCase().replace(/^en-/, '');
+  const rows = tickets
+    .filter(t => status === 'All' || (status === 'Checked in' ? t.used : !t.used))
+    .filter(t => {
+      if (!q) return true;
+      if ([t.booking.name, t.booking.ref.replace(/^EN-/, '')].join(' ').toLowerCase().includes(q)) return true;
+      const digits = q.replace(/\D/g, '').replace(/^(?:251|0)/, '');  // 0911…, 251911…, +251 911… all match
+      return digits.length >= 3 && t.booking.phone.replace(/\D/g, '').includes(digits);
+    })
+    .sort((a, b) => sort === 'name' ? a.booking.name.localeCompare(b.booking.name) || a.serial - b.serial
+      : sort === 'booked' ? b.booking.created - a.booking.created
+      : (b.usedAt || 0) - (a.usedAt || 0) || a.booking.name.localeCompare(b.booking.name));
+
+  const checkIn = async t => {
+    setRowError('');
+    try { await ctx.action('checkin_ticket', { code: `${t.booking.ref}:${t.serial}:${t.token}` }, { quiet: true }); ctx.toast(`${t.booking.name} checked in`); }
+    catch (e) { setRowError(e.message); }
+  };
+  const exportCsv = () => {
+    const cell = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const lines = [['Name', 'Phone', 'Reference', 'Ticket', 'Event', 'Status', 'Checked in at', 'Checked in by']]
+      .concat(rows.map(t => [t.booking.name, t.booking.phone, t.booking.ref, `${t.serial} of ${t.booking.qty}`, t.booking.eventName,
+        t.used ? 'Checked in' : 'Not arrived', t.usedAt ? new Date(t.usedAt * 1000).toISOString() : '', t.usedBy || '']));
+    const url = URL.createObjectURL(new Blob([lines.map(r => r.map(cell).join(',')).join('\n')], { type: 'text/csv' }));
+    const a = Object.assign(document.createElement('a'), { href: url, download: `check-ins-${new Date().toISOString().slice(0, 10)}.csv` });
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <>
+      <PageActions>
+        <button onClick={exportCsv} disabled={!rows.length}><Icon name="download" />Export CSV</button>
+        <button className="primary" onClick={() => setScanning(true)}><Icon name="ticket" />Scan ticket</button>
+      </PageActions>
+      <section className="card checkin-summary">
+        <Field label="Event">
+          <select value={eventId} onChange={e => setEventId(e.target.value)}>
+            <option value="all">All events</option>
+            {events.map(e => <option key={e.id} value={e.id}>{e.name} · {shortDate(e.date)}</option>)}
+          </select>
+        </Field>
+        <div className="checkin-stats">
+          <div><strong>{tickets.length}</strong><small>Tickets sold</small></div>
+          <div><strong className="ok">{arrived}</strong><small>Checked in</small></div>
+          <div><strong>{tickets.length - arrived}</strong><small>Not arrived</small></div>
+        </div>
+        <div className="arrival" aria-label={`${pct}% arrived`}>
+          <div className="meter"><span style={{ width: pct + '%' }} /></div>
+          <b>{pct}%</b>
+        </div>
+      </section>
+      <section className="card">
+        <div className="checkin-toolbar">
+          <label className="search checkin-search">
+            <Icon name="search" />
+            <input type="search" placeholder="Search name, phone or reference" value={query} onChange={e => setQuery(e.target.value)} aria-label="Search checked-in guests" />
+          </label>
+          <div className="segmented" role="tablist" aria-label="Arrival status">
+            {['All', 'Checked in', 'Not arrived'].map(f => (
+              <button key={f} role="tab" aria-selected={status === f} className={status === f ? 'active' : ''} onClick={() => setStatus(f)}>
+                {f} <span className="muted">{f === 'All' ? tickets.length : f === 'Checked in' ? arrived : tickets.length - arrived}</span>
+              </button>
+            ))}
+          </div>
+          <label className="checkin-sort">
+            <span className="visually-hidden">Sort</span>
+            <select value={sort} onChange={e => setSort(e.target.value)} aria-label="Sort guests">
+              <option value="recent">Latest check-in</option>
+              <option value="name">Name A–Z</option>
+              <option value="booked">Newest booking</option>
+            </select>
+          </label>
+        </div>
+        <ErrorText>{rowError}</ErrorText>
+        {rows.length ? (
+          <div className="checkin-list" role="list">
+            {rows.map(t => (
+              <div className="checkin-row" role="listitem" key={t.key}>
+                <Avatar name={t.booking.name} size={38} />
+                <div className="checkin-who">
+                  <b>{t.booking.name}</b>
+                  <small>{t.booking.phone} · {t.booking.ref} · Ticket {t.serial} of {t.booking.qty}</small>
+                  {eventId === 'all' && <small>{t.booking.eventName}</small>}
+                </div>
+                <div className="checkin-when">
+                  {t.used ? (
+                    <>
+                      <span className="badge success"><Icon name="check" size="sm" />Checked in</span>
+                      <small>{clock(t.usedAt)}{t.usedBy ? ` · by ${t.usedBy}` : ''}</small>
+                    </>
+                  ) : (
+                    <>
+                      <span className="badge neutral">Not arrived</span>
+                      <button className="primary" onClick={() => checkIn(t)}>Check in</button>
+                    </>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <Empty icon="success" title={tickets.length ? 'No guests match' : 'No tickets yet'}
+            body={tickets.length ? 'Try another search or status.' : 'Paid tickets for this event will be listed here, ready to check in.'} />
+        )}
+      </section>
       {scanning && <TicketScan ctx={ctx} onClose={() => setScanning(false)} />}
     </>
   );

@@ -423,7 +423,7 @@ def mutate(s, op, v, notices):
         notices.append({'record': rec, 'kind': 'cancelled', 'title': f'{rec["ref"]} was cancelled', 'body': 'The organizer cancelled this reservation. Contact support if you have questions.'})
     elif op == 'checkin':
         b = next((b for b in s['bookings'] if b['id'] == v.get('id')), None)
-        _check_in(b, None)
+        _check_in(b, None, v.get('_by'))
         notices.append({'record': b, 'kind': 'checkin', 'title': 'Welcome in!', 'body': f'You are checked in to {b["eventName"]}. Have a great night.'})
     elif op == 'checkin_ticket':
         value = str(v.get('code', '')).strip()
@@ -442,7 +442,7 @@ def mutate(s, op, v, notices):
                     raise ValueError(f'All {b["qty"]} ticket{"s" if b["qty"] > 1 else ""} on {ref} have already been checked in.')
         if not ticket:
             raise ValueError('No ticket found for that QR code or reference number.')
-        _check_in(b, ticket)
+        _check_in(b, ticket, v.get('_by'))
         v['result'] = {'name': b['name'], 'event': b['eventName'], 'serial': ticket['serial'], 'qty': b['qty'], 'ref': b['ref'],
                        'remaining': sum(1 for t in b['tickets'] if not t['used'])}
     else:
@@ -474,7 +474,7 @@ def tax_for(s, kind, taxable_cents):
     return {'label': label, 'rate': rate, 'amount': amount, 'included': cfg['pricesIncludeTax'], 'regime': cfg['regime']}
 
 
-def _check_in(b, ticket):
+def _check_in(b, ticket, by=None):
     if not b:
         raise ValueError('Ticket is invalid.')
     if b['status'] == 'Cancelled':
@@ -487,6 +487,7 @@ def _check_in(b, ticket):
     for t in tickets:
         t['used'] = True
         t['usedAt'] = int(time.time())
+        t['usedBy'] = by or ''
     if all(t['used'] for t in b['tickets']):
         b['status'] = 'Checked in'
 
@@ -601,6 +602,8 @@ def receipt(s, rec):
             'status', 'tip', 'tableName', 'items', 'event', 'eventName', 'venue', 'date', 'qty', 'tickets', 'settledBy', 'settledAt',
             'tax', 'tin', 'vatNumber']
     out = {k: copy.deepcopy(rec[k]) for k in keep if k in rec}
+    for t in out.get('tickets', []):
+        t.pop('usedBy', None)  # staff names stay internal
     out['merchant'] = s['name']
     out['kind'] = 'booking' if 'qty' in rec else 'order'
     return out

@@ -322,7 +322,11 @@ class AppTests(unittest.TestCase):
         self.assertEqual((status, body['result']['serial'], body['result']['remaining']), (200, 2, 0))
         self.assertIn('already been checked in', self.act(c, 'checkin_ticket', {'code': rec['ref']})[1]['error'])
         self.assertEqual(self.act(c, 'checkin_ticket', {'code': 'EN-ZZZZZZ'})[0], 400)
-        self.assertEqual(c('me')[1]['state']['bookings'][0]['status'], 'Checked in')
+        booking = c('me')[1]['state']['bookings'][0]
+        self.assertEqual(booking['status'], 'Checked in')
+        self.assertEqual({t['usedBy'] for t in booking['tickets']}, {'Test Organizer'})
+        self.assertTrue(all(t['usedAt'] for t in booking['tickets']))
+        self.assertNotIn('usedBy', g('receipt?tenant=' + t + '&ref=' + rec['ref'] + '&token=' + rec['token'])[1]['tickets'][0])
         other, _, _, _ = self.staff()
         self.assertEqual(self.act(other, 'checkin_ticket', {'code': rec['ref']})[0], 400)  # other workspace
         titles = [n['title'] for n in g('guest/notifications')[1]]

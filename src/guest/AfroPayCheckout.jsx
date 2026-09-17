@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { money } from '../shared/api';
+import { Glyph } from '../shared/ui';
 
 const WALLETS = [['telebirr', 'Telebirr'], ['cbe-birr', 'CBE Birr'], ['mpesa', 'M-PESA'], ['awash-birr', 'Awash Birr']];
 const LOGO_TYPES = ['png', 'svg', 'webp', 'jpg'];
@@ -51,7 +52,7 @@ export default function AfroPayCheckout({ quote, payload, onBack, onClose, onPay
   return (
     <div className="overlay afro-overlay" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
       <section className="afro-checkout" role="dialog" aria-modal="true" aria-label="Checkout">
-        <div className="afro-top"><b>afropay</b><button aria-label="Close checkout" onClick={onClose}>×</button></div>
+        <div className="afro-top"><b>afropay</b><button aria-label="Close checkout" onClick={onClose}><Glyph name="x" size={22} /></button></div>
         <div className="afro-merchant"><small>Paying</small><strong>{quote.merchant}</strong>{quote.tableName && <span>{quote.tableName}</span>}</div>
         <form onSubmit={pay}>
           {demo

@@ -1,15 +1,17 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { api, money as formatMoney, timeAgo } from '../shared/api';
 import { applyTheme } from '../shared/theme';
-import { Avatar, Icon, ModeToggle, Modal, Spinner, usePolling, useToast } from '../shared/ui';
+import { LogoMark } from '../shared/Logo';
+import { Avatar, Glyph, Icon, ModeToggle, Modal, Spinner, usePolling, useToast } from '../shared/ui';
 import Auth from './Auth';
-import { Bookings, Events, Menu, Orders, Overview, Profile, Tables, Team } from './pages';
+import { Bookings, CheckIns, Events, Menu, Orders, Overview, Profile, Tables, Team } from './pages';
 import Settings from './Settings';
 
 const PAGES = {
   Overview: { icon: 'grid', title: 'Every detail. One place.', sub: 'Your events, your guests, and everything in between.' },
   Events: { icon: 'calendar', sub: 'Create, publish, and shape your next live experience.' },
   Bookings: { icon: 'ticket', sub: 'Tickets sold online. Scan or type a reference to check guests in.' },
+  'Check-ins': { icon: 'success', sub: 'Who has arrived, when, and who let them in.' },
   Tables: { icon: 'table', sub: 'A place for every guest. A QR code for every table.' },
   Menu: { icon: 'menu', sub: 'Food and drinks, served at the concerts you choose.' },
   Orders: { icon: 'wallet', sub: 'Keep every order moving, from kitchen to table.' },
@@ -19,16 +21,16 @@ const PAGES = {
 };
 
 const NAV_GROUPS = [
-  ['Run the night', ['Overview', 'Orders', 'Bookings']],
+  ['Run the night', ['Overview', 'Orders', 'Bookings', 'Check-ins']],
   ['Set up', ['Events', 'Menu', 'Tables']],
   ['Workspace', ['Team', 'Settings']],
 ];
 
 export const ROLE_PAGES = {
-  Owner: ['Overview', 'Events', 'Bookings', 'Tables', 'Menu', 'Orders', 'Team', 'Settings'],
-  Admin: ['Overview', 'Events', 'Bookings', 'Tables', 'Menu', 'Orders', 'Team', 'Settings'],
+  Owner: ['Overview', 'Events', 'Bookings', 'Check-ins', 'Tables', 'Menu', 'Orders', 'Team', 'Settings'],
+  Admin: ['Overview', 'Events', 'Bookings', 'Check-ins', 'Tables', 'Menu', 'Orders', 'Team', 'Settings'],
   Service: ['Overview', 'Orders'],
-  Gate: ['Overview', 'Bookings'],
+  Gate: ['Overview', 'Bookings', 'Check-ins'],
 };
 
 export default function AdminApp() {
@@ -74,7 +76,7 @@ export default function AdminApp() {
     setPage(next);
     setSearch('');
     setNavOpen(false);
-    history.replaceState(null, '', next === 'Overview' ? '/admin' : '/admin?page=' + next);
+    history.replaceState(null, '', next === 'Overview' ? '/admin' : '/admin?page=' + encodeURIComponent(next));
     window.scrollTo({ top: 0 });
   }
 
@@ -113,19 +115,19 @@ export default function AdminApp() {
   const { state } = session;
   const activeOrders = state.orders.filter(o => ['Placed', 'Preparing', 'Ready'].includes(o.status)).length;
   const meta = PAGES[current];
-  const Page = { Overview, Events, Bookings, Tables, Menu, Orders, Team, Settings, Profile }[current];
+  const Page = { Overview, Events, Bookings, 'Check-ins': CheckIns, Tables, Menu, Orders, Team, Settings, Profile }[current];
 
   return (
     <div className="admin-app">
       {navOpen && <div className="scrim" onClick={() => setNavOpen(false)} />}
       <aside className={'sidebar' + (navOpen ? ' open' : '')} aria-label="Workspace navigation">
         <div className="side-brand">
-          {state.settings.theme.logo ? <img className="side-logo" src={state.settings.theme.logo} alt="" /> : <span className="brandmark"><Icon name="brand" /></span>}
+          {state.settings.theme.logo ? <img className="side-logo" src={state.settings.theme.logo} alt="" /> : <LogoMark size={36} />}
           <span className="grow" style={{ minWidth: 0 }}>
             <b className="side-org">{state.name}</b>
             <small className="side-role">{role}{session.demo ? ' · Demo' : ''}</small>
           </span>
-          <button className="icon-btn menu-toggle ghost" aria-label="Close navigation" onClick={() => setNavOpen(false)}>×</button>
+          <button className="icon-btn menu-toggle ghost" aria-label="Close navigation" onClick={() => setNavOpen(false)}><Glyph name="x" /></button>
         </div>
         <nav className="nav">
           {NAV_GROUPS.map(([label, names]) => {
@@ -153,7 +155,7 @@ export default function AdminApp() {
       <div className="shell">
         <header className="topbar">
           <button className="icon-btn menu-toggle" aria-label="Open navigation" onClick={() => setNavOpen(true)}><Icon name="grid" /></button>
-          {!['Overview', 'Settings', 'Profile'].includes(current) ? (
+          {!['Overview', 'Settings', 'Profile', 'Check-ins'].includes(current) ? (
             <div className="search">
               <Icon name="search" />
               <input type="search" placeholder={'Search ' + current.toLowerCase() + '…'} aria-label={'Search ' + current} value={search} onChange={e => setSearch(e.target.value)} />

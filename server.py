@@ -461,6 +461,10 @@ class AdminHandler(BaseHandler):
             if v.get('version') != row['version']:
                 raise ApiError(409, 'This workspace changed. Refresh before saving.')
             notices, data = [], v.get('data', {})
+            if isinstance(data, dict):
+                data.pop('_by', None)
+                if op in ('checkin', 'checkin_ticket'):
+                    data['_by'] = u['name']
             s = domain.mutate(s, op, data, notices)
             write_tenant(c, u['tenant'], s)
             c.execute('INSERT INTO audit(tenant,"user",action,created) VALUES(?,?,?,?)', (u['tenant'], u['id'], op, int(time.time())))

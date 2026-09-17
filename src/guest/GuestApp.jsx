@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { api, money as formatMoney } from '../shared/api';
 import { applyTheme } from '../shared/theme';
+import { LogoMark } from '../shared/Logo';
 import { Icon, ModeToggle, Modal, Spinner, usePolling, useToast } from '../shared/ui';
 import AfroPayCheckout from './AfroPayCheckout';
 import PhoneAuth from './PhoneAuth';
@@ -15,6 +16,14 @@ const store = {
 function readUrl() {
   const q = new URLSearchParams(location.search);
   return { tenant: q.get('tenant') || '', table: q.get('table') || '', view: q.get('view') || '', ref: q.get('ref') || '', token: q.get('token') || '' };
+}
+
+function BackIcon() {
+  return (
+    <svg className="icon sm" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M15 5l-7 7 7 7" />
+    </svg>
+  );
 }
 
 export default function GuestApp() {
@@ -209,11 +218,11 @@ export default function GuestApp() {
     <div className="guest-app">
       <header className="guest-top">
         <button className="home-link" onClick={goHome} aria-label="Encore home — all venues" title="All venues">
-          <span className="brandmark"><Icon name="brand" /></span>
+          <LogoMark size={34} />
         </button>
         <button className="org" onClick={() => go('events')} aria-label={data.name + ' page'}>
           {data.settings.theme.logo && <img src={data.settings.theme.logo} alt="" />}
-          <span className="grow" style={{ minWidth: 0 }}><small>{data.demo ? 'DEMO · NO REAL PAYMENTS' : '‹ ALL VENUES · ENCORE'}</small><b>{data.name}</b></span>
+          <span className="grow" style={{ minWidth: 0 }}><small>{data.demo ? 'DEMO · NO REAL PAYMENTS' : 'LIVE WITH ENCORE'}</small><b>{data.name}</b></span>
         </button>
         <nav className="topnav" aria-label="Guest navigation">
           {TABS.map(([id, label, icon]) => (
@@ -233,6 +242,11 @@ export default function GuestApp() {
       </header>
       {loadError && <p className="error errorbar" role="alert" style={{ margin: '12px 16px 0' }}>{loadError}<button onClick={() => loadPublic()}>Retry</button></p>}
       <main className="guest-main" id="main">
+        <nav className="backbar" aria-label="Back">
+          {view === 'events'
+            ? <button className="backlink" onClick={goHome}><BackIcon />All venues</button>
+            : <button className="backlink" onClick={() => go('events')}><BackIcon />{data.name} events</button>}
+        </nav>
         <Screen ctx={ctx} kind={view} />
       </main>
       <nav className="bottomnav" aria-label="Guest navigation, bottom">

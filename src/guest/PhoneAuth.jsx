@@ -92,7 +92,7 @@ export default function PhoneAuth({ reason, onClose, onSignedIn, openTerms }) {
           <p>New or returning, just enter your mobile number. We'll text you a 6-digit code.</p>
           <label className="field">Mobile number
             <div className="phoneinput">
-              <span>🇪🇹 +251</span>
+              <span>ET +251</span>
               <input type="tel" inputMode="tel" autoComplete="tel" placeholder="0911 234 567" value={phone} onChange={e => setPhone(e.target.value)} required aria-describedby="phone-hint" />
             </div>
             <small id="phone-hint">Numbers from other countries: start with + and the country code.</small>

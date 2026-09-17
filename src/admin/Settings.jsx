@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import ImageUpload from '../shared/ImageUpload';
+import { LogoMark } from '../shared/Logo';
 import { api, readFileAsBase64 } from '../shared/api';
-import { copyText, ErrorText, Field, Icon, Toggle } from '../shared/ui';
+import { copyText, ErrorText, Field, Glyph, Icon, Toggle } from '../shared/ui';
 
 const GROUPS = [
   ['Organization', [['profile', 'Profile'], ['theme', 'Appearance']]],
@@ -187,9 +188,9 @@ function OrgProfile({ ctx, setDirty }) {
               {i === 0 && <figcaption>Cover</figcaption>}
               {ctx.canManage && (
                 <div className="photo-actions">
-                  {i > 0 && <button type="button" onClick={() => move(i, -1)} aria-label={`Move photo ${i + 1} earlier`} title="Move earlier">‹</button>}
-                  {i < d.photos.length - 1 && <button type="button" onClick={() => move(i, 1)} aria-label={`Move photo ${i + 1} later`} title="Move later">›</button>}
-                  <button type="button" onClick={() => form.set('photos', d.photos.filter((_, j) => j !== i))} aria-label={`Remove photo ${i + 1}`} title="Remove">×</button>
+                  {i > 0 && <button type="button" onClick={() => move(i, -1)} aria-label={`Move photo ${i + 1} earlier`} title="Move earlier"><Glyph name="chevron-left" size={16} /></button>}
+                  {i < d.photos.length - 1 && <button type="button" onClick={() => move(i, 1)} aria-label={`Move photo ${i + 1} later`} title="Move later"><Glyph name="chevron-right" size={16} /></button>}
+                  <button type="button" onClick={() => form.set('photos', d.photos.filter((_, j) => j !== i))} aria-label={`Remove photo ${i + 1}`} title="Remove"><Glyph name="x" size={16} /></button>
                 </div>
               )}
             </figure>
@@ -389,7 +390,7 @@ function Preview({ name, theme }) {
     <div aria-label="Guest app preview" style={{ display: 'grid', gap: 8, justifyItems: 'center' }}>
       <div className="preview-phone" data-mode={dark ? 'dark' : 'light'} style={dark && /^#(?:[0-2][0-9a-f]){3}$/i.test(accent) ? { '--accent': '#F4F4F6', '--on-accent': '#0B0B0E' } : { '--accent': accent, '--on-accent': '#fff' }}>
         <div className="pv-head">
-          {theme.logo ? <img src={theme.logo} alt="" /> : <span className="brandmark" style={{ width: 26, height: 26, borderRadius: 6 }} />}
+          {theme.logo ? <img src={theme.logo} alt="" /> : <LogoMark size={26} />}
           <b style={{ fontSize: 12 }}>{name}</b>
         </div>
         <div className="pv-cover" style={theme.cover ? { backgroundImage: `url(${theme.cover})` } : undefined} />

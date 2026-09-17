@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { api } from '../shared/api';
 import { ErrorText, Field, Icon } from '../shared/ui';
+import Logo from '../shared/Logo';
 
 export default function Auth({ onAuth }) {
   const path = location.pathname;
@@ -42,7 +43,7 @@ export default function Auth({ onAuth }) {
   return (
     <div className="auth-layout">
       <section className="auth-art">
-        <span className="brand"><span className="brandmark"><Icon name="brand" /></span>encore<span className="dot">.</span></span>
+        <Logo size={32} />
         <div>
           <span className="eyebrow">The backstage pass for organizers</span>
           <h1>Make every<br />night count.</h1>

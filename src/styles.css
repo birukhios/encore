@@ -6,7 +6,7 @@
   --on-accent: #FFFFFF;
   --ink: #0D0D12;
   --muted: #666D80;
-  --subtle: #9A9FAE;
+  --subtle: #6E7384;
   --line: #DFE1E7;
   --line-soft: #E9EAED;
   --canvas: #F5F5F5;
@@ -35,7 +35,7 @@
 [data-mode='dark'] {
   --ink: #F4F4F6;
   --muted: #A7ABB8;
-  --subtle: #7C8190;
+  --subtle: #9095A3;
   --line: #2C2D35;
   --line-soft: #24252C;
   --canvas: #0B0B0E;
@@ -851,3 +851,84 @@ details.faq p { padding: 0 16px 14px; font-size: 13px; }
 }
 
 @media (max-width: 900px) { .settings-nav { display: block; } .settings-select, .settings-select select { width: 100%; } }
+
+/* ================================================================ Encore logo */
+.logo { display: inline-flex; align-items: center; gap: .28em; line-height: 1; color: var(--ink); }
+.logo-mark { flex-shrink: 0; display: block; }
+.logo-word { font-weight: 800; letter-spacing: -.045em; }
+.auth-art .logo, .home-hero .logo, [data-mode='dark'] .logo { color: #fff; }
+[data-mode='dark'] .home-top .logo { color: #fff; }
+.cover.placeholder .logo-mark { opacity: .9; }
+
+/* Check-ins */
+.checkin-summary { display: grid; grid-template-columns: minmax(200px, 320px) 1fr; gap: 20px; align-items: center; }
+.checkin-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.checkin-stats div { display: grid; gap: 2px; }
+.checkin-stats strong { font-size: 28px; letter-spacing: -.6px; line-height: 1.1; }
+.checkin-stats strong.ok { color: var(--success); }
+[data-mode='dark'] .checkin-stats strong.ok { color: #7ED39A; }
+.checkin-stats small { color: var(--muted); font-size: 12px; }
+.arrival { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; }
+.arrival .meter { flex: 1; height: 10px; border-radius: 5px; }
+.arrival .meter span { background: var(--success); border-radius: 5px; }
+.checkin-toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 8px; }
+.checkin-search { flex: 1 1 260px; width: auto; }
+.checkin-sort select { min-width: 170px; }
+.checkin-list { display: grid; }
+.checkin-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 14px; align-items: center; padding: 14px 0; border-top: 1px solid var(--line-soft); }
+.checkin-row:first-child { border-top: 0; }
+.checkin-who { display: grid; gap: 2px; min-width: 0; }
+.checkin-who small { color: var(--muted); font-size: 12.5px; overflow-wrap: anywhere; }
+.checkin-when { display: grid; justify-items: end; gap: 6px; text-align: right; }
+.checkin-when small { color: var(--muted); font-size: 12px; }
+.checkin-when .badge .icon { width: 13px; height: 13px; }
+@media (max-width: 720px) {
+  .checkin-summary { grid-template-columns: 1fr; }
+  .checkin-stats strong { font-size: 24px; }
+  .checkin-row { grid-template-columns: auto minmax(0, 1fr); }
+  .checkin-when { grid-column: 2; justify-items: start; text-align: left; grid-auto-flow: column; align-items: center; justify-content: start; }
+  .checkin-toolbar .segmented { width: 100%; }
+  .checkin-sort, .checkin-sort select { width: 100%; }
+}
+
+/* Guest back navigation */
+.backbar { display: flex; margin: -4px 0 -6px; }
+.backlink { min-height: 44px; padding: 8px 12px 8px 6px; border: 0; background: transparent; color: var(--muted); font-size: 14px; font-weight: 650; gap: 4px; border-radius: 10px; }
+.backlink:hover { color: var(--ink); background: var(--surface); }
+.backlink .icon { width: 20px; height: 20px; }
+
+/* ================================================================ UI/UX checklist pass (accessibility, touch, legibility) */
+/* Stars and glyphs are SVG, colored by tokens */
+.stars { display: inline-flex; gap: 1px; color: var(--line); vertical-align: middle; }
+.stars .star { display: block; }
+.org-hero .stars { color: #ffffff55; }
+.starpicker button { color: var(--line); }
+.starpicker button .star { width: 30px; height: 30px; }
+.glyph { display: block; flex-shrink: 0; }
+.close { display: inline-grid; place-items: center; }
+.afro-top button { display: grid; place-items: center; min-height: 44px; }
+
+/* Visible focus for composite inputs */
+.search:focus-within, .home-search:focus-within, .phoneinput:focus-within { box-shadow: var(--focus); border-color: var(--accent); }
+
+/* Legibility: nothing important below 11–12px */
+.eyebrow { font-size: 11px; }
+.badge { font-size: 12px; }
+.bottomnav button { font-size: 12px; }
+.progress span { font-size: 11px; }
+.navlabel, .nav .navlabel, .settings-group .navlabel { font-size: 11px; }
+.footnote, .hint, .field small { font-size: 12.5px; }
+
+/* Touch targets: at least 44px on touch screens */
+@media (pointer: coarse) {
+  button, .button, .chip, .segmented button, .settings-nav button, .nav button, .tips button, .icon-btn, .close, .linklike.small { min-height: 44px; }
+  .icon-btn, .close { min-width: 44px; }
+  .segmented button { padding: 10px 14px; }
+  .photo-actions button { width: 36px; min-height: 36px; }
+  .photo-actions { gap: 6px; }
+  .linklike { padding: 10px 0; }
+  input, select, textarea { font-size: 16px; } /* prevents iOS zoom on focus */
+}
+
+.wallet-logo { max-height: 48px; width: 100%; }
+.wallets label { padding: 6px; }
