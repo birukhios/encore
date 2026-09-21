@@ -29,7 +29,7 @@ function Title({ eyebrow, title, children }) {
 
 const statusBadge = r => r.status === 'Cancelled'
   ? <span className="badge neutral">Cancelled</span>
-  : r.paid ? <span className="badge success">{r.settlement === 'demo' ? 'Paid · demo' : 'Paid'}</span> : <span className="badge warning">{r.settlement === 'cash' ? 'Pay cash' : 'Unpaid'}</span>;
+  : r.paid ? <span className="badge success">Paid</span> : <span className="badge warning">{r.settlement === 'cash' ? 'Pay cash' : 'Unpaid'}</span>;
 
 // ---------------------------------------------------------------- directory
 
@@ -407,8 +407,9 @@ export function ReceiptModal({ ctx, receipt: r, onClose }) {
   const booking = r.kind === 'booking';
   const link = `${location.origin}/?tenant=${encodeURIComponent(tenant)}&view=tickets&ref=${encodeURIComponent(r.ref)}&token=${encodeURIComponent(r.token)}`;
   const status = r.status === 'Cancelled' ? 'This was cancelled by the organizer.'
-    : r.paid ? (r.settlement === 'demo' ? 'Paid with a simulated demo payment. No money was charged.' : `Paid (${r.settledBy}).`)
-    : booking ? 'Awaiting online payment.' : r.settlement === 'cash' ? `Pay ${money(r.total)} in cash to your waiter when your order arrives.` : 'Not paid yet.';
+    : r.paid ? `Paid (${r.settledBy}).`
+    : booking ? `Pay ${money(r.total)} at the entrance. Staff scan your QR code once it is paid.`
+    : `Pay ${money(r.total)} in cash to your waiter when your order arrives.`;
   return (
     <Modal sheet eyebrow={r.merchant} title={booking ? (r.status === 'Reserved' ? "You're on the list." : r.eventName) : 'Order ' + r.status.toLowerCase() + '.'} label="Receipt" onClose={onClose}
       footer={<button className="primary block" onClick={onClose}>Done</button>}>
@@ -786,6 +787,19 @@ export function HelpScreen({ ctx }) {
           <div>{s.faq.map((f, i) => <details className="faq" key={i}><summary>{f.q}</summary><p>{f.a}</p></details>)}</div>
         </section>
       )}
+      <section className="card stack">
+        <h3>How to use this app</h3>
+        <ol className="howto">
+          <li><b>Find your night.</b> Pick the concert you want and tap Get tickets.</li>
+          <li><b>Sign in with your phone.</b> Enter your mobile number and the 6-digit code we text you. No password to remember.</li>
+          <li><b>Get your tickets.</b> Pay with your mobile wallet, or — if this organizer allows it — reserve and pay at the entrance. Every ticket has its own QR code under <b>Tickets</b>.</li>
+          <li><b>At your table.</b> Scan the QR code on the table (or type the short code under it) to open that night's menu.</li>
+          <li><b>Order and tip.</b> Add what you want, choose a tip, and type your waiter's badge number so the tip reaches them.</li>
+          <li><b>Pay.</b> Use your wallet, or choose Cash and pay your waiter when the order arrives.</li>
+          <li><b>Follow your order.</b> <b>Tickets</b> shows every order and its status, from placed to delivered.</li>
+        </ol>
+        <p className="small">Staff will never ask for your sign-in code or your wallet PIN.</p>
+      </section>
       <section className="stack">
         <h3>Using Encore</h3>
         <div>{PLATFORM_FAQ.map(([q, a]) => <details className="faq" key={q}><summary>{q}</summary><p>{a}</p></details>)}</div>

@@ -1,2 +1,2 @@
 # Python runtime dependencies. SQLite needs nothing extra; PostgreSQL (DATABASE_URL) needs psycopg.
-psycopg[binary]==3.2.3
+psycopg[binary,pool]==3.2.3

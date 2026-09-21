@@ -26,8 +26,9 @@ DEFAULT_SETTINGS = {
     'tips': {'enabled': True, 'unit': 'amount', 'presets': [20, 50, 100], 'custom': True},
     # Service charge on food & drink orders, as a percentage of the item subtotal. VAT applies to it; tips are never taxed.
     'service': {'enabled': False, 'rate': 10},
-    # cash: guests may choose to pay for food & drink orders in cash; staff record the payment.
-    'payments': {'venue': True, 'cash': True},
+    # cash: guests may pay for food & drink orders in cash. ticketCash: guests may reserve tickets and pay at the entrance.
+    # Both are recorded by staff when the money is taken; nothing is ever marked paid automatically.
+    'payments': {'venue': True, 'cash': True, 'ticketCash': False},
     'notifications': {'smsBookings': True, 'smsOrderReady': True, 'staffNewOrders': True},
     'support': {'email': '', 'phone': '', 'hours': '', 'faq': []},
     'legal': {'terms': '', 'privacy': ''},
@@ -302,7 +303,8 @@ def configure(s, group, v):
         if tips['enabled'] and not tips['presets'] and not tips['custom']:
             tips['custom'] = True
     elif group == 'payments':
-        cfg.update(venue=flag(v.get('venue', cfg['venue'])), cash=flag(v.get('cash', cfg['cash'])))
+        cfg.update(venue=flag(v.get('venue', cfg['venue'])), cash=flag(v.get('cash', cfg['cash'])),
+                   ticketCash=flag(v.get('ticketCash', cfg['ticketCash'])))
     elif group == 'notifications':
         cfg.update(smsBookings=flag(v.get('smsBookings')), smsOrderReady=flag(v.get('smsOrderReady')),
                    staffNewOrders=flag(v.get('staffNewOrders')))
@@ -785,19 +787,20 @@ def reference():
 WALLETS = ('telebirr', 'cbe-birr', 'mpesa', 'awash-birr')
 
 
-def guest_record(s, v, guest, demo_payment=False, cash=False):
+def guest_record(s, v, guest, cash=False):
     """Create a booking or table order for a signed-in guest.
 
-    Normally settled in person at the venue and created unpaid. `demo_payment` is used only by the
-    server's explicit demo mode: the record is marked paid by a clearly labelled simulated payment.
+    Records are never marked paid here. Online payments are completed by the payment provider;
+    cash records stay unpaid until staff take the money and record it.
     """
-    if cash:
-        if v.get('kind') != 'menu':
-            raise ValueError('Tickets are paid online only.')
-        if not s['settings']['payments']['cash']:
-            raise ValueError('This organizer only accepts online payment for orders.')
-    elif not demo_payment:
-        raise ValueError('Tickets are paid online only.' if v.get('kind') == 'booking' else 'Orders are paid online only.')
+    pay = s['settings']['payments']
+    booking = v.get('kind') == 'booking'
+    if not cash:
+        raise ValueError('Tickets are paid online only.' if booking else 'Orders are paid online only.')
+    if booking and not pay['ticketCash']:
+        raise ValueError('This organizer only accepts online payment for tickets.')
+    if not booking and not pay['cash']:
+        raise ValueError('This organizer only accepts online payment for orders.')
     q = quote_order(s, v, guest['id'])
     rec = {'id': uid(), 'ref': reference(), 'token': uid(), 'guest': guest['id'], 'name': guest['name'], 'phone': guest['phone'],
            'email': email(v.get('email'), False), 'currency': s['currency'], 'total': q['total'], 'subtotal': q['subtotal'],
@@ -807,7 +810,7 @@ def guest_record(s, v, guest, demo_payment=False, cash=False):
         e = next(e for e in s['events'] if e['id'] == v['event'])
         qty = q['lines'][0]['qty']
         rec.update(event=e['id'], eventName=e['name'], venue=e.get('venue', ''), date=e.get('date', ''), qty=qty, status='Reserved',
-                   tickets=[{'serial': i + 1, 'token': uid(), 'used': False} for i in range(qty)])
+                   settlement='cash', tickets=[{'serial': i + 1, 'token': uid(), 'used': False} for i in range(qty)])
         s['bookings'].append(rec)
     else:
         _take_stock(s, q['lines'], rec['ref'])
@@ -816,12 +819,8 @@ def guest_record(s, v, guest, demo_payment=False, cash=False):
         _attach_waiter(s, rec, q)
         if v.get('table'):
             rec['table'] = find_table(s, token=v['table'])['id']
-        if cash:
-            rec['settlement'] = 'cash'  # unpaid until staff record the cash payment
+        rec['settlement'] = 'cash'  # unpaid until staff record the cash payment
         s['orders'].append(rec)
-    if demo_payment and not cash:
-        wallet = v.get('wallet') if v.get('wallet') in WALLETS else 'telebirr'
-        rec.update(paid=True, settlement='demo', settledBy='Demo payment (simulated)', settledAt=int(time.time()), wallet=wallet)
     return rec
 
 

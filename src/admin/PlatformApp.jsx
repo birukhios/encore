@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { api, money as formatMoney, shortDate, timeAgo } from '../shared/api';
 import { applyTheme } from '../shared/theme';
 import Logo, { LogoMark } from '../shared/Logo';
-import { Avatar, Empty, ErrorText, Field, Glyph, Icon, Modal, ModeToggle, Spinner, useToast } from '../shared/ui';
+import { Avatar, Empty, ErrorState, ErrorText, Field, Glyph, Icon, Loading, Modal, ModeToggle, Skeleton, SkeletonCards, Spinner, useToast } from '../shared/ui';
 import { DataTable, Delta, Donut, Insights, Kpi, TrendChart, pct } from './charts';
 import { PageActions } from './pages';
 import { exportPdf } from './pdf';
@@ -56,7 +56,7 @@ export default function PlatformApp() {
     window.scrollTo({ top: 0 });
   }
 
-  if (loading) return <div className="loading"><Spinner />Opening Encore Platform…</div>;
+  if (loading) return <Loading label="Opening Encore Platform…" />;
   if (!me) return <PlatformSignIn onAuth={setMe} />;
 
   const current = PAGES[page] ? page : 'Overview';
@@ -69,7 +69,7 @@ export default function PlatformApp() {
       <aside className={'sidebar' + (navOpen ? ' open' : '')} aria-label="Platform navigation">
         <div className="side-brand">
           <LogoMark size={36} />
-          <span className="grow" style={{ minWidth: 0 }}><b className="side-org">Encore Platform</b><small className="side-role">Platform admin{me.system.demo ? ' · Demo' : ''}</small></span>
+          <span className="grow" style={{ minWidth: 0 }}><b className="side-org">Encore Platform</b><small className="side-role">Platform admin</small></span>
           <button className="icon-btn menu-toggle ghost" aria-label="Close navigation" onClick={() => setNavOpen(false)}><Glyph name="x" /></button>
         </div>
         <nav className="nav">
@@ -96,18 +96,22 @@ export default function PlatformApp() {
           <button className="icon-btn menu-toggle" aria-label="Open navigation" onClick={() => setNavOpen(true)}><Icon name="grid" /></button>
           <div className="grow" />
           <div className="row">
-            {me.system.demo && <span className="badge warning demo-badge">Demo</span>}
             <ModeToggle />
             <button className="icon-btn" onClick={load} aria-label="Refresh data"><Icon name="refresh" /></button>
           </div>
         </header>
         <main className="main" id="main">
-          {error && <div className="error errorbar" role="alert">{error}<button onClick={load}>Try again</button></div>}
+          {error && <ErrorState title="Platform data did not load" message={error} onRetry={load} />}
           <div className="pagehead">
             <div><span className="eyebrow accent">Encore Platform</span><h1>{current}</h1><p>{PAGES[current].sub}</p></div>
             <div className="row" id="page-actions" />
           </div>
-          {data ? <Page ctx={ctx} /> : !error && <div className="loading inline"><Spinner />Loading platform data…</div>}
+          {data ? <Page ctx={ctx} /> : !error && (
+            <div className="loading-skeleton" role="status" aria-label="Loading platform data">
+              <SkeletonCards count={4} />
+              <div className="card skeleton-card"><Skeleton lines={6} /></div>
+            </div>
+          )}
         </main>
       </div>
       {toastNode}
@@ -719,7 +723,7 @@ function System({ ctx }) {
   const checks = [
     ['Database', sys.database, sys.database === 'PostgreSQL' ? 'good' : 'watch', sys.database === 'PostgreSQL' ? 'Durable managed database.' : 'SQLite: back up the data directory regularly.'],
     ['Environment', sys.production ? 'Production' : 'Development', sys.production ? 'good' : 'info', sys.production ? 'Secure cookies and HTTPS origins enforced.' : 'Not running with ENCORE_ENV=production.'],
-    ['Demo mode', sys.demo ? 'On' : 'Off', sys.demo ? 'watch' : 'good', sys.demo ? 'Sign-in codes are shown on screen and payments are simulated. Not for real guests or money.' : 'Real SMS and payment rules apply.'],
+    ['Guest sign-in', sys.sms.delivers ? 'Working' : 'Blocked', sys.sms.delivers ? 'good' : 'watch', sys.sms.label],
     ['SMS delivery', sys.sms.delivers ? 'Connected' : 'Not delivering', sys.sms.delivers ? 'good' : 'watch', sys.sms.label],
     ['Online payments', sys.payments.ready ? 'Connected' : 'Not connected', sys.payments.ready ? 'good' : 'watch', sys.payments.label],
   ];

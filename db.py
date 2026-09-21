@@ -10,11 +10,19 @@ import sqlite3
 DATABASE_URL = os.environ.get('DATABASE_URL', '').strip()
 POSTGRES = DATABASE_URL.startswith(('postgres://', 'postgresql://'))
 
+POOL_SIZE = int(os.environ.get('DB_POOL_SIZE', '8'))
+_pool = None
+
 if POSTGRES:
     import psycopg
     IntegrityErrors = (sqlite3.IntegrityError, psycopg.IntegrityError)
+    try:  # a pool avoids a TCP + TLS handshake on every request
+        from psycopg_pool import ConnectionPool
+    except ImportError:  # pragma: no cover - falls back to one connection per request
+        ConnectionPool = None
 else:
     psycopg = None
+    ConnectionPool = None
     IntegrityErrors = (sqlite3.IntegrityError,)
 
 SCHEMA = '''
@@ -35,7 +43,28 @@ CREATE TABLE IF NOT EXISTS platform_sessions(token TEXT PRIMARY KEY,admin TEXT N
 CREATE TABLE IF NOT EXISTS platform_audit(id {serial} PRIMARY KEY,admin TEXT NOT NULL,action TEXT NOT NULL,target TEXT NOT NULL DEFAULT '',detail TEXT NOT NULL DEFAULT '',created INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS notifications_guest ON notifications(guest,created);
 CREATE INDEX IF NOT EXISTS notifications_tenant ON notifications(tenant,audience,created);
+CREATE INDEX IF NOT EXISTS sessions_expires ON sessions(expires);
+CREATE INDEX IF NOT EXISTS guest_sessions_expires ON guest_sessions(expires);
+CREATE INDEX IF NOT EXISTS platform_sessions_expires ON platform_sessions(expires);
+CREATE INDEX IF NOT EXISTS users_tenant ON users(tenant);
+CREATE INDEX IF NOT EXISTS invites_expires ON invites(expires);
+CREATE INDEX IF NOT EXISTS audit_tenant ON audit(tenant,created);
+CREATE INDEX IF NOT EXISTS otp_log_phone ON otp_log(phone,created);
+CREATE INDEX IF NOT EXISTS uploads_created ON uploads(created);
 '''
+
+# Rows nobody reads again. Cleaned hourly so the database does not grow without limit.
+RETENTION = [
+    ('DELETE FROM sessions WHERE expires<?', 0),
+    ('DELETE FROM guest_sessions WHERE expires<?', 0),
+    ('DELETE FROM platform_sessions WHERE expires<?', 0),
+    ('DELETE FROM invites WHERE expires<?', 0),
+    ('DELETE FROM otps WHERE expires<?', 0),
+    ('DELETE FROM otp_log WHERE created<?', 86400),
+    ('DELETE FROM notifications WHERE read=1 AND created<?', 180 * 86400),
+    ('DELETE FROM audit WHERE created<?', 400 * 86400),
+    ('DELETE FROM platform_audit WHERE created<?', 400 * 86400),
+]
 
 
 class Row(dict):
@@ -52,11 +81,21 @@ def _row_factory(cursor):
     return lambda values: Row(zip(names, values))
 
 
+def pool():
+    """Shared PostgreSQL connection pool, opened on first use."""
+    global _pool
+    if _pool is None and ConnectionPool:
+        _pool = ConnectionPool(DATABASE_URL, min_size=1, max_size=POOL_SIZE, timeout=15, max_idle=300,
+                               kwargs={'row_factory': _row_factory, 'connect_timeout': 10}, open=True)
+    return _pool
+
+
 class PostgresConnection:
     WRITE_LOCK = 734117  # arbitrary advisory-lock id shared by all Encore writers
 
     def __init__(self):
-        self.raw = psycopg.connect(DATABASE_URL, row_factory=_row_factory, connect_timeout=10)
+        self.pooled = pool()
+        self.raw = self.pooled.getconn() if self.pooled else psycopg.connect(DATABASE_URL, row_factory=_row_factory, connect_timeout=10)
 
     def execute(self, sql, params=()):
         statement = sql.strip().upper()
@@ -92,16 +131,21 @@ class PostgresConnection:
             else:
                 self.raw.commit()
         finally:
-            self.raw.close()
+            if self.pooled:
+                self.pooled.putconn(self.raw)
+            else:
+                self.raw.close()
         return False
 
 
 def connect(sqlite_path):
     if POSTGRES:
         return PostgresConnection()
-    c = sqlite3.connect(sqlite_path, timeout=10)
+    c = sqlite3.connect(sqlite_path, timeout=15)
     c.row_factory = sqlite3.Row
     c.execute('PRAGMA foreign_keys=ON')
+    c.execute('PRAGMA busy_timeout=15000')   # wait instead of failing when another writer holds the lock
+    c.execute('PRAGMA synchronous=NORMAL')   # durable enough with WAL, much faster than FULL
     return c
 
 
@@ -123,6 +167,15 @@ def migrate(c):
             c.execute(f'ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {definition}')
         elif (columns := {r[1] for r in c.execute(f'PRAGMA table_info({table})')}) and column not in columns:
             c.execute(f'ALTER TABLE {table} ADD COLUMN {column} {definition}')
+
+
+def clean_old_rows(c, now):
+    """Delete expired sessions, codes and stale logs. Safe to run at any time."""
+    removed = 0
+    for sql, age in RETENTION:
+        cursor = c.execute(sql, (now - age,))
+        removed += getattr(cursor, 'rowcount', 0) or 0
+    return removed
 
 
 def describe():

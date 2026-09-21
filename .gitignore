@@ -9,3 +9,12 @@ __pycache__/
 .pnpm-store/
 .DS_Store
 .claude/
+
+# Claude Code artifacts
+.claude/memory.json
+.claude/settings.local.json
+CLAUDE.local.md
+.auto-cycle/
+.auto-explore/
+.cms-iterate/
+*.zip

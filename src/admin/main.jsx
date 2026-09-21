@@ -4,7 +4,7 @@ import '@fontsource-variable/manrope';
 import '../styles.css';
 import AdminApp from './AdminApp';
 import { setApiBase } from '../shared/api';
-import { Spinner } from '../shared/ui';
+import { ErrorBoundary, Loading, OfflineBar } from '../shared/ui';
 
 setApiBase('/admin/api/');
 
@@ -14,8 +14,11 @@ const platform = location.pathname === '/admin/platform' || location.pathname.st
 
 createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    {platform
-      ? <Suspense fallback={<div className="loading"><Spinner />Opening Encore Platform…</div>}><PlatformApp /></Suspense>
-      : <AdminApp />}
+    <ErrorBoundary homeHref="/admin">
+      {platform
+        ? <Suspense fallback={<Loading label="Opening Encore Platform…" />}><PlatformApp /></Suspense>
+        : <AdminApp />}
+      <OfflineBar />
+    </ErrorBoundary>
   </React.StrictMode>,
 );

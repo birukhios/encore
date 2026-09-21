@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { api, money as formatMoney } from '../shared/api';
 import { applyTheme } from '../shared/theme';
 import { LogoMark } from '../shared/Logo';
-import { Icon, ModeToggle, Modal, Spinner, usePolling, useToast } from '../shared/ui';
+import { ErrorState, Icon, Loading, ModeToggle, Modal, Skeleton, usePolling, useToast } from '../shared/ui';
 import AfroPayCheckout from './AfroPayCheckout';
 import PhoneAuth from './PhoneAuth';
 import { Account, Bag, BookingSheet, Directory, EventsScreen, HelpScreen, LegalScreen, MenuScreen, NotificationsScreen, ReceiptModal, TableScan, TicketsScreen } from './screens';
@@ -201,13 +201,33 @@ export default function GuestApp() {
   };
 
   // ------------------------------------------------------------ render
-  if (!workspaces && !loadError) return <div className="loading"><Spinner />Opening Encore…</div>;
+  if (!workspaces && !loadError) return (
+    <div className="directory" aria-busy="true">
+      <div className="loading-skeleton">
+        <Skeleton lines={2} />
+        {[0, 1, 2].map(i => <div className="card skeleton-card" key={i}><Skeleton lines={3} /></div>)}
+      </div>
+    </div>
+  );
   const modeToggleCorner = <div style={{ position: 'fixed', top: 12, right: 12, zIndex: 50 }}><ModeToggle /></div>;
   if (!tenant) return <>{modeToggleCorner}<Directory workspaces={workspaces || []} error={loadError} onPick={id => { setTenant(id); setView('events'); history.pushState({ view: 'events' }, '', '/?tenant=' + encodeURIComponent(id)); window.scrollTo({ top: 0 }); }} /></>;
   if (!data) {
     return loadError
-      ? <div className="directory"><p className="error errorbar" role="alert">{loadError}<button onClick={() => loadPublic()}>Try again</button></p><button onClick={() => { setTenant(''); store.set('encore_tenant', ''); }}>Choose another organizer</button></div>
-      : <div className="loading"><Spinner />Loading…</div>;
+      ? (
+        <div className="directory">
+          <ErrorState title="We could not open this organizer" message={loadError} onRetry={() => loadPublic()}>
+            <button onClick={() => { setTenant(''); store.set('encore_tenant', ''); }}>Choose another organizer</button>
+          </ErrorState>
+        </div>
+      )
+      : (
+        <div className="guest-main" aria-busy="true">
+          <div className="loading-skeleton">
+            <Skeleton lines={2} height={22} />
+            {[0, 1].map(i => <div className="card skeleton-card" key={i}><Skeleton lines={4} /></div>)}
+          </div>
+        </div>
+      );
   }
 
   const bagCount = Object.values(cart).reduce((a, b) => a + b, 0);
@@ -222,7 +242,7 @@ export default function GuestApp() {
         </button>
         <button className="org" onClick={() => go('events')} aria-label={data.name + ' page'}>
           {data.settings.theme.logo && <img src={data.settings.theme.logo} alt="" />}
-          <span className="grow" style={{ minWidth: 0 }}><small>{data.demo ? 'DEMO · NO REAL PAYMENTS' : 'LIVE WITH ENCORE'}</small><b>{data.name}</b></span>
+          <span className="grow" style={{ minWidth: 0 }}><small>LIVE WITH ENCORE</small><b>{data.name}</b></span>
         </button>
         <nav className="topnav" aria-label="Guest navigation">
           {TABS.map(([id, label, icon]) => (
@@ -266,8 +286,9 @@ export default function GuestApp() {
       {sheet?.type === 'checkout' && (
         <AfroPayCheckout quote={sheet.quote} payload={sheet.payload}
           onClose={() => setSheet(null)} onBack={() => setSheet(sheet.previous)}
-          demo={data.demo} onPay={payload => completeCheckout(payload, 'checkout')}
-          cashAllowed={sheet.payload.kind === 'menu' && data.settings.payments?.cash !== false}
+          onPay={payload => completeCheckout(payload, 'checkout')}
+          paymentsReady={!!data.paymentReady}
+          cashAllowed={sheet.payload.kind === 'menu' ? data.settings.payments?.cash !== false : !!data.settings.payments?.ticketCash}
           onCash={payload => completeCheckout({ ...payload, payment: 'cash' }, 'order')} />
       )}
       {auth && (

@@ -181,3 +181,95 @@ export async function copyText(value) {
     return false;
   }
 }
+
+/**
+ * Catches a rendering crash so the whole app never goes blank.
+ * Shows what happened, keeps the page usable, and offers a reload.
+ */
+export class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+  componentDidCatch(error, info) {
+    console.error('Encore crashed while rendering:', error, info?.componentStack);
+  }
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <div className="crash" role="alert">
+        <div className="crash-card">
+          <Icon name="support" />
+          <h1>Something went wrong on this screen</h1>
+          <p>The rest of Encore is fine. Reload to continue — your data was not affected.</p>
+          <div className="row center wrap">
+            <button className="primary lg-btn" onClick={() => location.reload()}><Icon name="refresh" />Reload</button>
+            {this.props.home !== false && <button className="lg-btn" onClick={() => { location.href = this.props.homeHref || '/'; }}>Go to the start</button>}
+          </div>
+          <details><summary>Technical details</summary><code>{String(this.state.error?.message || this.state.error)}</code></details>
+        </div>
+      </div>
+    );
+  }
+}
+
+/** Grey placeholder while content loads. `lines` stacked bars, or a card/table shape. */
+export function Skeleton({ lines = 3, className = '', height }) {
+  return (
+    <div className={'skeleton ' + className} aria-hidden="true">
+      {Array.from({ length: lines }, (_, i) => <span key={i} style={height ? { height } : undefined} />)}
+    </div>
+  );
+}
+
+export function SkeletonCards({ count = 4, className = 'kpis' }) {
+  return (
+    <div className={className} aria-hidden="true">
+      {Array.from({ length: count }, (_, i) => <div className="card skeleton-card" key={i}><Skeleton lines={3} /></div>)}
+    </div>
+  );
+}
+
+/** Full-screen or in-place loading state with a label screen readers announce. */
+export function Loading({ label = 'Loading…', inline = false, skeleton = null }) {
+  if (skeleton) return <div className="loading-skeleton" role="status" aria-label={label}>{skeleton}</div>;
+  return <div className={'loading' + (inline ? ' inline' : '')} role="status"><Spinner />{label}</div>;
+}
+
+/** A failed load: says what happened and offers the action that fixes it. */
+export function ErrorState({ title = 'That did not load', message, onRetry, retryLabel = 'Try again', children }) {
+  return (
+    <div className="errorstate" role="alert">
+      <span className="errorstate-mark"><Icon name="support" /></span>
+      <h3>{title}</h3>
+      {message && <p>{message}</p>}
+      <div className="row center wrap">
+        {onRetry && <button className="primary" onClick={onRetry}><Icon name="refresh" />{retryLabel}</button>}
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/** True while the browser reports a network connection. */
+export function useOnline() {
+  const [online, setOnline] = useState(() => (typeof navigator === 'undefined' ? true : navigator.onLine !== false));
+  useEffect(() => {
+    const on = () => setOnline(true);
+    const off = () => setOnline(false);
+    window.addEventListener('online', on);
+    window.addEventListener('offline', off);
+    return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); };
+  }, []);
+  return online;
+}
+
+/** Fixed bar shown only while the device is offline. */
+export function OfflineBar() {
+  const online = useOnline();
+  if (online) return null;
+  return <div className="offlinebar" role="status"><Icon name="refresh" />You are offline. Encore will work again as soon as your connection returns.</div>;
+}

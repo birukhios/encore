@@ -43,9 +43,8 @@ else:
     ADMIN_ORIGIN = (os.environ.get('ADMIN_ORIGIN') or _PUBLIC or f'http://127.0.0.1:{ADMIN_PORT}').rstrip('/')
     GUEST_ORIGIN = (os.environ.get('GUEST_ORIGIN') or f'http://127.0.0.1:{GUEST_PORT}').rstrip('/')
 TRUST_PROXY = os.environ.get('TRUST_PROXY') == '1'
-# Demo mode: sign-in codes are shown on screen and online checkout simulates a successful payment.
-# Never enable for real guests or real money.
-DEMO = os.environ.get('ENCORE_DEMO') == '1'
+# Online card/wallet payments (AfroPay) are not connected yet: checkout fails closed until they are.
+PAYMENTS_READY = False
 
 ADMIN_SESSION_DAYS, GUEST_SESSION_DAYS, PLATFORM_SESSION_HOURS = 7, 30, 12
 OTP_TTL, OTP_RESEND, OTP_MAX_ATTEMPTS = 300, 60, 5
@@ -75,13 +74,26 @@ def init():
     with conn() as c:
         db.create_schema(c)
         db.migrate(c)
-        now = int(time.time())
-        c.execute('DELETE FROM sessions WHERE expires<?', (now,))
-        c.execute('DELETE FROM guest_sessions WHERE expires<?', (now,))
-        c.execute('DELETE FROM otps WHERE expires<?', (now,))
-        c.execute('DELETE FROM otp_log WHERE created<?', (now - 86400,))
-        c.execute('DELETE FROM platform_sessions WHERE expires<?', (now,))
+        db.clean_old_rows(c, int(time.time()))
         bootstrap_platform_admin(c)
+    start_housekeeping()
+
+
+def housekeeping():
+    """Hourly cleanup of expired sessions, codes and stale logs."""
+    while True:
+        time.sleep(3600)
+        try:
+            with conn() as c:
+                db.clean_old_rows(c, int(time.time()))
+        except Exception:  # never let maintenance stop the server
+            pass
+
+
+def start_housekeeping():
+    thread = threading.Thread(target=housekeeping, daemon=True, name='encore-housekeeping')
+    thread.start()
+    return thread
 
 
 def bootstrap_platform_admin(c):
@@ -379,7 +391,7 @@ class BaseHandler(BaseHTTPRequestHandler):
             if url.path.startswith('/api/'):
                 with conn() as c:
                     if url.path == '/api/health':
-                        return self.send({'ok': True, 'app': self.app, 'demo': DEMO, 'database': db.describe()})
+                        return self.send({'ok': True, 'app': self.app, 'payments': PAYMENTS_READY, 'sms': sms.status()['delivers'], 'database': db.describe()})
                     return self.get_api(c, url.path, q)
             return self.serve_file(url.path)
         except ApiError as e:
@@ -479,10 +491,10 @@ class AdminHandler(BaseHandler):
     def bundle(self, c, u):
         row, s = read_tenant(c, u['tenant'])
         team = [dict(r) for r in c.execute('SELECT id,name,email,role,avatar FROM users WHERE tenant=? ORDER BY name', (u['tenant'],))]
-        sms_status = {'provider': 'demo', 'delivers': False, 'label': 'Demo mode: sign-in codes are shown on screen, no SMS is sent'} if DEMO else sms.status()
+        sms_status = sms.status()
         unread = c.execute("SELECT COUNT(*) FROM notifications WHERE tenant=? AND audience='staff' AND read=0", (u['tenant'],)).fetchone()[0]
         return {'user': {k: u.get(k, '') for k in ['id', 'name', 'email', 'role', 'tenant', 'avatar']}, 'state': s, 'version': row['version'], 'team': team,
-                'paymentReady': DEMO, 'demo': DEMO, 'sms': sms_status, 'guestOrigin': GUEST_ORIGIN, 'unread': unread,
+                'paymentReady': PAYMENTS_READY, 'sms': sms_status, 'guestOrigin': GUEST_ORIGIN, 'unread': unread,
                 'ratings': rating_summary(c, u['tenant'], recent=5)}
 
     def cookie(self, value, maxage=ADMIN_SESSION_DAYS * 86400):
@@ -510,9 +522,9 @@ class AdminHandler(BaseHandler):
         raise LookupError('Not found')
 
     def platform_system(self, c):
-        sms_status = {'provider': 'demo', 'delivers': False, 'label': 'Demo mode: sign-in codes are shown on screen, no SMS is sent'} if DEMO else sms.status()
-        return {'database': db.describe(), 'demo': DEMO, 'production': PROD, 'sms': sms_status,
-                'payments': {'ready': False, 'label': 'Simulated (demo mode)' if DEMO else 'AfroPay not connected — checkout is closed'},
+        sms_status = sms.status()
+        return {'database': db.describe(), 'production': PROD, 'sms': sms_status,
+                'payments': {'ready': PAYMENTS_READY, 'label': 'AfroPay not connected — online checkout is closed'},
                 'guestOrigin': GUEST_ORIGIN, 'adminOrigin': ADMIN_ORIGIN, 'serverTime': int(time.time())}
 
     def platform_post(self, c, path, v):
@@ -742,8 +754,7 @@ class GuestHandler(BaseHandler):
             row, s = guest_tenant(c, q.get('tenant', ''))
             out = domain.public_state(s)
             out['id'] = row['id']
-            out['paymentReady'] = DEMO
-            out['demo'] = DEMO
+            out['paymentReady'] = PAYMENTS_READY
             viewer = self.guest(c, required=False)
             out['ratings'] = rating_summary(c, row['id'], viewer['id'] if viewer else None, recent=6)
             out['table'] = None
@@ -797,8 +808,7 @@ class GuestHandler(BaseHandler):
                 raise ApiError(429, 'Too many codes were sent to this number. Try again in an hour.')
             code = f'{secrets.randbelow(1000000):06d}'
             try:
-                if not DEMO:
-                    sms.send(phone, f'Your Encore code is {code}. It expires in 5 minutes. Never share this code.')
+                sms.send(phone, f'Your Encore code is {code}. It expires in 5 minutes. Never share this code.')
             except sms.NotConfigured:
                 raise ApiError(503, 'Phone sign-in is temporarily unavailable. Please try again later.', 'SMS_NOT_CONFIGURED')
             except sms.DeliveryFailed:
@@ -807,10 +817,7 @@ class GuestHandler(BaseHandler):
                       'ON CONFLICT(phone) DO UPDATE SET code=excluded.code,expires=excluded.expires,attempts=0,sent=excluded.sent',
                       (phone, hmac.new(secret(), (phone + ':' + code).encode(), 'sha256').hexdigest(), now + OTP_TTL, now))
             c.execute('INSERT INTO otp_log(phone,ip,created) VALUES(?,?,?)', (phone, self.client_ip(), now))
-            out = {'sent': True, 'phone': phone, 'resendIn': OTP_RESEND, 'expiresIn': OTP_TTL}
-            if DEMO:
-                out['demoCode'] = code  # simulated SMS: shown on screen, nothing is sent
-            return self.send(out)
+            return self.send({'sent': True, 'phone': phone, 'resendIn': OTP_RESEND, 'expiresIn': OTP_TTL})
         if path == '/api/guest/verify':
             phone = domain.normalize_phone(v.get('phone'))
             code = str(v.get('code', '')).strip()
@@ -844,7 +851,7 @@ class GuestHandler(BaseHandler):
             row, s = guest_tenant(c, text(v.get('tenant')))
             g = self.guest(c, required=False)
             return self.send(domain.quote_order(s, v, g['id'] if g else None))
-        if path == '/api/checkout' and not DEMO:
+        if path == '/api/checkout' and not PAYMENTS_READY:
             read_tenant(c, text(v.get('tenant')))
             # Fail closed until the AfroPay merchant contract and credentials are configured.
             raise ApiError(503, 'Online payments are not available yet. Please try again later.', 'PAYMENT_NOT_CONFIGURED')
@@ -872,18 +879,17 @@ class GuestHandler(BaseHandler):
             c.execute("UPDATE notifications SET read=1 WHERE audience='guest' AND guest=?", (g['id'],))
             return self.send({'ok': True})
         if path in ('/api/order', '/api/checkout'):
-            demo_payment = path == '/api/checkout'  # only reachable here when DEMO is on
             if rate_limited('order:' + self.client_ip(), 30, 900) or rate_limited('order-guest:' + g['id'], 20, 900):
                 raise ApiError(429, 'Too many orders in a short time. Please wait a few minutes.')
             row, s = guest_tenant(c, text(v.get('tenant')))
             cash = path == '/api/order' and v.get('payment') == 'cash'
-            rec = domain.guest_record(s, v, g, demo_payment=demo_payment, cash=cash)
+            rec = domain.guest_record(s, v, g, cash=cash)
             write_tenant(c, row['id'], s)
             c.execute('INSERT INTO audit(tenant,"user",action,created) VALUES(?,?,?,?)', (row['id'], 'guest:' + g['id'], 'guest_' + str(v.get('kind')), int(time.time())))
             prefs = s['settings']['notifications']
             if rec.get('qty'):
-                title, body = ('Tickets confirmed', f'{rec["qty"]} ticket{"s" if rec["qty"] > 1 else ""} for {rec["eventName"]}. Paid (demo payment). Ref {rec["ref"]}.') if demo_payment else \
-                    ('Tickets reserved', f'{rec["qty"]} ticket{"s" if rec["qty"] > 1 else ""} for {rec["eventName"]}. Pay at the entrance. Ref {rec["ref"]}.')
+                title = 'Tickets reserved'
+                body = f'{rec["qty"]} ticket{"s" if rec["qty"] > 1 else ""} for {rec["eventName"]}. Pay {rec["currency"]} {rec["total"] / 100:,.2f} at the entrance. Ref {rec["ref"]}.'
                 notify(c, row['id'], 'staff', f'New booking · {rec["ref"]}', f'{g["name"]} reserved {rec["qty"]} for {rec["eventName"]}.', kind='booking', ref=rec['ref'])
                 if prefs['smsBookings']:
                     text_guest(g['phone'], f'{s["name"]}: {body}')
@@ -934,12 +940,8 @@ def production_problems():
                 problems.append(f'{name} must be an https:// origin in production.')
         if not os.environ.get('ENCORE_SECRET'):
             problems.append('ENCORE_SECRET must be set in production (32+ random bytes, base64 or hex).')
-        if DEMO:
-            problems.append('ENCORE_DEMO=1 (SMS_PROVIDER not required): sign-in codes are shown on screen and payments are simulated. Not for real guests or money.')
-        elif sms.demo_log_allowed():
-            problems.append('SMS_PROVIDER=log demo mode: sign-in codes are written to server logs, not sent. Not for real guests.')
-        elif not sms.status()['delivers']:
-            problems.append('SMS_PROVIDER is not configured; guest phone sign-in will be unavailable.')
+        if not sms.status()['delivers']:
+            problems.append('SMS is not delivering (' + sms.status()['label'] + '); guests cannot sign in.')
     return problems
 
 
@@ -960,6 +962,16 @@ def create_platform_admin_cli():
 
 
 if __name__ == '__main__':
+    if '--sms-test' in sys.argv:
+        number = sys.argv[sys.argv.index('--sms-test') + 1] if len(sys.argv) > sys.argv.index('--sms-test') + 1 else ''
+        if not number:
+            raise SystemExit('Usage: python3 server.py --sms-test +251911234567')
+        try:
+            used = sms.send(domain.normalize_phone(number), 'Encore test message. If you received this, SMS delivery works.')
+            print(f'Sent through "{used}". Check the handset.')
+        except (sms.NotConfigured, sms.DeliveryFailed, ValueError) as exc:
+            raise SystemExit(f'Not sent: {exc}')
+        raise SystemExit(0)
     if '--check' in sys.argv:
         problems = production_problems()
         if not PROD:
@@ -967,8 +979,8 @@ if __name__ == '__main__':
         notes = []
         if not db.POSTGRES:
             notes.append('DATABASE_URL is not set: using SQLite in ENCORE_DATA. Back it up, or use PostgreSQL.')
-        if not DEMO:
-            notes.append('Online wallet payments (AfroPay) are not connected: tickets cannot be bought online yet; food & drink orders work with cash if enabled.')
+        if not PAYMENTS_READY:
+            notes.append('Online wallet payments (AfroPay) are not connected. Organizers can still sell with cash: Settings → Payments.')
         if not os.environ.get('ENCORE_PLATFORM_EMAIL'):
             notes.append('ENCORE_PLATFORM_EMAIL / ENCORE_PLATFORM_PASSWORD not set: no platform console account is created at startup.')
         print('Encore production check')

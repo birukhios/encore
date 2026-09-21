@@ -2,11 +2,12 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { api, money as formatMoney, timeAgo } from '../shared/api';
 import { applyTheme } from '../shared/theme';
 import { LogoMark } from '../shared/Logo';
-import { Avatar, Glyph, Icon, ModeToggle, Modal, Spinner, usePolling, useToast } from '../shared/ui';
+import { Avatar, ErrorState, Glyph, Icon, Loading, ModeToggle, Modal, Skeleton, SkeletonCards, Spinner, usePolling, useToast } from '../shared/ui';
 import Auth from './Auth';
 import { Bookings, CheckIns, Events, Menu, Orders, Overview, Profile, Tables, Team } from './pages';
 import Reports from './Reports';
 import Settings from './Settings';
+import Guide from './Guide';
 import { Stock, Waiters } from './service';
 
 const PAGES = {
@@ -23,6 +24,7 @@ const PAGES = {
   Team: { icon: 'team', sub: 'The people who make the night happen.' },
   Settings: { icon: 'settings', sub: 'Your organization, sales and guest experience.' },
   Profile: { icon: 'team', title: 'Your profile', sub: 'Your photo, name and password.' },
+  Guide: { icon: 'support', title: 'How to use Encore', sub: 'Set-up steps, how a night runs, and answers to common questions.' },
 };
 
 const NAV_GROUPS = [
@@ -30,13 +32,14 @@ const NAV_GROUPS = [
   ['Insights', ['Reports']],
   ['Set up', ['Events', 'Menu', 'Stock', 'Tables', 'Waiters']],
   ['Workspace', ['Team', 'Settings']],
+  ['Help', ['Guide']],
 ];
 
 export const ROLE_PAGES = {
-  Owner: ['Overview', 'Events', 'Bookings', 'Check-ins', 'Reports', 'Tables', 'Menu', 'Stock', 'Waiters', 'Orders', 'Team', 'Settings'],
-  Admin: ['Overview', 'Events', 'Bookings', 'Check-ins', 'Reports', 'Tables', 'Menu', 'Stock', 'Waiters', 'Orders', 'Team', 'Settings'],
-  Service: ['Overview', 'Orders'],
-  Gate: ['Overview', 'Bookings', 'Check-ins'],
+  Owner: ['Overview', 'Events', 'Bookings', 'Check-ins', 'Reports', 'Tables', 'Menu', 'Stock', 'Waiters', 'Orders', 'Team', 'Settings', 'Guide'],
+  Admin: ['Overview', 'Events', 'Bookings', 'Check-ins', 'Reports', 'Tables', 'Menu', 'Stock', 'Waiters', 'Orders', 'Team', 'Settings', 'Guide'],
+  Service: ['Overview', 'Orders', 'Guide'],
+  Gate: ['Overview', 'Bookings', 'Check-ins', 'Guide'],
 };
 
 export default function AdminApp() {
@@ -115,13 +118,18 @@ export default function AdminApp() {
     };
   }, [session, search, intent]);
 
-  if (loading) return <div className="loading"><Spinner />Opening Encore…</div>;
+  if (loading) return (
+    <div className="admin-app" aria-busy="true">
+      <aside className="sidebar" aria-hidden="true"><Skeleton lines={8} /></aside>
+      <div className="shell"><main className="main"><Skeleton lines={2} height={26} /><SkeletonCards count={4} /><div className="card skeleton-card"><Skeleton lines={6} /></div></main></div>
+    </div>
+  );
   if (!session) return <Auth onAuth={result => { setSession(result); go('Overview'); if (result.recovery) setRecovery(result.recovery); }} />;
 
   const { state } = session;
   const activeOrders = state.orders.filter(o => ['Placed', 'Preparing', 'Ready'].includes(o.status)).length;
   const meta = PAGES[current];
-  const Page = { Overview, Events, Bookings, 'Check-ins': CheckIns, Reports, Tables, Menu, Stock, Waiters, Orders, Team, Settings, Profile }[current];
+  const Page = { Overview, Events, Bookings, 'Check-ins': CheckIns, Reports, Tables, Menu, Stock, Waiters, Orders, Team, Settings, Profile, Guide }[current];
   const lowStock = state.menu.filter(i => i.trackStock && i.stock <= i.lowStock).length + (state.inventory || []).filter(i => i.quantity <= i.reorderLevel).length;
 
   return (
@@ -132,7 +140,7 @@ export default function AdminApp() {
           {state.settings.theme.logo ? <img className="side-logo" src={state.settings.theme.logo} alt="" /> : <LogoMark size={36} />}
           <span className="grow" style={{ minWidth: 0 }}>
             <b className="side-org">{state.name}</b>
-            <small className="side-role">{role}{session.demo ? ' · Demo' : ''}</small>
+            <small className="side-role">{role}</small>
           </span>
           <button className="icon-btn menu-toggle ghost" aria-label="Close navigation" onClick={() => setNavOpen(false)}><Glyph name="x" /></button>
         </div>
@@ -163,14 +171,13 @@ export default function AdminApp() {
       <div className="shell">
         <header className="topbar">
           <button className="icon-btn menu-toggle" aria-label="Open navigation" onClick={() => setNavOpen(true)}><Icon name="grid" /></button>
-          {!['Overview', 'Settings', 'Profile', 'Check-ins', 'Reports', 'Stock', 'Waiters'].includes(current) ? (
+          {!['Overview', 'Settings', 'Profile', 'Check-ins', 'Reports', 'Stock', 'Waiters', 'Guide'].includes(current) ? (
             <div className="search">
               <Icon name="search" />
               <input type="search" placeholder={'Search ' + current.toLowerCase() + '…'} aria-label={'Search ' + current} value={search} onChange={e => setSearch(e.target.value)} />
             </div>
           ) : <div className="grow" />}
           <div className="row">
-            {session.demo && <span className="badge warning demo-badge" title="Sign-in codes are shown on screen and payments are simulated">Demo</span>}
             <ModeToggle />
             <button className="icon-btn" onClick={refresh} aria-label="Refresh workspace"><Icon name="refresh" /></button>
             <Notifications unread={session.unread} onRead={refresh} go={go} />
@@ -178,7 +185,7 @@ export default function AdminApp() {
           </div>
         </header>
         <main className="main" id="main">
-          {bannerError && <div className="error errorbar" role="alert">{bannerError}<button onClick={refresh}>Try again</button></div>}
+          {bannerError && <div className="error errorbar" role="alert"><span>{bannerError}</span><button onClick={refresh}><Icon name="refresh" />Try again</button></div>}
           <div className="pagehead">
             <div>
               <span className="eyebrow accent">{state.name}</span>

@@ -66,30 +66,24 @@ class JourneyTests(test_server.AppTests):
         b, c, e = self.catalog()
         tenant = b['user']['tenant']
         g, _ = self.guest_client()
-        payload = {'tenant': tenant, 'kind': 'booking', 'event': e['id'], 'qty': 2, 'paid': False, 'total': 1}
-        s.DEMO = True
-        try:
-            self.assertEqual(Client(self.guest.server_port)('checkout', payload)[0], 401)
-            status, rec = g('checkout', payload)
-            self.assertEqual(status, 201)
-            self.assertEqual((rec['subtotal'], rec['tax']['amount'], rec['total'], rec['paid']), (2100, 315, 2415, True))  # 21.00 + 15% VAT
-            self.assertEqual(g('checkout', payload)[0], 400)  # sold out
-        finally:
-            s.DEMO = False
+        self.act(c, 'config', {'group': 'payments', 'values': {'cash': True, 'ticketCash': True}})
+        payload = {'tenant': tenant, 'kind': 'booking', 'event': e['id'], 'qty': 2, 'payment': 'cash', 'paid': True, 'total': 1}
+        self.assertEqual(Client(self.guest.server_port)('order', payload)[0], 401)
+        status, rec = g('order', payload)
+        self.assertEqual(status, 201)
+        self.assertEqual((rec['subtotal'], rec['tax']['amount'], rec['total'], rec['paid']), (2100, 315, 2415, False))  # 21.00 + 15% VAT
+        self.assertEqual(g('order', payload)[0], 400)  # sold out
         path = 'receipt?tenant=' + tenant + '&ref=' + rec['ref'] + '&token='
         self.assertEqual(g(path + 'wrong')[0], 404)
         self.assertEqual(Client(self.guest.server_port)(path + rec['token'])[0], 200)
 
     def test_concurrent_booking_never_oversells(self):
-        b, _, e = self.catalog()
+        b, c, e = self.catalog()
+        self.act(c, 'config', {'group': 'payments', 'values': {'cash': True, 'ticketCash': True}})
         guests = [self.guest_client()[0] for _ in range(2)]
-        p = {'tenant': b['user']['tenant'], 'kind': 'booking', 'event': e['id'], 'qty': 2}
-        s.DEMO = True
-        try:
-            with ThreadPoolExecutor(max_workers=2) as pool:
-                statuses = list(pool.map(lambda g: g('checkout', p)[0], guests))
-        finally:
-            s.DEMO = False
+        p = {'tenant': b['user']['tenant'], 'kind': 'booking', 'event': e['id'], 'qty': 2, 'payment': 'cash'}
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            statuses = list(pool.map(lambda g: g('order', p)[0], guests))
         self.assertEqual(sorted(statuses), [201, 400])
 
 

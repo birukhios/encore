@@ -506,25 +506,24 @@ function Tips({ ctx, setDirty }) {
 }
 
 function Payments({ ctx, setDirty }) {
-  const form = useDraft({ cash: ctx.state.settings.payments.cash !== false }, setDirty);
+  const form = useDraft({ cash: ctx.state.settings.payments.cash !== false, ticketCash: !!ctx.state.settings.payments.ticketCash }, setDirty);
   const save = useSaver(ctx, form);
   return (
     <>
-      <Head title="Payments">How guests pay for tickets and food & drinks.</Head>
+      <Head title="Payments">How guests pay for tickets and food & drinks. Encore never marks anything paid by itself — staff record every cash payment.</Head>
       <Locked ctx={ctx} />
       <Block title="Cash for food & drink orders">
-        <Toggle label="Let guests pay for orders in cash" description="At checkout guests can choose Cash instead of a mobile wallet. The order goes to the kitchen straight away, marked “Pay cash”. Your waiter collects the money and taps Record payment. Tickets are always paid online." checked={form.draft.cash} onChange={v => form.set('cash', v)} disabled={!ctx.canManage} />
+        <Toggle label="Let guests pay for orders in cash" description="At checkout guests can choose Cash instead of a mobile wallet. The order goes to the kitchen straight away, marked “Pay cash”. Your waiter collects the money and taps Record payment." checked={form.draft.cash} onChange={v => form.set('cash', v)} disabled={!ctx.canManage} />
+        <Toggle label="Let guests reserve tickets and pay at the entrance" description="Guests reserve online and pay your gate staff. The booking stays unpaid until staff record the money, and an unpaid ticket cannot be checked in." checked={form.draft.ticketCash} onChange={v => form.set('ticketCash', v)} disabled={!ctx.canManage} />
         <ErrorText>{form.error}</ErrorText>
-        {ctx.canManage && <SaveBar form={form} onSave={() => save('config', { group: 'payments', values: { cash: form.draft.cash } })} />}
+        {ctx.canManage && <SaveBar form={form} onSave={() => save('config', { group: 'payments', values: { cash: form.draft.cash, ticketCash: form.draft.ticketCash } })} />}
       </Block>
       <Block title="Online wallet payments">
         <div className="notice">
-          <div className="row spread" style={{ marginBottom: 6 }}><b style={{ color: 'var(--ink)' }}>AfroPay (Telebirr, CBE Birr, M-PESA, Awash Birr)</b><span className={'badge ' + (ctx.session.demo ? 'warning' : 'neutral')}>{ctx.session.demo ? 'Demo (simulated)' : 'Not connected'}</span></div>
-          {ctx.session.demo
-            ? 'Demo mode is on: online checkout completes a simulated payment and marks the booking or order paid as "Demo payment (simulated)". No money moves. Turn demo mode off on the server before real sales.'
-            : 'Online wallet payments are not available yet. They will be enabled once the AfroPay merchant API contract and credentials are configured on the server. Until then, checkout never charges guests.'}
+          <div className="row spread" style={{ marginBottom: 6 }}><b style={{ color: 'var(--ink)' }}>AfroPay (Telebirr, CBE Birr, M-PESA, Awash Birr)</b><span className="badge neutral">Not connected</span></div>
+          Online wallet payments are enabled once the AfroPay merchant API contract and credentials are configured on the server. Until then, checkout never charges guests.
         </div>
-        {!ctx.session.demo && <p className="notice warning">Until AfroPay is connected, guests cannot buy tickets online{form.draft.cash ? '. Food & drink orders still work with cash.' : ' or place orders.'}</p>}
+        <p className="notice warning">Until AfroPay is connected, guests can only pay with cash. Turn on the options above so your guests can still book and order.</p>
       </Block>
       <p className="small muted">Bank transfers are not accepted.</p>
     </>

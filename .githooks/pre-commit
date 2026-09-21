@@ -1,0 +1,22 @@
+#!/bin/sh
+# Encore pre-commit checks. Enable once per clone: git config core.hooksPath .githooks
+staged=$(git diff --cached --name-only --diff-filter=ACM)
+[ -z "$staged" ] && exit 0
+
+# 1. Never commit local data, secrets or build output.
+blocked=$(printf '%s\n' "$staged" | grep -E '^(data/|dist/|\.env$|\.env\.[^e]|.*\.key$|.*\.pem$)' || true)
+if [ -n "$blocked" ]; then
+  echo "pre-commit: these files must not be committed:"; echo "$blocked"; exit 1
+fi
+
+# 2. Look for credentials in the staged diff.
+if git diff --cached -U0 | grep -nE '(sk-ant-[A-Za-z0-9_-]{10,}|ANTHROPIC_API_KEY[[:space:]]*=[[:space:]]*[A-Za-z0-9]|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----|ENCORE_SECRET[[:space:]]*=[[:space:]]*[A-Za-z0-9]|(SMS|TWILIO|AFROPAY)_[A-Z_]*(TOKEN|KEY|SECRET|PASSWORD)[[:space:]]*=[[:space:]]*[A-Za-z0-9])' >/dev/null; then
+  echo "pre-commit: a credential may be in this commit. Move it to an environment variable."; exit 1
+fi
+
+# 3. Python syntax check on staged Python files.
+py=$(printf '%s\n' "$staged" | grep -E '\.py$' || true)
+if [ -n "$py" ]; then
+  python3 -m py_compile $py || { echo "pre-commit: Python syntax error."; exit 1; }
+fi
+exit 0

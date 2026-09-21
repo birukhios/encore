@@ -16,7 +16,6 @@ export default function PhoneAuth({ reason, onClose, onSignedIn, openTerms }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [wait, setWait] = useState(0);
-  const [demoCode, setDemoCode] = useState('');
   const boxes = useRef([]);
 
   useEffect(() => {
@@ -34,7 +33,6 @@ export default function PhoneAuth({ reason, onClose, onSignedIn, openTerms }) {
     try {
       const out = await api('guest/otp', { phone });
       setE164(out.phone);
-      setDemoCode(out.demoCode || '');
       setWait(out.resendIn);
       setDigits(['', '', '', '', '', '']);
       setStep('code');
@@ -104,13 +102,7 @@ export default function PhoneAuth({ reason, onClose, onSignedIn, openTerms }) {
       )}
       {step === 'code' && (
         <form className="form" onSubmit={e => { e.preventDefault(); if (code.length === 6) verify(false); }}>
-          {demoCode && (
-            <div className="notice warning row spread wrap" role="status">
-              <span>Demo sign-in — no SMS is sent. Your code is <b style={{ letterSpacing: 2 }}>{demoCode}</b></span>
-              <button type="button" className="primary" onClick={() => setDigits(demoCode.split(''))}>Use code</button>
-            </div>
-          )}
-          <p>{demoCode ? 'Demo code for' : 'We sent a code to'} <b style={{ color: 'var(--ink)' }}>{e164}</b>. <button type="button" className="linklike" onClick={() => { setStep('phone'); setError(''); }}>Change number</button></p>
+          <p>We sent a code to <b style={{ color: 'var(--ink)' }}>{e164}</b>. <button type="button" className="linklike" onClick={() => { setStep('phone'); setError(''); }}>Change number</button></p>
           <div className="otp" role="group" aria-label="6-digit code">
             {digits.map((d, i) => (
               <input key={i} ref={el => (boxes.current[i] = el)} value={d} inputMode="numeric" autoComplete={i === 0 ? 'one-time-code' : 'off'} maxLength={i === 0 ? 6 : 1}

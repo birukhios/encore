@@ -12,9 +12,9 @@ function WalletLogo({ id, name }) {
   return <img className="wallet-logo" src={`/wallets/${id}.${LOGO_TYPES[attempt]}`} alt={name} onError={() => setAttempt(a => a + 1)} />;
 }
 
-/** Provider-styled review screen. All payments are online; the server fails closed until AfroPay is configured (demo mode simulates it). */
-export default function AfroPayCheckout({ quote, payload, onBack, onClose, onPay, onCash, cashAllowed = false, demo = false }) {
-  const [method, setMethod] = useState('wallet');
+/** Review and pay. Online wallet payments fail closed until AfroPay is connected; cash is recorded by staff. */
+export default function AfroPayCheckout({ quote, payload, onBack, onClose, onPay, onCash, cashAllowed = false, paymentsReady = false }) {
+  const [method, setMethod] = useState(paymentsReady ? 'wallet' : 'cash');
   const [wallet, setWallet] = useState('telebirr');
   const [phone, setPhone] = useState('');
   const [busy, setBusy] = useState(false);
@@ -57,10 +57,8 @@ export default function AfroPayCheckout({ quote, payload, onBack, onClose, onPay
         <div className="afro-merchant"><small>Paying</small><strong>{quote.merchant}</strong>{quote.tableName && <span>{quote.tableName}</span>}</div>
         <form onSubmit={pay}>
           {method === 'cash'
-            ? <p className="notice" role="status"><b>Pay with cash.</b> Your order goes to the kitchen now. Pay your waiter {amount(quote.total)} when it arrives.</p>
-            : demo
-            ? <p className="notice" role="status"><b>Demo mode.</b> Paying online simulates a successful wallet payment — no money moves and no wallet is contacted.</p>
-            : <p className="notice" role="status">Online wallet payments are not available yet, so no payment will be taken here.</p>}
+            ? <p className="notice" role="status"><b>Pay with cash.</b> {booking ? `Your tickets are reserved now. Pay ${amount(quote.total)} at the entrance — staff check you in once it is paid.` : `Your order goes to the kitchen now. Pay your waiter ${amount(quote.total)} when it arrives.`}</p>
+            : <p className="notice warning" role="status">Online wallet payments are not available yet. {cashAllowed ? 'Choose Cash to continue.' : 'Please ask staff how to pay.'}</p>}
           <h2 style={{ marginTop: 22 }}>Review your {booking ? 'booking' : 'order'}</h2>
           <div className="afro-lines">
             {quote.lines.map((line, i) => <div key={i}><span>{line.qty} × {line.name}</span><b>{amount(line.total)}</b></div>)}
@@ -75,8 +73,8 @@ export default function AfroPayCheckout({ quote, payload, onBack, onClose, onPay
             <fieldset className="pay-choice">
               <legend className="afro-legend">How would you like to pay?</legend>
               <div className="pay-choice-options">
-                <label className={method === 'wallet' ? 'chosen' : ''}><input type="radio" name="method" checked={method === 'wallet'} onChange={() => setMethod('wallet')} /><b>Mobile wallet</b><small>Pay now</small></label>
-                <label className={method === 'cash' ? 'chosen' : ''}><input type="radio" name="method" checked={method === 'cash'} onChange={() => setMethod('cash')} /><b>Cash</b><small>Pay your waiter</small></label>
+                <label className={(method === 'wallet' ? 'chosen' : '') + (paymentsReady ? '' : ' disabled')} aria-disabled={!paymentsReady}><input type="radio" name="method" disabled={!paymentsReady} checked={method === 'wallet'} onChange={() => setMethod('wallet')} /><b>Mobile wallet</b><small>{paymentsReady ? 'Pay now' : 'Not available yet'}</small></label>
+                <label className={method === 'cash' ? 'chosen' : ''}><input type="radio" name="method" checked={method === 'cash'} onChange={() => setMethod('cash')} /><b>Cash</b><small>{booking ? 'Pay at the entrance' : 'Pay your waiter'}</small></label>
               </div>
             </fieldset>
           )}
@@ -97,8 +95,8 @@ export default function AfroPayCheckout({ quote, payload, onBack, onClose, onPay
           </label>
           </>}
           {method === 'cash'
-            ? <button className="afro-pay cash" disabled={busy}>{busy ? 'Placing order…' : 'Place order · pay cash ' + amount(quote.total)}</button>
-            : <button className="afro-pay" disabled={busy}>{busy ? (demo ? 'Simulating payment…' : 'Connecting…') : (demo ? 'Pay (demo) · ' : 'Pay online · ') + amount(quote.total)}</button>}
+            ? <button className="afro-pay cash" disabled={busy}>{busy ? (booking ? 'Reserving…' : 'Placing order…') : (booking ? 'Reserve · pay ' : 'Place order · pay cash ') + amount(quote.total)}</button>
+            : <button className="afro-pay" disabled={busy || !paymentsReady}>{busy ? 'Connecting…' : 'Pay online · ' + amount(quote.total)}</button>}
           {method === 'wallet' && <p className="afro-foot">Never share your wallet PIN or one-time code.</p>}
           <button type="button" className="afro-back" onClick={onBack}>Back to {booking ? 'booking' : 'order'}</button>
         </form>

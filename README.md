@@ -22,7 +22,7 @@ python3 launch.py
 or double-click `Start_Encore.command` on a Mac. `dist/` must be built (`npm install && npm run build`, Node 20+).
 
 - **Development with hot reload:** `npm run dev` → admin http://127.0.0.1:5173/admin, guest http://127.0.0.1:5174/
-- **Tests:** `npm test` (33 integration tests, disposable database)
+- **Tests:** `npm test` (37 integration tests, disposable database)
 - **Build:** `npm run build`
 
 There are no default accounts. Create a workspace at `/admin/signup` and save the one-time recovery code.
@@ -59,7 +59,7 @@ In development, SMS messages (sign-in codes, booking and order updates) are **pr
 - **Menu categories** (Settings): add, rename (updates items), reorder, remove when empty.
 - **Tips:** fixed amounts in the workspace currency (default 20, 50, 100) plus an optional custom amount; never preselected, never taxed.
 - **VAT** (Settings): on/off, rate (15% standard), prices VAT-inclusive or VAT added, apply to tickets and/or menu, TIN (10 digits) and VAT registration number. Calculated on the server with exact round-half-up to the cent; the bag shows the server's quote. Turnover tax (TOT) is not offered. Encore receipts are **not fiscal receipts** and this is not tax advice.
-- **Payments:** tickets are **online only** (wallet checkout; simulated in demo mode). Food & drink orders can optionally be paid at the table.
+- **Payments:** wallet checkout (AfroPay) is not connected yet, so it fails closed. Until then each organizer chooses in **Settings → Payments**: cash for food & drink orders, and "reserve tickets and pay at the entrance". Cash is only ever marked paid when staff record it.
 - **Entry:** staff check guests in by scanning each ticket's QR code **or by typing the booking reference** (e.g. `EN-ABC123`, case-insensitive, prefix optional), which admits that booking's tickets one at a time.
 - **Wallet logos:** add official logo files you are permitted to use to `public/wallets/` as `telebirr.png`, `cbe-birr.png`, `mpesa.png`, `awash-birr.png` (svg/webp/jpg also work), then rebuild; otherwise checkout shows the wallet names.
 
@@ -70,6 +70,15 @@ In development, SMS messages (sign-in codes, booking and order updates) are **pr
 - **Brand:** the Encore logo (crimson “e” mark + wordmark) is an SVG component (`src/shared/Logo.jsx`) used across both apps, favicon and app icons.
 - **Wallet logos:** official Telebirr, CBE Birr, M-PESA and Awash Birr logo files in `public/wallets/` appear on checkout.
 - **UI/UX pass** (ui-ux-pro-max checklist): SVG icons instead of emoji/text symbols, 44px touch targets on touch screens, 4.5:1 contrast for secondary text, visible focus on composite inputs, minimum text sizes, 16px inputs on phones.
+
+## Using the app
+
+- **Organizers:** the **Guide** page in the admin sidebar is a handbook — set-up in eight steps, how ticket sales, table ordering, staff orders, check-in, stock and reports work, a routine for running a night, who can do what, and answers to common questions. It prints.
+- **Guests:** **Help → How to use this app** explains the seven steps from finding a concert to following an order.
+
+## App states
+
+Loading, empty, error and offline states are part of the product: skeleton placeholders while data loads, a retry button on every failed load, an offline bar when the connection drops, and an error boundary that keeps the app usable if a screen crashes.
 
 ## Dashboard, reports and analytics
 
