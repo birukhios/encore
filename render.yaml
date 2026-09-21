@@ -29,13 +29,19 @@ services:
         value: "1"
       - key: ENCORE_SECRET
         generateValue: true
-      # DEMO MODE: guest sign-in codes are shown on screen (no SMS) and online checkout simulates a
-      # successful payment (no money moves). Set to "0" before real guests or real sales.
-      - key: ENCORE_DEMO
-        value: "1"
       # PLATFORM CONSOLE (/admin/platform) for Encore operators. Set both values in the Render dashboard
       # (never commit them). The account is created or its password updated on each start. 12+ characters.
       - key: ENCORE_PLATFORM_EMAIL
         sync: false
       - key: ENCORE_PLATFORM_PASSWORD
+        sync: false
+      # GUEST SIGN-IN: set the provider and its credentials in the Render dashboard (never in this file).
+      # twilio | africastalking | afromessage | geezsms | http — see README. Until these are set, guests cannot sign in.
+      - key: SMS_PROVIDER
+        sync: false
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_FROM
         sync: false
