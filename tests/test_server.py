@@ -806,10 +806,23 @@ class SmsProviderTests(unittest.TestCase):
         with self.assertRaisesRegex(sms.DeliveryFailed, 'did not return the code'):
             sms.send_signin_code('+251911234567', '123456', 300)
 
-    def test_afromessage_requires_token_and_sender(self):
+    def test_afromessage_needs_only_a_token_and_defaults_the_sender(self):
         self.use(SMS_PROVIDER='afromessage', AFROMESSAGE_TOKEN='tok')
+        os.environ.pop('AFROMESSAGE_SENDER', None)
+        self.assertTrue(sms.status()['delivers'])
+        sms.send('+251911234567', 'hello')
+        query = dict(urllib.parse.parse_qsl(urllib.parse.urlparse(self.sent[-1]['url']).query))
+        self.assertEqual(query['sender'], 'Afropay')          # default when nothing is configured
+        self.use(AFROMESSAGE_SENDER='Blue Note')
+        sms.send('+251911234567', 'hello')
+        query = dict(urllib.parse.parse_qsl(urllib.parse.urlparse(self.sent[-1]['url']).query))
+        self.assertEqual(query['sender'], 'Blue Note')        # an organizer's own name still wins
+
+    def test_afromessage_without_a_token_never_reports_success(self):
+        self.use(SMS_PROVIDER='afromessage')
+        os.environ.pop('AFROMESSAGE_TOKEN', None)
         self.assertFalse(sms.status()['delivers'])
-        self.assertIn('AFROMESSAGE_SENDER', sms.status()['label'])
+        self.assertIn('AFROMESSAGE_TOKEN', sms.status()['label'])
         with self.assertRaises(sms.NotConfigured):
             sms.send_signin_code('+251911234567', '123456', 300)
         self.assertEqual(self.sent, [])

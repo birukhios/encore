@@ -5,7 +5,7 @@ Nothing is ever reported as sent unless the provider accepted the message.
 
     SMS_PROVIDER=twilio          TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM (or TWILIO_MESSAGING_SERVICE_SID)
     SMS_PROVIDER=africastalking  AT_USERNAME, AT_API_KEY, AT_FROM (optional sender id)
-    SMS_PROVIDER=afromessage     AFROMESSAGE_TOKEN, AFROMESSAGE_SENDER (sender name), AFROMESSAGE_CALLBACK (optional),
+    SMS_PROVIDER=afromessage     AFROMESSAGE_TOKEN, AFROMESSAGE_SENDER (sender name, default "Afropay"), AFROMESSAGE_CALLBACK (optional),
                                  AFROMESSAGE_CHALLENGE=1 to let AfroMessage generate sign-in codes with its
                                  challenge endpoint. `from` is never sent: the token identifies the account.
     SMS_PROVIDER=geezsms         GEEZSMS_TOKEN, GEEZSMS_FROM (optional sender id)
@@ -102,10 +102,13 @@ def _send_africastalking(phone, text):
 AFROMESSAGE_API = 'https://api.afromessage.com/api'
 
 
+AFROMESSAGE_DEFAULT_SENDER = 'Afropay'
+
+
 def _afromessage_auth():
     """AfroMessage identifies the account from the token; `from` is not sent."""
     token, sender, callback = _env('AFROMESSAGE_TOKEN', 'AFROMESSAGE_SENDER', 'AFROMESSAGE_CALLBACK')
-    return {'Authorization': 'Bearer ' + token}, {'sender': sender, 'callback': callback}
+    return {'Authorization': 'Bearer ' + token}, {'sender': sender or AFROMESSAGE_DEFAULT_SENDER, 'callback': callback}
 
 
 def _afromessage_result(body):
@@ -181,7 +184,7 @@ PROVIDERS = {
 REQUIRED = {
     'twilio': _twilio_missing,
     'africastalking': lambda: [n for n in ('AT_USERNAME', 'AT_API_KEY') if not os.environ.get(n)],
-    'afromessage': lambda: [n for n in ('AFROMESSAGE_TOKEN', 'AFROMESSAGE_SENDER') if not os.environ.get(n)],
+    'afromessage': lambda: [n for n in ('AFROMESSAGE_TOKEN',) if not os.environ.get(n)],
     'geezsms': lambda: [n for n in ('GEEZSMS_TOKEN',) if not os.environ.get(n)],
     'http': lambda: [n for n in ('SMS_HTTP_URL',) if not os.environ.get(n)],
 }

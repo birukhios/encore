@@ -411,7 +411,7 @@ td code { background: #eeeff2; }
 <h2>SMS providers (<code>sms.py</code>)</h2>
 <table>
   <tr><th style="width:22%"><code>SMS_PROVIDER</code></th><th>Variables</th><th style="width:28%">Request</th></tr>
-  <tr><td><code>afromessage</code></td><td>AFROMESSAGE_TOKEN, AFROMESSAGE_SENDER, optional AFROMESSAGE_CALLBACK and AFROMESSAGE_CHALLENGE</td><td><code>GET /api/send</code> with a bearer token and <code>sender</code>, <code>to</code>, <code>message</code> (no <code>from</code> — the token identifies the account); only <code>acknowledge: success</code> counts as delivered</td></tr>
+  <tr><td><code>afromessage</code></td><td>AFROMESSAGE_TOKEN; optional AFROMESSAGE_SENDER (default <code>Afropay</code>), AFROMESSAGE_CALLBACK and AFROMESSAGE_CHALLENGE</td><td><code>GET /api/send</code> with a bearer token and <code>sender</code>, <code>to</code>, <code>message</code> (no <code>from</code> — the token identifies the account); only <code>acknowledge: success</code> counts as delivered</td></tr>
   <tr><td><code>twilio</code></td><td>TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM or TWILIO_MESSAGING_SERVICE_SID</td><td>Form POST, HTTP basic auth</td></tr>
   <tr><td><code>africastalking</code></td><td>AT_USERNAME, AT_API_KEY, AT_FROM (optional)</td><td>Form POST, <code>apiKey</code> header (sandbox host when username is <code>sandbox</code>)</td></tr>
   <tr><td><code>geezsms</code></td><td>GEEZSMS_TOKEN, GEEZSMS_FROM (optional)</td><td>JSON POST with token in the body</td></tr>
