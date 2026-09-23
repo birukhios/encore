@@ -1020,6 +1020,7 @@ if __name__ == '__main__':
         if not PROD:
             problems.insert(0, 'ENCORE_ENV is not "production": secure cookies, HSTS and origin checks are relaxed.')
         notes = []
+        notes.append(f'SMS: {sms.status()["label"]}' + ('' if sms.status()['delivers'] else ' — guests cannot sign in until this is fixed.'))
         if not db.POSTGRES:
             notes.append('DATABASE_URL is not set: using SQLite in ENCORE_DATA. Back it up, or use PostgreSQL.')
         if not PAYMENTS_READY:
