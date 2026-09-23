@@ -24,7 +24,8 @@ It lists what **must be fixed** (the server refuses to start in production until
 | `SMS_PROVIDER` | a real SMS provider (see §3) |
 | `ENCORE_PLATFORM_EMAIL`, `ENCORE_PLATFORM_PASSWORD` | platform console operator (12+ character password), or run `python3 server.py --create-platform-admin` |
 
-Set secrets in your host's secret store. Never commit them.
+Set secrets in your host's secret store (on Render: service → **Environment**). Locally, put them in a `.env` file in
+the project folder — Encore reads it at start-up and real environment variables always win. Never commit `.env`.
 
 ## 3. Not connected yet — must be completed before launch
 

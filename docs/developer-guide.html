@@ -553,6 +553,9 @@ td code { background: #eeeff2; }
   <tr><td><code>SMS_PROVIDER</code> + provider variables</td><td>console in dev</td><td>See §7. Without it, guest sign-in fails closed.</td></tr>
   <tr><td><code>ENCORE_PLATFORM_EMAIL</code> · <code>_PASSWORD</code> · <code>_NAME</code></td><td>—</td><td>Creates or updates the platform operator at start-up.</td></tr>
 </table>
+<p><b>Where they come from:</b> <code>server.load_env_file()</code> reads a <code>.env</code> file in the project folder at start-up for local work;
+anything already in the real environment wins, so hosts such as Render (service → Environment, keys declared in
+<code>render.yaml</code> with <code>sync: false</code>) are unaffected. <code>.env</code> is git-ignored and the pre-commit hook refuses to commit it.</p>
 
 <h1 class="section"><span class="num">13</span>Development workflow</h1>
 <h2>Prerequisites</h2>

@@ -139,6 +139,14 @@ Guests sign in with their phone number and a 6-digit code. Choose a provider and
 | `geezsms` | `GEEZSMS_TOKEN`, `GEEZSMS_FROM` (optional) |
 | `http` | `SMS_HTTP_URL`, `SMS_HTTP_AUTH`, `SMS_HTTP_BODY` (template with `{phone}` and `{text}`) — any other gateway |
 
+Where to put them:
+
+- **Local development:** copy `.env.example` to `.env` in the project folder and fill in the values. Encore reads it at
+  start-up; real environment variables always win, and `.env` is git-ignored — never commit it.
+- **Render (live):** service → **Environment** → *Add Environment Variable*, then **Save Changes** (the service restarts).
+  Secrets never belong in `render.yaml`; it only declares the keys with `sync: false`.
+- **Docker or a VPS:** pass them with `--env-file .env`, your process manager's environment, or a secret manager.
+
 Prove delivery before launch:
 
 ```

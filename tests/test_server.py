@@ -367,6 +367,23 @@ class AppTests(unittest.TestCase):
         self.assertTrue(any('ready' in msg and phone == guest['phone'] for phone, msg in SENT))
 
 
+    def test_env_file_fills_gaps_without_overriding(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / '.env'
+            path.write_text('# comment\nSMS_PROVIDER=afromessage\nAFROMESSAGE_TOKEN="from-file"\nENCORE_ENV=production\nbroken line\n')
+            os.environ['ENCORE_ENV'] = 'development'  # a real variable must win
+            os.environ.pop('AFROMESSAGE_TOKEN', None)
+            provider = os.environ.get('SMS_PROVIDER')
+            try:
+                s.load_env_file(path)
+                self.assertEqual(os.environ['AFROMESSAGE_TOKEN'], 'from-file')
+                self.assertEqual(os.environ['ENCORE_ENV'], 'development')
+                self.assertEqual(os.environ['SMS_PROVIDER'], provider)  # already set by the test harness
+            finally:
+                os.environ.pop('AFROMESSAGE_TOKEN', None)
+                os.environ.pop('ENCORE_ENV', None)
+        self.assertEqual(s.load_env_file(Path(folder) / 'missing.env'), 0)
+
     def test_head_robots_and_gzip(self):
         import gzip as gz
         c = http.client.HTTPConnection('127.0.0.1', self.guest.server_port)

@@ -27,6 +27,31 @@ import sms
 from domain import text, email, uid
 
 ROOT = Path(__file__).resolve().parent
+
+
+def load_env_file(path=None):
+    """Read KEY=VALUE lines from .env so local runs need no shell setup.
+
+    Real environment variables always win, so hosts such as Render are unaffected. Never commit .env.
+    """
+    try:
+        lines = (path or ROOT / '.env').read_text().splitlines()
+    except OSError:
+        return 0
+    loaded = 0
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith('#') or '=' not in line:
+            continue
+        key, value = line.split('=', 1)
+        key, value = key.strip(), value.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = value
+            loaded += 1
+    return loaded
+
+
+load_env_file()
 DATA = Path(os.environ.get('ENCORE_DATA', ROOT / 'data'))
 UPLOADS = DATA / 'uploads'
 DB = DATA / 'encore.sqlite3'
