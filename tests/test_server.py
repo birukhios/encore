@@ -367,10 +367,31 @@ class AppTests(unittest.TestCase):
         self.assertTrue(any('ready' in msg and phone == guest['phone'] for phone, msg in SENT))
 
 
+    def test_sms_failures_are_logged_without_the_number_or_secrets(self):
+        import io
+        from contextlib import redirect_stderr
+        captured = io.StringIO()
+        original = sms.PROVIDERS.get('test')
+        sms.PROVIDERS['test'] = lambda phone, text: (_ for _ in ()).throw(sms.DeliveryFailed('403: invalid sender name'))
+        try:
+            with redirect_stderr(captured):
+                status, body = Client(self.guest.server_port)('guest/otp', {'phone': '0955 123 456'})
+        finally:
+            sms.PROVIDERS['test'] = original
+        self.assertEqual((status, body['code']), (502, 'SMS_FAILED'))
+        logged = captured.getvalue()
+        self.assertIn('invalid sender name', logged)      # operators see the provider's reason
+        self.assertNotIn('955123456', logged)             # the full number does not reach the log
+        self.assertNotIn('invalid sender', body['error'])  # nor does the reason reach the guest
+        self.assertEqual(s.mask_phone('+251911234567'), '+2519****4567')
+
     def test_env_file_fills_gaps_without_overriding(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / '.env'
-            path.write_text('# comment\nSMS_PROVIDER=afromessage\nAFROMESSAGE_TOKEN="from-file"\nENCORE_ENV=production\nbroken line\n')
+            os.environ.pop('ENCORE_SKIP_DOTENV', None)
+            path.write_text('# comment\nSMS_PROVIDER=afromessage\nAFROMESSAGE_TOKEN="from-file"\n'
+                            'ENCORE_ENV=production\nbroken line\nPORT=8081   # organizer admin\n'
+                            'ENCORE_SECRET="keeps # inside quotes"\n')
             os.environ['ENCORE_ENV'] = 'development'  # a real variable must win
             os.environ.pop('AFROMESSAGE_TOKEN', None)
             provider = os.environ.get('SMS_PROVIDER')
@@ -379,9 +400,11 @@ class AppTests(unittest.TestCase):
                 self.assertEqual(os.environ['AFROMESSAGE_TOKEN'], 'from-file')
                 self.assertEqual(os.environ['ENCORE_ENV'], 'development')
                 self.assertEqual(os.environ['SMS_PROVIDER'], provider)  # already set by the test harness
+                self.assertEqual(os.environ['PORT'], '8081')                     # inline comments are stripped
+                self.assertEqual(os.environ['ENCORE_SECRET'], 'keeps # inside quotes')  # quoted values keep theirs
             finally:
-                os.environ.pop('AFROMESSAGE_TOKEN', None)
-                os.environ.pop('ENCORE_ENV', None)
+                for key in ('AFROMESSAGE_TOKEN', 'ENCORE_ENV', 'PORT', 'ENCORE_SECRET'):
+                    os.environ.pop(key, None)
         self.assertEqual(s.load_env_file(Path(folder) / 'missing.env'), 0)
 
     def test_head_robots_and_gzip(self):

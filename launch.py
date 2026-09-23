@@ -20,6 +20,7 @@ if sys.version_info < (3,11) or not hasattr(hashlib,"scrypt"):
  sys.exit(1)
 from pathlib import Path
 if '--test' in sys.argv:
+ os.environ['ENCORE_SKIP_DOTENV']='1'  # a developer's .env must never change what the tests prove
  import unittest
  os.chdir(Path(__file__).parent)
  suite=unittest.defaultTestLoader.discover('tests')

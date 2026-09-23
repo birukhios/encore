@@ -34,6 +34,8 @@ def load_env_file(path=None):
 
     Real environment variables always win, so hosts such as Render are unaffected. Never commit .env.
     """
+    if os.environ.get('ENCORE_SKIP_DOTENV') == '1':
+        return 0
     try:
         lines = (path or ROOT / '.env').read_text().splitlines()
     except OSError:
@@ -44,7 +46,11 @@ def load_env_file(path=None):
         if not line or line.startswith('#') or '=' not in line:
             continue
         key, value = line.split('=', 1)
-        key, value = key.strip(), value.strip().strip('"').strip("'")
+        key, value = key.strip(), value.strip()
+        if value[:1] in ('"', "'") and value[:1] == value[-1:] and len(value) > 1:
+            value = value[1:-1]                      # quoted: keep it exactly, including any '#'
+        else:
+            value = re.split(r'\s+#', value, 1)[0].strip()   # unquoted: '  # note' is a comment
         if key and key not in os.environ:
             os.environ[key] = value
             loaded += 1
@@ -207,6 +213,17 @@ def text_guest(phone, message):
         sms.send(phone, message)
     except (sms.NotConfigured, sms.DeliveryFailed):
         pass
+
+
+def mask_phone(phone):
+    """Keep phone numbers out of logs: +251911234567 -> +2519****4567."""
+    value = str(phone)
+    return value[:5] + '*' * max(0, len(value) - 9) + value[-4:] if len(value) > 9 else '***'
+
+
+def log_sms_problem(kind, phone, exc):
+    """Record why a message was refused so operators can fix it. The provider's reason never reaches the guest."""
+    print(f'SMS {kind} [{sms.provider_name() or "none"}] to {mask_phone(phone)}: {exc}', file=sys.stderr, flush=True)
 
 
 def rate_limited(key, limit, window):
@@ -835,9 +852,11 @@ class GuestHandler(BaseHandler):
             try:
                 # The provider may generate the code itself (AfroMessage challenge); store what it sent.
                 code = sms.send_signin_code(phone, code, OTP_TTL)
-            except sms.NotConfigured:
+            except sms.NotConfigured as exc:
+                log_sms_problem('not configured', phone, exc)
                 raise ApiError(503, 'Phone sign-in is temporarily unavailable. Please try again later.', 'SMS_NOT_CONFIGURED')
-            except sms.DeliveryFailed:
+            except sms.DeliveryFailed as exc:
+                log_sms_problem('delivery failed', phone, exc)
                 raise ApiError(502, 'We could not send a code to this number. Check it and try again.', 'SMS_FAILED')
             c.execute('INSERT INTO otps(phone,code,expires,attempts,sent) VALUES(?,?,?,0,?) '
                       'ON CONFLICT(phone) DO UPDATE SET code=excluded.code,expires=excluded.expires,attempts=0,sent=excluded.sent',
