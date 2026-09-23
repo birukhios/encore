@@ -39,6 +39,14 @@ services:
       # twilio | africastalking | afromessage | geezsms | http — see README. Until these are set, guests cannot sign in.
       - key: SMS_PROVIDER
         sync: false
+      - key: AFROMESSAGE_TOKEN
+        sync: false
+      - key: AFROMESSAGE_FROM
+        sync: false
+      - key: AFROMESSAGE_SENDER
+        sync: false
+      - key: AFROMESSAGE_CHALLENGE
+        sync: false
       - key: TWILIO_ACCOUNT_SID
         sync: false
       - key: TWILIO_AUTH_TOKEN

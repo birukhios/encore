@@ -808,7 +808,8 @@ class GuestHandler(BaseHandler):
                 raise ApiError(429, 'Too many codes were sent to this number. Try again in an hour.')
             code = f'{secrets.randbelow(1000000):06d}'
             try:
-                sms.send(phone, f'Your Encore code is {code}. It expires in 5 minutes. Never share this code.')
+                # The provider may generate the code itself (AfroMessage challenge); store what it sent.
+                code = sms.send_signin_code(phone, code, OTP_TTL)
             except sms.NotConfigured:
                 raise ApiError(503, 'Phone sign-in is temporarily unavailable. Please try again later.', 'SMS_NOT_CONFIGURED')
             except sms.DeliveryFailed:

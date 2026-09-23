@@ -22,12 +22,13 @@ python3 launch.py
 or double-click `Start_Encore.command` on a Mac. `dist/` must be built (`npm install && npm run build`, Node 20+).
 
 - **Development with hot reload:** `npm run dev` → admin http://127.0.0.1:5173/admin, guest http://127.0.0.1:5174/
-- **Tests:** `npm test` (37 integration tests, disposable database)
+- **Tests:** `npm test` (39 integration tests, disposable database)
 - **Build:** `npm run build`
 
 There are no default accounts. Create a workspace at `/admin/signup` and save the one-time recovery code.
 
 In development, SMS messages (sign-in codes, booking and order updates) are **printed in the server terminal and not delivered**.
+In production set `SMS_PROVIDER` and its credentials - see **Guest sign-in (SMS)** below. There is no demo mode: codes are never shown on screen and payments are never simulated.
 
 ## Features
 
@@ -116,7 +117,7 @@ For Encore's own operators, separate from organizer accounts: its own table, a 1
 - **Guests:** every guest account with organizations used, tickets, orders, total spent and last activity, plus conversion and lifetime value.
 - **Accounts:** organizer staff across organizations, with role counts, last sign-in, **End sessions**, and **Reset password**. A reset shows a one-time recovery code; the person then uses **Forgot password?** to choose a new password. Every reset is logged.
 - **Activity:** organizer and guest actions (last 300) and the platform admin log (sign-ins, suspensions, ended sessions).
-- **System:** database, environment, demo mode, SMS and payment status, session and sign-in code counts.
+- **System:** database, environment, SMS and payment status, session and sign-in code counts.
 
 ## Appearance
 
@@ -126,9 +127,39 @@ Organizers choose the default look in Settings → Appearance (guest app and das
 
 AfroPay is **not integrated**; no provider API was invented. `POST /api/checkout` always fails with `PAYMENT_NOT_CONFIGURED`. The only way to reserve is **pay at the venue**: records are created unpaid, staff collect payment in person and record it. Nothing is ever marked paid by the guest or by the payment screen. To integrate AfroPay, supply the merchant API documentation (checkout creation, verification, webhook signatures, refunds).
 
-## SMS — provider not connected
+## Guest sign-in (SMS)
 
-`sms.py` is a provider adapter. Development prints messages to the terminal. In production (`ENCORE_ENV=production`) sign-in codes are refused with `SMS_NOT_CONFIGURED` until a real provider is implemented against its documented API and registered in `sms.PROVIDERS`. Codes are 6 digits, stored as HMAC hashes, expire in 5 minutes, allow 5 attempts, 60 s resend wait, 5 sends per number per hour, 20 per IP per hour.
+Guests sign in with their phone number and a 6-digit code. Choose a provider and set its variables:
+
+| `SMS_PROVIDER` | Variables |
+| --- | --- |
+| `afromessage` | `AFROMESSAGE_TOKEN`, `AFROMESSAGE_FROM` (identifier id), `AFROMESSAGE_SENDER` (sender name), optional `AFROMESSAGE_CALLBACK`, `AFROMESSAGE_CHALLENGE=1` |
+| `twilio` | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM` (or `TWILIO_MESSAGING_SERVICE_SID`) |
+| `africastalking` | `AT_USERNAME`, `AT_API_KEY`, `AT_FROM` (optional) |
+| `geezsms` | `GEEZSMS_TOKEN`, `GEEZSMS_FROM` (optional) |
+| `http` | `SMS_HTTP_URL`, `SMS_HTTP_AUTH`, `SMS_HTTP_BODY` (template with `{phone}` and `{text}`) — any other gateway |
+
+Prove delivery before launch:
+
+```
+SMS_PROVIDER=... python3 server.py --sms-test +251911234567
+```
+
+### AfroMessage (Ethiopia)
+
+Encore calls the documented API: `GET https://api.afromessage.com/api/send` with a `Bearer` token and
+`from`, `sender`, `to`, `message` (plus `callback` when set). A message counts as sent **only** when the reply is
+`{"acknowledge": "success", ...}`; anything else is reported as a failure and the guest sees a clear error.
+
+With `AFROMESSAGE_CHALLENGE=1`, sign-in codes use `GET /api/challenge`: AfroMessage generates, formats and sends the
+code and returns it, and Encore stores that code as an HMAC hash to verify the guest. Wording and format are
+configurable with `AFROMESSAGE_PREFIX` (default "Your Encore code is"), `AFROMESSAGE_POSTFIX` and `AFROMESSAGE_CODE_TYPE`
+(default `0`, numeric); length follows Encore's 6 digits and `ttl` its 5-minute expiry. If the reply has no code, the
+sign-in fails rather than leaving a code nobody can verify.
+
+Codes are stored as HMAC hashes, expire in 5 minutes, allow 5 attempts, need a 60-second wait before resending, and are
+limited to 5 per number per hour and 20 per IP per hour. Until a provider is configured, sign-in answers
+`SMS_NOT_CONFIGURED` and nothing is sent.
 
 ## Deploy on Render
 
@@ -153,7 +184,7 @@ Production security headers: HSTS, CSP with hashed inline scripts, `X-Frame-Opti
 ## Before selling real tickets
 
 These are **not done** and block calling this production-ready:
-- A real SMS provider (guest sign-in does not work in production without it).
+- SMS credentials for one of the built-in providers (guest sign-in does not work in production without them).
 - AfroPay (online payment), refunds, reconciliation.
 - The server uses Python's standard-library threaded HTTP server with SQLite. It is fine for a single venue's load behind a TLS proxy, but has no load testing, and rate limits are per process in memory.
 - No email delivery; admin password recovery is code-based.

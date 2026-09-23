@@ -5,7 +5,9 @@ Nothing is ever reported as sent unless the provider accepted the message.
 
     SMS_PROVIDER=twilio          TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM (or TWILIO_MESSAGING_SERVICE_SID)
     SMS_PROVIDER=africastalking  AT_USERNAME, AT_API_KEY, AT_FROM (optional sender id)
-    SMS_PROVIDER=afromessage     AFROMESSAGE_TOKEN, AFROMESSAGE_FROM (identifier id), AFROMESSAGE_SENDER (optional sender name)
+    SMS_PROVIDER=afromessage     AFROMESSAGE_TOKEN, AFROMESSAGE_FROM (identifier id), AFROMESSAGE_SENDER (sender name),
+                                 AFROMESSAGE_CALLBACK (optional), AFROMESSAGE_CHALLENGE=1 to let AfroMessage
+                                 generate sign-in codes with its challenge endpoint
     SMS_PROVIDER=geezsms         GEEZSMS_TOKEN, GEEZSMS_FROM (optional sender id)
     SMS_PROVIDER=http            SMS_HTTP_URL, SMS_HTTP_METHOD (POST), SMS_HTTP_AUTH (header value),
                                  SMS_HTTP_BODY (JSON template with {phone} and {text}), SMS_HTTP_CONTENT_TYPE
@@ -61,6 +63,12 @@ def _json_post(url, payload, headers=None):
     return _request(url, json.dumps(payload).encode(), head)
 
 
+def _get(url, params, headers=None):
+    query = urllib.parse.urlencode({k: v for k, v in params.items() if v not in (None, '')})
+    head = {'Content-Type': 'application/json', **(headers or {})}
+    return _request(f'{url}?{query}', None, head, 'GET')
+
+
 def _env(*names):
     return [os.environ.get(name, '').strip() for name in names]
 
@@ -91,15 +99,42 @@ def _send_africastalking(phone, text):
     _form(f'https://{host}/version1/messaging', fields, {'apiKey': key, 'Accept': 'application/json'})
 
 
+AFROMESSAGE_API = 'https://api.afromessage.com/api'
+
+
+def _afromessage_auth():
+    token, identifier, sender, callback = _env('AFROMESSAGE_TOKEN', 'AFROMESSAGE_FROM', 'AFROMESSAGE_SENDER', 'AFROMESSAGE_CALLBACK')
+    return {'Authorization': 'Bearer ' + token}, {'from': identifier, 'sender': sender, 'callback': callback}
+
+
+def _afromessage_result(body):
+    """AfroMessage answers 200 for failures too: only `acknowledge: success` means the message was accepted."""
+    try:
+        data = json.loads(body)
+    except (ValueError, TypeError):
+        raise DeliveryFailed(f'unexpected reply from AfroMessage: {body[:200]}')
+    if not isinstance(data, dict) or str(data.get('acknowledge', '')).lower() != 'success':
+        detail = data.get('response') if isinstance(data, dict) else None
+        raise DeliveryFailed(str(detail or data.get('message') if isinstance(data, dict) else body)[:200])
+    return data.get('response') or {}
+
+
 def _send_afromessage(phone, text):
-    token, identifier, sender = _env('AFROMESSAGE_TOKEN', 'AFROMESSAGE_FROM', 'AFROMESSAGE_SENDER')
-    payload = {'to': phone, 'message': text}
-    if identifier:
-        payload['from'] = identifier
-    if sender:
-        payload['sender'] = sender
-    body = _json_post('https://api.afromessage.com/api/send', payload, {'Authorization': 'Bearer ' + token})
-    _reject_error_body(body)
+    headers, base = _afromessage_auth()
+    _afromessage_result(_get(f'{AFROMESSAGE_API}/send', {**base, 'to': phone, 'message': text}, headers))
+
+
+def _afromessage_challenge(phone, ttl, length):
+    """AfroMessage generates and sends the code; it comes back in the response so Encore can verify it."""
+    headers, base = _afromessage_auth()
+    prefix, postfix, code_type = _env('AFROMESSAGE_PREFIX', 'AFROMESSAGE_POSTFIX', 'AFROMESSAGE_CODE_TYPE')
+    params = {**base, 'to': phone, 'len': length, 'ttl': ttl, 't': code_type or 0, 'sb': 0, 'sa': 0,
+              'pr': prefix or 'Your Encore code is', 'ps': postfix or 'It expires in 5 minutes. Never share this code.'}
+    result = _afromessage_result(_get(f'{AFROMESSAGE_API}/challenge', params, headers))
+    code = str(result.get('code') or '').strip()
+    if not code:
+        raise DeliveryFailed('AfroMessage did not return the code it sent, so the sign-in cannot be verified.')
+    return code
 
 
 def _send_geezsms(phone, text):
@@ -145,7 +180,7 @@ PROVIDERS = {
 REQUIRED = {
     'twilio': _twilio_missing,
     'africastalking': lambda: [n for n in ('AT_USERNAME', 'AT_API_KEY') if not os.environ.get(n)],
-    'afromessage': lambda: [n for n in ('AFROMESSAGE_TOKEN',) if not os.environ.get(n)],
+    'afromessage': lambda: [n for n in ('AFROMESSAGE_TOKEN', 'AFROMESSAGE_FROM', 'AFROMESSAGE_SENDER') if not os.environ.get(n)],
     'geezsms': lambda: [n for n in ('GEEZSMS_TOKEN',) if not os.environ.get(n)],
     'http': lambda: [n for n in ('SMS_HTTP_URL',) if not os.environ.get(n)],
 }
@@ -180,6 +215,25 @@ def status():
                 'label': 'Development mode: codes are printed in the server terminal, not sent'}
     return {'provider': name or None, 'delivers': False,
             'label': 'Not configured — set SMS_PROVIDER and its credentials'}
+
+
+def flag(name):
+    return os.environ.get(name, '').strip().lower() in ('1', 'true', 'yes', 'on')
+
+
+def send_signin_code(phone, code, ttl, length=6):
+    """Deliver a sign-in code and return the code that was actually sent.
+
+    Most providers send the code Encore generated. AfroMessage's challenge endpoint generates its own
+    and returns it, so the caller stores whatever comes back.
+    """
+    if provider_name() == 'afromessage' and flag('AFROMESSAGE_CHALLENGE'):
+        missing = missing_settings()
+        if missing:
+            raise NotConfigured(f'afromessage is missing {", ".join(missing)}.')
+        return _afromessage_challenge(phone, ttl, length)
+    send(phone, f'Your Encore code is {code}. It expires in {ttl // 60} minutes. Never share this code.')
+    return code
 
 
 def send(phone, text):

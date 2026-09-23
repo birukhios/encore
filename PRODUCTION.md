@@ -30,9 +30,9 @@ Set secrets in your host's secret store. Never commit them.
 
 These need information only the business can provide. Encore fails closed until they are done.
 
-1. **SMS provider (guest sign-in).** Guests sign in with a code sent by SMS. Implement `_send_<provider>(phone, text)` in
-   `sms.py` against your provider's documented API (for example an Ethiopian SMS gateway), register it in `PROVIDERS`,
-   and set `SMS_PROVIDER`. Until then guest sign-in returns "temporarily unavailable".
+1. **SMS credentials (guest sign-in).** Providers are built in: `afromessage`, `twilio`, `africastalking`, `geezsms`,
+   and a generic `http` gateway. Set `SMS_PROVIDER` and that provider's variables (see README), then prove delivery with
+   `python3 server.py --sms-test +2519...`. Until this is done guest sign-in returns "temporarily unavailable".
 2. **AfroPay online payments (tickets and wallet payments).** Requires AfroPay's merchant API documentation and
    credentials: payment request, callback/webhook signature verification, status lookup and refunds. Until then
    `/api/checkout` returns `PAYMENT_NOT_CONFIGURED` and no one is charged. Food & drink orders still work with **cash**
@@ -62,7 +62,7 @@ Other hosts: `Dockerfile` builds both apps; see `deploy/Caddyfile` for HTTPS in 
 
 ## 6. Verified in this edition
 
-- 33 automated tests on SQLite and PostgreSQL (accounts, tenant isolation, pricing with VAT and service charge,
+- 39 automated tests on SQLite and PostgreSQL (accounts, tenant isolation, pricing with VAT and service charge,
   stock, waiters and tips, cash orders, check-in, platform console, suspension, HEAD/robots/gzip).
 - Security headers (CSP, HSTS in production, frame and content-type protection), rate-limited sign-in and codes,
   hashed passwords, codes and sessions, server-side pricing, single-use tickets.
