@@ -147,6 +147,16 @@ Where to put them:
   Secrets never belong in `render.yaml`; it only declares the keys with `sync: false`.
 - **Docker or a VPS:** pass them with `--env-file .env`, your process manager's environment, or a secret manager.
 
+Every attempt is logged, in both directions:
+
+```
+SMS -> GET https://api.afromessage.com/api/send?sender=Afropay&to=+2519****4567&message=<27 chars hidden>
+SMS <- 200 {"acknowledge":"error","response":{"errors":["sender name not approved"]}}
+```
+
+The guest's number is masked and the message (which contains the sign-in code) is hidden. Set `SMS_DEBUG=1`
+to log both in full while troubleshooting, then turn it off — a code in a log file is a code anyone can use.
+
 Prove delivery before launch:
 
 ```

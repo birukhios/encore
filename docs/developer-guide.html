@@ -419,6 +419,7 @@ td code { background: #eeeff2; }
 </table>
 <ul>
   <li><b>AfroMessage challenge codes:</b> with <code>AFROMESSAGE_CHALLENGE=1</code>, sign-in uses <code>GET /api/challenge</code> — AfroMessage generates, formats and sends the code and returns it, and <code>send_signin_code()</code> hands that code back so the server stores its HMAC for verification. A challenge reply without a code fails closed. Wording and format come from <code>AFROMESSAGE_PREFIX</code>, <code>AFROMESSAGE_POSTFIX</code> and <code>AFROMESSAGE_CODE_TYPE</code>; <code>len</code> and <code>ttl</code> follow Encore's 6 digits and 5 minutes.</li>
+  <li><b>Logging:</b> every request and reply is written to the server log — <code>SMS -&gt; GET …</code> and <code>SMS &lt;- 200 {…}</code> — with the guest's number masked and the message and any generated code hidden. <code>SMS_DEBUG=1</code> logs them in full for short troubleshooting sessions.</li>
   <li><code>status()</code> reports which variables are still missing; the production check refuses to call SMS “working” until it can deliver.</li>
   <li>Gateways that answer <code>200</code> with an error payload are treated as failures.</li>
   <li>Prove delivery before launch: <code>python3 server.py --sms-test +251911234567</code>.</li>

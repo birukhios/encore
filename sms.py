@@ -13,6 +13,9 @@ Nothing is ever reported as sent unless the provider accepted the message.
                                  SMS_HTTP_BODY (JSON template with {phone} and {text}), SMS_HTTP_CONTENT_TYPE
     SMS_PROVIDER=console         Development only: the message is printed, never delivered. Refused in production.
 
+Every request and reply is logged. The message text, the sign-in code and the guest's number are hidden;
+set SMS_DEBUG=1 to log them in full while troubleshooting, then turn it off.
+
 `http` is the safe choice for a gateway not listed here: it posts whatever body template you configure.
 Confirm the endpoint and field names against your provider's current documentation, then check delivery with:
 
@@ -21,6 +24,7 @@ Confirm the endpoint and field names against your provider's current documentati
 import base64
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.parse
@@ -37,19 +41,69 @@ class DeliveryFailed(Exception):
     """Raised when the configured provider rejected or failed to accept a message."""
 
 
+SECRET_FIELDS = ('message', 'msg', 'text', 'Body', 'pr', 'ps', 'token')
+
+
+def debug():
+    """SMS_DEBUG=1 logs requests and replies in full, including the sign-in code. Use it briefly, then turn it off."""
+    return os.environ.get('SMS_DEBUG', '').strip().lower() in ('1', 'true', 'yes', 'on')
+
+
+def _log(line):
+    print(f'SMS {line}', file=sys.stderr, flush=True)
+
+
+def mask_phone(value):
+    value = str(value)
+    return value[:5] + '*' * max(0, len(value) - 9) + value[-4:] if len(value) > 9 else '***'
+
+
+def safe_url(url):
+    """The query carries the message (and therefore the code) and the guest's number: hide both."""
+    if debug():
+        return url
+    head, _, query = url.partition('?')
+    if not query:
+        return url
+    parts = []
+    for key, value in urllib.parse.parse_qsl(query, keep_blank_values=True):
+        if key in SECRET_FIELDS:
+            value = f'<{len(value)} chars hidden>'
+        elif key in ('to', 'phone', 'To'):
+            value = mask_phone(value)
+        parts.append(f'{key}={value}')
+    return head + '?' + '&'.join(parts)
+
+
+def safe_body(body):
+    """Keep the gateway's status and errors; hide any code it generated."""
+    if debug():
+        return body
+    text = re.sub(r'("(?:code|pin|otp)"\s*:\s*")[^"]*(")', r'\1***\2', body or '')
+    return text[:400]
+
+
 def _request(url, data=None, headers=None, method='POST'):
-    """Send one HTTP request and return the decoded body, or raise DeliveryFailed with the provider's reason."""
+    """Send one HTTP request and return the decoded body, or raise DeliveryFailed with the provider's reason.
+
+    Both directions are logged so operators can see exactly what the gateway was asked and what it answered.
+    """
     request = urllib.request.Request(url, data=data, headers=headers or {}, method=method)
+    payload = (data or b'').decode('utf-8', 'replace')
+    _log(f'-> {method} {safe_url(url)}' + (f' body={safe_body(payload)}' if payload else ''))
     try:
         with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
             body = response.read().decode('utf-8', 'replace')
+        _log(f'<- {response.status} {safe_body(body)}')
         if not 200 <= response.status < 300:
             raise DeliveryFailed(f'{response.status}: {body[:200]}')
         return body
     except urllib.error.HTTPError as exc:
-        detail = exc.read().decode('utf-8', 'replace')[:200] if exc.fp else ''
-        raise DeliveryFailed(f'{exc.code}: {detail}') from exc
+        detail = exc.read().decode('utf-8', 'replace')[:400] if exc.fp else ''
+        _log(f'<- {exc.code} {safe_body(detail)}')
+        raise DeliveryFailed(f'{exc.code}: {detail[:200]}') from exc
     except urllib.error.URLError as exc:
+        _log(f'<- no reply: {exc.reason}')
         raise DeliveryFailed(f'could not reach the SMS provider: {exc.reason}') from exc
 
 

@@ -780,6 +780,29 @@ class SmsProviderTests(unittest.TestCase):
         sms.send('+251911234567', 'hello')
         self.assertEqual(json.loads(self.sent[-1]['body'])['msg'], 'hello')
 
+    def test_requests_and_replies_are_logged_without_codes(self):
+        import io
+        from contextlib import redirect_stderr
+        self.use(SMS_PROVIDER='afromessage', AFROMESSAGE_TOKEN='tok')
+        self.reply = json.dumps({'acknowledge': 'success', 'response': {'code': '778899', 'message_id': 'abc'}}).encode()
+        os.environ.pop('SMS_DEBUG', None)
+        captured = io.StringIO()
+        with redirect_stderr(captured):
+            sms.send('+251911234567', 'Your Encore code is 123456.')
+        quiet = captured.getvalue()
+        self.assertIn('-> GET https://api.afromessage.com/api/send', quiet)
+        self.assertIn('<- 200', quiet)
+        self.assertIn('acknowledge', quiet)          # the gateway's answer is visible
+        self.assertIn('+2519****4567', quiet)        # the number is masked
+        self.assertNotIn('123456', quiet)            # the code Encore sent is hidden
+        self.assertNotIn('778899', quiet)            # and the code the gateway generated
+        self.use(SMS_DEBUG='1')
+        loud = io.StringIO()
+        with redirect_stderr(loud):
+            sms.send('+251911234567', 'Your Encore code is 123456.')
+        self.assertIn('123456', loud.getvalue())     # full detail only while debugging
+        self.assertIn('778899', loud.getvalue())
+
     def test_afromessage_reports_failure_and_challenge_codes(self):
         self.use(SMS_PROVIDER='afromessage', AFROMESSAGE_TOKEN='tok', AFROMESSAGE_SENDER='Encore')
         # Anything other than acknowledge: success is a failure, even with HTTP 200.

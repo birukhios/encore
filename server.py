@@ -216,9 +216,7 @@ def text_guest(phone, message):
 
 
 def mask_phone(phone):
-    """Keep phone numbers out of logs: +251911234567 -> +2519****4567."""
-    value = str(phone)
-    return value[:5] + '*' * max(0, len(value) - 9) + value[-4:] if len(value) > 9 else '***'
+    return sms.mask_phone(phone)
 
 
 def log_sms_problem(kind, phone, exc):
