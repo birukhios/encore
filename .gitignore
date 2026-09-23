@@ -8,7 +8,8 @@ __pycache__/
 !.env.example
 .pnpm-store/
 .DS_Store
-.claude/
+.claude/*
+!.claude/settings.json
 
 # Claude Code artifacts
 .claude/memory.json
