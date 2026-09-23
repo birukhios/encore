@@ -767,13 +767,13 @@ class SmsProviderTests(unittest.TestCase):
         self.assertEqual(self.sent[-1]['url'], 'https://api.africastalking.com/version1/messaging')
         self.assertEqual(self.sent[-1]['headers']['apikey'], 'key')
 
-        self.use(SMS_PROVIDER='afromessage', AFROMESSAGE_TOKEN='tok', AFROMESSAGE_FROM='identifier-id', AFROMESSAGE_SENDER='Encore')
+        self.use(SMS_PROVIDER='afromessage', AFROMESSAGE_TOKEN='tok', AFROMESSAGE_SENDER='Encore')
         self.reply = json.dumps({'acknowledge': 'success', 'response': {'status': 'Send in progress...', 'message_id': 'abc'}}).encode()
         sms.send('+251911234567', 'hello')
         url = urllib.parse.urlparse(self.sent[-1]['url'])
         query = dict(urllib.parse.parse_qsl(url.query))
         self.assertEqual((url.scheme, url.netloc, url.path, self.sent[-1]['method']), ('https', 'api.afromessage.com', '/api/send', 'GET'))
-        self.assertEqual(query, {'from': 'identifier-id', 'sender': 'Encore', 'to': '+251911234567', 'message': 'hello'})
+        self.assertEqual(query, {'sender': 'Encore', 'to': '+251911234567', 'message': 'hello'})  # no `from`
         self.assertEqual(self.sent[-1]['headers']['authorization'], 'Bearer tok')
 
         self.use(SMS_PROVIDER='geezsms', GEEZSMS_TOKEN='tok2')
@@ -781,7 +781,7 @@ class SmsProviderTests(unittest.TestCase):
         self.assertEqual(json.loads(self.sent[-1]['body'])['msg'], 'hello')
 
     def test_afromessage_reports_failure_and_challenge_codes(self):
-        self.use(SMS_PROVIDER='afromessage', AFROMESSAGE_TOKEN='tok', AFROMESSAGE_FROM='identifier-id', AFROMESSAGE_SENDER='Encore')
+        self.use(SMS_PROVIDER='afromessage', AFROMESSAGE_TOKEN='tok', AFROMESSAGE_SENDER='Encore')
         # Anything other than acknowledge: success is a failure, even with HTTP 200.
         self.reply = json.dumps({'acknowledge': 'error', 'response': {'errors': ['invalid recipient']}}).encode()
         with self.assertRaises(sms.DeliveryFailed):
@@ -797,18 +797,19 @@ class SmsProviderTests(unittest.TestCase):
         url = urllib.parse.urlparse(self.sent[-1]['url'])
         query = dict(urllib.parse.parse_qsl(url.query))
         self.assertEqual(url.path, '/api/challenge')
-        self.assertEqual((query['to'], query['len'], query['ttl'], query['t'], query['from'], query['sender']),
-                         ('+251911234567', '6', '300', '0', 'identifier-id', 'Encore'))
+        self.assertEqual((query['to'], query['len'], query['ttl'], query['t'], query['sender']),
+                         ('+251911234567', '6', '300', '0', 'Encore'))
+        self.assertNotIn('from', query)
         self.assertEqual(query['pr'], 'Your Encore code is')
         # A challenge that does not return the code cannot be verified later, so it must fail.
         self.reply = json.dumps({'acknowledge': 'success', 'response': {'message_id': 'xyz'}}).encode()
         with self.assertRaisesRegex(sms.DeliveryFailed, 'did not return the code'):
             sms.send_signin_code('+251911234567', '123456', 300)
 
-    def test_afromessage_requires_identifier_and_sender(self):
+    def test_afromessage_requires_token_and_sender(self):
         self.use(SMS_PROVIDER='afromessage', AFROMESSAGE_TOKEN='tok')
         self.assertFalse(sms.status()['delivers'])
-        self.assertIn('AFROMESSAGE_FROM', sms.status()['label'])
+        self.assertIn('AFROMESSAGE_SENDER', sms.status()['label'])
         with self.assertRaises(sms.NotConfigured):
             sms.send_signin_code('+251911234567', '123456', 300)
         self.assertEqual(self.sent, [])

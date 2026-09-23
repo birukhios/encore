@@ -41,8 +41,6 @@ services:
         sync: false
       - key: AFROMESSAGE_TOKEN
         sync: false
-      - key: AFROMESSAGE_FROM
-        sync: false
       - key: AFROMESSAGE_SENDER
         sync: false
       - key: AFROMESSAGE_CHALLENGE

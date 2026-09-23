@@ -133,7 +133,7 @@ Guests sign in with their phone number and a 6-digit code. Choose a provider and
 
 | `SMS_PROVIDER` | Variables |
 | --- | --- |
-| `afromessage` | `AFROMESSAGE_TOKEN`, `AFROMESSAGE_FROM` (identifier id), `AFROMESSAGE_SENDER` (sender name), optional `AFROMESSAGE_CALLBACK`, `AFROMESSAGE_CHALLENGE=1` |
+| `afromessage` | `AFROMESSAGE_TOKEN`, `AFROMESSAGE_SENDER` (sender name), optional `AFROMESSAGE_CALLBACK`, `AFROMESSAGE_CHALLENGE=1` |
 | `twilio` | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM` (or `TWILIO_MESSAGING_SERVICE_SID`) |
 | `africastalking` | `AT_USERNAME`, `AT_API_KEY`, `AT_FROM` (optional) |
 | `geezsms` | `GEEZSMS_TOKEN`, `GEEZSMS_FROM` (optional) |
@@ -156,7 +156,7 @@ SMS_PROVIDER=... python3 server.py --sms-test +251911234567
 ### AfroMessage (Ethiopia)
 
 Encore calls the documented API: `GET https://api.afromessage.com/api/send` with a `Bearer` token and
-`from`, `sender`, `to`, `message` (plus `callback` when set). A message counts as sent **only** when the reply is
+`sender`, `to`, `message` (plus `callback` when set). The `from` identifier is **not** sent — the token identifies the account. A message counts as sent **only** when the reply is
 `{"acknowledge": "success", ...}`; anything else is reported as a failure and the guest sees a clear error.
 
 With `AFROMESSAGE_CHALLENGE=1`, sign-in codes use `GET /api/challenge`: AfroMessage generates, formats and sends the
