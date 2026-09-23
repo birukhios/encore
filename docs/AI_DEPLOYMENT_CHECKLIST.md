@@ -15,7 +15,7 @@ Update the status column when you complete an item.
 | 3 | No credentials in CLAUDE.md | **Done** | `CLAUDE.md` contains rules only |
 | 3 | PII handling and retention | **Done (product)** / your policy | Guest phone numbers and names only; automatic retention in `db.py` (`RETENTION`) |
 | 4 | AI code review process, PR template | **Done** | `.github/pull_request_template.md` |
-| 4 | Test coverage requirement | **Done** | 37 automated tests; PR template requires a run on SQLite and PostgreSQL |
+| 4 | Test coverage requirement | **Done** | 45 automated tests on PostgreSQL; the PR template requires a run |
 
 ## Security
 

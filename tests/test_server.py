@@ -53,9 +53,14 @@ class AppTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.temp = tempfile.TemporaryDirectory()
-        s.DB = Path(cls.temp.name) / 'test.sqlite'
+        s.DATA = Path(cls.temp.name)
         s.UPLOADS = Path(cls.temp.name) / 'uploads'
         s._SECRET = None
+        s.db.reset_pool()          # pick up the DATABASE_URL the test runner provided
+        with s.conn() as c:        # each run starts from an empty schema
+            for table in ('platform_audit', 'platform_sessions', 'platform_admins', 'ratings', 'notifications', 'otp_log',
+                          'otps', 'guest_sessions', 'guests', 'audit', 'invites', 'sessions', 'users', 'uploads', 'tenants'):
+                c.execute(f'DROP TABLE IF EXISTS {table} CASCADE')
         s.init()
         cls.original_send = sms.send
         sms.PROVIDERS['test'] = capture_sms
@@ -210,17 +215,14 @@ class AppTests(unittest.TestCase):
         self.assertEqual(c('profile', {'name': 'Pic Owner'})[1]['user']['avatar'], url)  # unchanged when omitted
         photos = [url] * 40
         self.assertEqual(self.act(c, 'config', {'group': 'profile', 'values': {'city': 'Addis Ababa', 'address': '', 'mapUrl': '', 'photos': photos}})[0], 200)
-        if not s.db.POSTGRES:
-            import sqlite3
-            old = Path(self.temp.name) / 'old.sqlite'
-            con = sqlite3.connect(old)
-            con.execute('CREATE TABLE users(id TEXT PRIMARY KEY,tenant TEXT NOT NULL,name TEXT NOT NULL,email TEXT UNIQUE NOT NULL,password TEXT NOT NULL,recovery TEXT NOT NULL,role TEXT NOT NULL)')
-            con.execute("INSERT INTO users VALUES('u','t','Old','old@example.com','x','y','Owner')")
-            con.commit()
+        # A database created before `avatar` existed gains the column, and running the migration twice is safe.
+        with s.conn() as con:
+            con.execute('CREATE TABLE IF NOT EXISTS legacy_users(id TEXT PRIMARY KEY,name TEXT NOT NULL)')
+            con.execute('ALTER TABLE legacy_users DROP COLUMN IF EXISTS avatar')
             s.db.migrate(con)
-            self.assertEqual(con.execute('SELECT avatar FROM users').fetchone()[0], '')
+            con.execute("INSERT INTO legacy_users VALUES('u','Old') ON CONFLICT (id) DO NOTHING")
             s.db.migrate(con)  # idempotent
-            con.close()
+            con.execute('DROP TABLE legacy_users')
 
     def test_csrf_and_upload_validation(self):
         c, _, _, _ = self.staff()

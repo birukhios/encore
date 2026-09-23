@@ -10,7 +10,7 @@ Read `README.md` for features, `PRODUCTION.md` before any release, and `Encore_D
 3. **Amounts are integer cents.** Use `money_cents()`, `whole()`, `number()`; never floats for money.
 4. **Never commit** `data/`, `.env`, passwords, recovery codes, API keys or customer data.
 5. **Tenant isolation.** Every staff query is scoped to the signed-in user's tenant; guest queries to the signed-in guest.
-6. **Tests with every rule change.** `npm test` (SQLite) and the same suite against PostgreSQL before deploying.
+6. **Tests with every rule change.** `npm test` runs the suite against PostgreSQL, the only database Encore supports.
 7. **No demo or dummy data in the product.** Sample content belongs in local scripts, never in the repository or a deployed database.
 
 ## Where code goes
@@ -19,7 +19,7 @@ Read `README.md` for features, `PRODUCTION.md` before any release, and `Encore_D
 | --- | --- |
 | HTTP, routing, sessions, cookies, rate limits | `server.py` |
 | Business rules, validation, pricing, stock | `domain.py` |
-| Database schema, migrations, adapter, pool | `db.py` |
+| PostgreSQL schema, migrations, adapter, pool | `db.py` |
 | SMS providers | `sms.py` |
 | Organizer admin UI | `src/admin/*` |
 | Guest UI | `src/guest/*` |

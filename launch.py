@@ -21,12 +21,31 @@ if sys.version_info < (3,11) or not hasattr(hashlib,"scrypt"):
 from pathlib import Path
 if '--test' in sys.argv:
  os.environ['ENCORE_SKIP_DOTENV']='1'  # a developer's .env must never change what the tests prove
- import unittest
+ import unittest,tempfile
  os.chdir(Path(__file__).parent)
+ if not os.environ.get('DATABASE_URL'):
+  # Tests need PostgreSQL. Start a throwaway one so `npm test` works with no setup.
+  try:
+   import pgserver
+  except ImportError:
+   print('Tests need PostgreSQL. Either set DATABASE_URL, or install the test helper:\n'
+         '  pip install -r requirements-dev.txt');sys.exit(1)
+  _dir=tempfile.mkdtemp(prefix='encore-test-pg-')
+  os.environ['DATABASE_URL']=pgserver.get_server(_dir).get_uri()
  suite=unittest.defaultTestLoader.discover('tests')
  sys.exit(0 if unittest.TextTestRunner(verbosity=1).run(suite).wasSuccessful() else 1)
 os.environ.setdefault('PORT','8081')
 os.environ.setdefault('GUEST_PORT','8082')
+if not os.environ.get('DATABASE_URL') and os.environ.get('ENCORE_LOCAL_DB')=='1':
+ # Development convenience: run a private PostgreSQL inside ENCORE_DATA so no database has to be installed.
+ try:
+  import pgserver
+ except ImportError:
+  print('ENCORE_LOCAL_DB=1 needs the test helper: pip install -r requirements-dev.txt');sys.exit(1)
+ _data=Path(os.environ.get('ENCORE_DATA', Path(__file__).parent/'data'))/'postgres'
+ _data.mkdir(parents=True,exist_ok=True)
+ os.environ['DATABASE_URL']=pgserver.get_server(str(_data)).get_uri()
+ print('Local PostgreSQL started in '+str(_data),flush=True)
 import server
 
 def main():
@@ -36,8 +55,11 @@ def main():
  problems=server.production_problems()
  for problem in problems:print(('WARNING: ' if 'SMS_PROVIDER' in problem else 'ERROR: ')+problem,flush=True)
  if any('SMS_PROVIDER' not in p for p in problems):
-  print('Encore will not start in production until these are fixed. See .env.example.');return 1
- server.init()
+  print('Encore cannot start until these are fixed. See .env.example.');return 1
+ try:
+  server.init()
+ except server.db.NotConfigured as problem:
+  print('Encore needs PostgreSQL. '+str(problem));return 1
  print('Database: '+server.db.describe()+' · SMS: '+server.sms.status()['label'],flush=True)
  host=os.environ.get('HOST','127.0.0.1')
  if server.SINGLE_PORT:

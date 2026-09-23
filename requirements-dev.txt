@@ -1,0 +1,3 @@
+# Test-only dependencies. Runtime needs only requirements.txt.
+# pgserver downloads a private PostgreSQL so `npm test` needs no database setup.
+pgserver==0.1.4

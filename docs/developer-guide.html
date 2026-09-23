@@ -102,7 +102,7 @@ td code { background: #eeeff2; }
     <div><b>Repository</b>github.com/birukhios/encore</div>
     <div><b>Backend</b>Python 3.11+ · PostgreSQL</div>
     <div><b>Frontend</b>React 19 · Vite 6</div>
-    <div><b>Tests</b>39 (SQLite + PostgreSQL)</div>
+    <div><b>Tests</b>45 (PostgreSQL)</div>
   </div>
 </section>
 
@@ -156,8 +156,8 @@ td code { background: #eeeff2; }
   <tr><th style="width:26%">Tool</th><th style="width:15%">Version</th><th>Used for</th></tr>
   <tr><td><b>Python</b></td><td>3.11+ (3.12 in Docker)</td><td>Application server and business rules. <code>hashlib.scrypt</code> is required for password hashing.</td></tr>
   <tr><td><b>http.server</b> (stdlib)</td><td>—</td><td><code>ThreadingHTTPServer</code> with custom handlers. No web framework: routing, JSON, cookies, CSP, gzip and HEAD are implemented in <code>server.py</code>.</td></tr>
-  <tr><td><b>sqlite3</b> (stdlib)</td><td>—</td><td>Local and single-server database: WAL, foreign keys, <code>busy_timeout</code>, <code>synchronous=NORMAL</code>.</td></tr>
-  <tr><td><b>PostgreSQL</b></td><td>Render managed</td><td>Production database (<code>DATABASE_URL</code>). Uploaded images live here too.</td></tr>
+  <tr><td><b>PostgreSQL</b></td><td>16+</td><td>The only database: development, tests and production all use it.</td></tr>
+  
   <tr><td><b>psycopg[binary,pool]</b></td><td>3.2.3</td><td>PostgreSQL driver and connection pool — the only third-party Python dependency.</td></tr>
   <tr><td><b>urllib</b> (stdlib)</td><td>—</td><td>Outbound HTTP to SMS gateways, with timeouts and provider error mapping.</td></tr>
   <tr><td><b>hmac · secrets · fractions · decimal · gzip</b></td><td>stdlib</td><td>Constant-time compares, tokens and codes, exact VAT, money parsing, response compression.</td></tr>
@@ -182,14 +182,14 @@ td code { background: #eeeff2; }
   <tr><td><b>Render</b> (Blueprint)</td><td>Hosting: Docker web service + managed PostgreSQL from <code>render.yaml</code>; Cloudflare in front.</td></tr>
   <tr><td><b>Caddy</b></td><td>Optional HTTPS proxy for VPS installs (<code>deploy/Caddyfile</code>).</td></tr>
   <tr><td><b>SMS gateways</b></td><td>AfroMessage, Twilio, Africa's Talking, GeezSMS, or any gateway through the generic <code>http</code> provider.</td></tr>
-  <tr><td><b>unittest</b> (stdlib)</td><td>39 tests: real HTTP servers on random ports, a disposable database, and pure domain and provider tests.</td></tr>
-  <tr><td><b>pgserver</b></td><td>Throw-away PostgreSQL so the same suite runs on both databases.</td></tr>
+  <tr><td><b>unittest</b> (stdlib)</td><td>45 tests: real HTTP servers on random ports against a throwaway PostgreSQL, plus pure domain and provider tests.</td></tr>
+  <tr><td><b>pgserver</b></td><td>Throw-away PostgreSQL for tests and for <code>ENCORE_LOCAL_DB=1</code> — no database to install.</td></tr>
   <tr><td><b>Headless Chrome</b> (DevTools protocol)</td><td>Visual QA at phone/tablet/desktop widths, print and PDF checks, screenshots for documents.</td></tr>
   <tr><td><b>Figma</b> + <code>html-to-figma/</code></td><td>Design source; icons extracted to <code>src/icons.json</code>.</td></tr>
 </table>
 
 <h1 class="section"><span class="num">03</span>Architecture</h1>
-<p class="lead">One small Python process serves two single-page React apps and a JSON API, backed by SQLite or PostgreSQL.</p>
+<p class="lead">One small Python process serves two single-page React apps and a JSON API, backed by one PostgreSQL database.</p>
 
 <div class="diagram">
   <div class="row">
@@ -207,7 +207,7 @@ td code { background: #eeeff2; }
   <div class="arrow">↓</div>
   <div class="row">
     <div class="box dark" style="flex:2"><b>domain.py — business rules</b><small>settings, pricing, VAT, service charge, tips, bookings, orders, stock, store inventory, waiters, check-in</small></div>
-    <div class="box" style="flex:1"><b>db.py</b><small>SQLite / PostgreSQL adapter, pool, schema, migrations, retention</small></div>
+    <div class="box" style="flex:1"><b>db.py</b><small>PostgreSQL adapter, pool, schema, migrations, retention</small></div>
   </div>
   <div class="arrow">↓</div>
   <div class="row"><div class="box" style="flex:1"><b>Database</b><small>tenants (workspace JSON) · users · sessions · invites · guests · guest_sessions · otps · otp_log · notifications · ratings · uploads · audit · platform_admins · platform_sessions · platform_audit</small></div></div>
@@ -218,7 +218,7 @@ td code { background: #eeeff2; }
   <span class="step">Request</span><span class="to">→</span><span class="step">Route by path</span><span class="to">→</span><span class="step">Origin · JSON · size checks</span><span class="to">→</span><span class="step">Session lookup</span><span class="to">→</span><span class="step">BEGIN IMMEDIATE</span><span class="to">→</span><span class="step red">domain.py rule</span><span class="to">→</span><span class="step">write_tenant (version+1)</span><span class="to">→</span><span class="step">COMMIT</span><span class="to">→</span><span class="step">JSON (gzip)</span>
 </div>
 <ul>
-  <li><b>Writes are serialized</b> with <code>BEGIN IMMEDIATE</code> (SQLite) or a transaction-scoped advisory lock (PostgreSQL), so two guests can never take the last ticket or the last bottle.</li>
+  <li><b>Writes are serialized</b> with a transaction-scoped advisory lock (<code>BEGIN IMMEDIATE</code> → <code>pg_advisory_xact_lock</code>), so two guests can never take the last ticket or the last bottle.</li>
   <li><b>Optimistic concurrency:</b> staff actions send the workspace <code>version</code>; a stale version returns <code>409</code> and the admin app refreshes.</li>
   <li><b>Errors map to status codes:</b> <code>ValueError→400</code>, <code>PermissionError→401</code>, <code>LookupError→404</code>, <code>ApiError(status)</code> for 403/409/429/502/503; anything unexpected becomes a generic 500.</li>
   <li><b>Commit before respond,</b> so the client's next request always sees its own write.</li>
@@ -239,7 +239,7 @@ td code { background: #eeeff2; }
 <div class="tree"><span class="d">encore-platform/</span>
 ├── <b>server.py</b>            <span class="m">HTTP server, routing, sessions, APIs, platform console, CLI (--check, --sms-test)</span>
 ├── <b>domain.py</b>            <span class="m">business rules: settings, pricing, orders, stock, waiters, check-in</span>
-├── <b>db.py</b>                <span class="m">SQLite/PostgreSQL adapter, pool, schema, migrations, retention</span>
+├── <b>db.py</b>                <span class="m">PostgreSQL adapter, pool, schema, migrations, retention</span>
 ├── <b>sms.py</b>               <span class="m">SMS providers (AfroMessage, Twilio, Africa's Talking, GeezSMS, generic HTTP)</span>
 ├── <b>launch.py</b>            <span class="m">finds Python 3.11+, runs tests (--test), starts the server</span>
 ├── dev.mjs · vite.config.mjs   <span class="m">dev servers; multi-page build and chunk splitting</span>
@@ -266,10 +266,10 @@ td code { background: #eeeff2; }
 ├── <span class="d">tests/</span>               <span class="m">test_server.py (API, domain, SMS providers, platform) · test_journeys.py</span>
 ├── <span class="d">html-to-figma/</span>       <span class="m">design tooling, not part of the runtime</span>
 ├── <span class="d">dist/</span>                <span class="m">build output (git-ignored)</span>
-└── <span class="d">data/</span>                <span class="m">local SQLite, uploads, secret.key (git-ignored — never commit)</span></div>
+└── <span class="d">data/</span>                <span class="m">secret.key, legacy uploads, optional local PostgreSQL (git-ignored)</span></div>
 
 <h1 class="section"><span class="num">05</span>Database</h1>
-<p class="lead">Relational tables for identity, sessions and cross-tenant data; one JSON document per organization for everything that organization owns.</p>
+<p class="lead">One PostgreSQL database: relational tables for identity, sessions and cross-tenant data, and one JSON document per organization for everything that organization owns.</p>
 
 <div class="callout grey"><b>Why a workspace document?</b> An organization's events, menu, tables, orders, stock and settings change together and are read together. One document keeps every rule in plain Python, makes each staff save atomic, and lets <code>upgrade()</code> evolve the shape without SQL migrations. Writes are serialized and the <code>version</code> column gives optimistic concurrency.</div>
 
@@ -294,7 +294,7 @@ td code { background: #eeeff2; }
 <ul>
   <li><b>Indexes</b> on every runtime lookup: notifications by guest and by tenant, session expiry (all three kinds), <code>users(tenant)</code>, <code>invites(expires)</code>, <code>audit(tenant, created)</code>, <code>otp_log(phone, created)</code>, <code>uploads(created)</code>.</li>
   <li><b>PostgreSQL pool</b> (<code>psycopg_pool</code>, <code>DB_POOL_SIZE</code>, default 8) so requests reuse connections instead of a TCP+TLS handshake each time; without the pool package it falls back to one connection per request.</li>
-  <li><b>SQLite</b> runs with WAL, foreign keys, <code>busy_timeout=15s</code> and <code>synchronous=NORMAL</code>.</li>
+  <li><b>One engine everywhere.</b> There is no second database and no file fallback: <code>db.require_url()</code> refuses to start without a PostgreSQL <code>DATABASE_URL</code>, and <code>npm test</code> starts a throwaway instance (<code>pgserver</code>) when none is set.</li>
   <li><b>Retention</b> (<code>db.RETENTION</code>, applied at start-up and hourly): expired sessions, invites and codes immediately; <code>otp_log</code> after 1 day; read notifications after 180 days; audit rows after 400 days.</li>
   <li><b>Migrations</b> are additive and idempotent: <code>CREATE TABLE/INDEX IF NOT EXISTS</code>, plus <code>db.migrate()</code> for new columns. SQL is written once with <code>?</code> and translated for PostgreSQL.</li>
 </ul>
@@ -545,9 +545,9 @@ td code { background: #eeeff2; }
   <tr><th style="width:30%">Variable</th><th style="width:16%">Default</th><th>Meaning</th></tr>
   <tr><td><code>ENCORE_ENV</code></td><td>development</td><td><code>production</code> enables secure cookies, HSTS and start-up checks.</td></tr>
   <tr><td><code>ENCORE_SECRET</code></td><td>generated file</td><td>Required in production; keys the OTP HMAC.</td></tr>
-  <tr><td><code>DATABASE_URL</code></td><td>—</td><td>PostgreSQL connection string; unset means SQLite in <code>ENCORE_DATA</code>.</td></tr>
+  <tr><td><code>DATABASE_URL</code></td><td>—</td><td><b>Required.</b> PostgreSQL connection string; the server will not start without it.</td></tr>
   <tr><td><code>DB_POOL_SIZE</code></td><td>8</td><td>Maximum pooled PostgreSQL connections.</td></tr>
-  <tr><td><code>ENCORE_DATA</code></td><td>./data</td><td>SQLite file, legacy uploads, generated secret.</td></tr>
+  <tr><td><code>ENCORE_DATA</code></td><td>./data</td><td>Generated secret, legacy uploads, and the local PostgreSQL when <code>ENCORE_LOCAL_DB=1</code>.</td></tr>
   <tr><td><code>HOST</code> · <code>PORT</code> · <code>GUEST_PORT</code></td><td>127.0.0.1 · 8081 · 8082</td><td>Listen address and ports.</td></tr>
   <tr><td><code>ENCORE_SINGLE_PORT</code></td><td>—</td><td><code>1</code> serves guest at <code>/</code> and admin at <code>/admin</code> on one port.</td></tr>
   <tr><td><code>PUBLIC_ORIGIN</code> / <code>ADMIN_ORIGIN</code> / <code>GUEST_ORIGIN</code></td><td>local URLs</td><td>Public HTTPS addresses used for origin checks and QR links.</td></tr>
@@ -574,9 +574,9 @@ python3 launch.py
 <span class="c"># hot reload: Python API + one Vite dev server per app</span>
 npm run dev
 
-<span class="c"># tests — 39, disposable database</span>
-npm test
-DATABASE_URL=postgresql://… python3 launch.py --test     <span class="c"># the same suite on PostgreSQL</span>
+<span class="c"># tests — 45, PostgreSQL</span>
+npm test                                                 <span class="c"># starts a throwaway PostgreSQL if DATABASE_URL is unset</span>
+DATABASE_URL=postgresql://… npm test                     <span class="c"># or point it at your own database</span>
 
 <span class="c"># operations</span>
 ENCORE_ENV=production python3 server.py --check          <span class="c"># readiness report</span>
@@ -613,7 +613,7 @@ git config core.hooksPath .githooks                      <span class="c"># enabl
 <table class="keep">
   <tr><th style="width:26%">Task</th><th>How</th></tr>
   <tr><td>Release readiness</td><td><code>python3 server.py --check</code> — lists what must be fixed and what to note.</td></tr>
-  <tr><td>Backups</td><td>PostgreSQL automated backups (images live in the database); for SQLite copy <code>ENCORE_DATA</code> daily.</td></tr>
+  <tr><td>Backups</td><td>PostgreSQL automated backups — every record and image lives there. Keep <code>secret.key</code> from <code>ENCORE_DATA</code> too.</td></tr>
   <tr><td>Monitoring</td><td>Uptime check on <code>/api/health</code> (GET or HEAD); watch Render logs for 5xx.</td></tr>
   <tr><td>Account recovery</td><td>Platform console → Accounts → Reset password issues a one-time recovery code.</td></tr>
   <tr><td>Abusive organizer</td><td>Platform console → Organizations → Status → Suspend (the reason is logged).</td></tr>

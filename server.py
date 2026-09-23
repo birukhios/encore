@@ -1,4 +1,4 @@
-"""Encore application server. Python 3.11+, SQLite. Read README before deployment.
+"""Encore application server. Python 3.11+, PostgreSQL. Read README before deployment.
 
 Two listeners share one database:
   admin app  PORT        (default 8081)  organizer accounts, workspace management
@@ -58,9 +58,8 @@ def load_env_file(path=None):
 
 
 load_env_file()
-DATA = Path(os.environ.get('ENCORE_DATA', ROOT / 'data'))
+DATA = Path(os.environ.get('ENCORE_DATA', ROOT / 'data'))  # generated secret and legacy uploads only
 UPLOADS = DATA / 'uploads'
-DB = DATA / 'encore.sqlite3'
 PROD = os.environ.get('ENCORE_ENV') == 'production'
 ADMIN_PORT = int(os.environ.get('PORT', '8081'))
 GUEST_PORT = int(os.environ.get('GUEST_PORT', '8082'))
@@ -97,11 +96,12 @@ _SECRET = None
 # ---------------------------------------------------------------- storage
 
 def conn():
-    return db.connect(DB)
+    return db.connect()
 
 
 def init():
-    DB.parent.mkdir(parents=True, exist_ok=True)
+    db.require_url()
+    DATA.mkdir(parents=True, exist_ok=True)
     UPLOADS.mkdir(parents=True, exist_ok=True)
     with conn() as c:
         db.create_schema(c)
@@ -153,7 +153,7 @@ def secret():
         if env:
             _SECRET = env.encode()
         else:
-            path = DB.parent / 'secret.key'
+            path = DATA / 'secret.key'
             if not path.exists():
                 path.write_bytes(secrets.token_bytes(32))
                 path.chmod(0o600)
@@ -986,8 +986,13 @@ def serve(handler, host, port):
     return http
 
 
+DATABASE_CONFIGURED = db.DATABASE_URL.startswith(('postgres://', 'postgresql://'))
+
+
 def production_problems():
     problems = []
+    if not DATABASE_CONFIGURED:
+        problems.append('DATABASE_URL must be a PostgreSQL connection string; Encore has no other database.')
     if PROD:
         for name, origin in [('ADMIN_ORIGIN', ADMIN_ORIGIN), ('GUEST_ORIGIN', GUEST_ORIGIN)]:
             if not origin.startswith('https://'):
@@ -1038,8 +1043,8 @@ if __name__ == '__main__':
             problems.insert(0, 'ENCORE_ENV is not "production": secure cookies, HSTS and origin checks are relaxed.')
         notes = []
         notes.append(f'SMS: {sms.status()["label"]}' + ('' if sms.status()['delivers'] else ' — guests cannot sign in until this is fixed.'))
-        if not db.POSTGRES:
-            notes.append('DATABASE_URL is not set: using SQLite in ENCORE_DATA. Back it up, or use PostgreSQL.')
+        if not DATABASE_CONFIGURED:
+            problems.append('DATABASE_URL must be a PostgreSQL connection string; Encore has no other database.')
         if not PAYMENTS_READY:
             notes.append('Online wallet payments (AfroPay) are not connected. Organizers can still sell with cash: Settings → Payments.')
         if not os.environ.get('ENCORE_PLATFORM_EMAIL'):

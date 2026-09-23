@@ -4,8 +4,7 @@
 
 ## How it was verified
 
-- [ ] `npm test` (SQLite)
-- [ ] Same suite against PostgreSQL (`DATABASE_URL=… python3 launch.py --test`)
+- [ ] `npm test` (PostgreSQL — starts a throwaway database, or uses `DATABASE_URL`)
 - [ ] `npm run build`
 - [ ] Checked in a browser at phone and desktop widths (screenshots for UI changes)
 - [ ] `ENCORE_ENV=production python3 server.py --check` (for release branches)

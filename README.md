@@ -2,7 +2,7 @@
 
 > Deploying for real guests and money? Follow **[PRODUCTION.md](PRODUCTION.md)** and run `python3 server.py --check`.
 
-Two separate web apps backed by one Python/SQLite server:
+Two separate web apps backed by one Python server and one PostgreSQL database:
 
 | App | Default address | Who |
 | --- | --- | --- |
@@ -21,8 +21,30 @@ python3 launch.py
 
 or double-click `Start_Encore.command` on a Mac. `dist/` must be built (`npm install && npm run build`, Node 20+).
 
+**Database.** Encore uses PostgreSQL only — the same engine in development, tests and production. Point `DATABASE_URL` at it:
+
+```
+DATABASE_URL=postgresql://encore:password@localhost:5432/encore
+```
+
+No database installed? Run one in Docker:
+
+```
+docker run -d --name encore-db -e POSTGRES_USER=encore -e POSTGRES_PASSWORD=password -e POSTGRES_DB=encore -p 5432:5432 postgres:16
+```
+
+…or let Encore run a private one for development:
+
+```
+pip install -r requirements-dev.txt
+ENCORE_LOCAL_DB=1 python3 launch.py      # PostgreSQL lives in data/postgres
+```
+
+The server refuses to start without a PostgreSQL `DATABASE_URL` — there is no file-based fallback. Tables and indexes
+are created on start-up.
+
 - **Development with hot reload:** `npm run dev` → admin http://127.0.0.1:5173/admin, guest http://127.0.0.1:5174/
-- **Tests:** `npm test` (39 integration tests, disposable database)
+- **Tests:** `npm test` (45 integration tests; starts a throwaway PostgreSQL unless `DATABASE_URL` is set — needs `pip install -r requirements-dev.txt`)
 - **Build:** `npm run build`
 
 There are no default accounts. Create a workspace at `/admin/signup` and save the one-time recovery code.
@@ -196,7 +218,7 @@ limited to 5 per number per hour and 20 per IP per hour. Until a provider is con
 
 ## Deploy on Render
 
-`render.yaml` creates a **Render PostgreSQL database** (`encore-db`) and a web service connected to it through `DATABASE_URL`. All data — organizations, accounts, bookings, orders — and uploaded photos are stored in PostgreSQL, so restarts and redeploys keep everything. Locally, without `DATABASE_URL`, Encore uses SQLite.
+`render.yaml` creates a **Render PostgreSQL database** (`encore-db`) and a web service connected to it through `DATABASE_URL`. All data — organizations, accounts, bookings, orders — and uploaded photos are stored in PostgreSQL, so restarts and redeploys keep everything.
 
 1. Push to GitHub. In Render open **Blueprints → encore → Sync** (or enable auto-sync). Environment variable and database changes in `render.yaml` are only applied when the Blueprint syncs; redeploying the service alone is not enough.
 2. Guest app: `https://<service>.onrender.com/` · Organizer admin: `https://<service>.onrender.com/admin` (create the organizer at `/admin/signup`).
@@ -210,7 +232,7 @@ limited to 5 per number per hour and 20 per IP per hour. Until a provider is con
 2. Configure environment from `.env.example`: `ENCORE_ENV=production`, `ADMIN_ORIGIN`, `GUEST_ORIGIN` (https), `ENCORE_SECRET`, `ENCORE_DATA`, `TRUST_PROXY=1` behind the proxy. The server **refuses to start** in production with http origins or no secret.
 3. `docker build -t encore . && docker run -d -p 127.0.0.1:8081:8081 -p 127.0.0.1:8082:8082 -v encore-data:/data --env-file .env encore`
 4. Put `deploy/Caddyfile` (or equivalent) in front for TLS.
-5. Back up the data volume (SQLite database, uploads, secret).
+5. Back up PostgreSQL (it holds every record and uploaded image) and the generated `secret.key` in `ENCORE_DATA`.
 
 Production security headers: HSTS, CSP with hashed inline scripts, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `Permissions-Policy` (camera allowed for scanning), HttpOnly/Secure cookies (admin `SameSite=Strict`; guest `Lax` so table QR links opened from the camera keep the session).
 
@@ -219,7 +241,7 @@ Production security headers: HSTS, CSP with hashed inline scripts, `X-Frame-Opti
 These are **not done** and block calling this production-ready:
 - SMS credentials for one of the built-in providers (guest sign-in does not work in production without them).
 - AfroPay (online payment), refunds, reconciliation.
-- The server uses Python's standard-library threaded HTTP server with SQLite. It is fine for a single venue's load behind a TLS proxy, but has no load testing, and rate limits are per process in memory.
+- The server uses Python's standard-library threaded HTTP server with PostgreSQL (pooled). It is fine for a single venue's load behind a TLS proxy, but has no load testing, and rate limits are per process in memory.
 - No email delivery; admin password recovery is code-based.
 - Legal review of the platform terms/privacy text in `src/guest/content.js` and organizer terms.
 - Monitoring, automated backups, and a security review of the deployment.

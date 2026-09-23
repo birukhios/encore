@@ -1,29 +1,34 @@
-"""Database access for SQLite (local, default) and PostgreSQL (DATABASE_URL, e.g. Render Postgres).
+"""PostgreSQL access for Encore. One database, everywhere: development, tests and production.
 
-Application SQL is written once with `?` placeholders. The PostgreSQL adapter translates placeholders,
-serializes writers with a transaction-scoped advisory lock (matching SQLite's BEGIN IMMEDIATE), and
-returns rows that support both `row['column']` and `row[0]`.
+Set `DATABASE_URL`; there is no second database engine and no local file fallback. Application SQL is
+written with `?` placeholders that this adapter translates, writers are serialized with a
+transaction-scoped advisory lock (`BEGIN IMMEDIATE`), and rows support `row['column']` and `row[0]`.
 """
 import os
-import sqlite3
+
+import psycopg
 
 DATABASE_URL = os.environ.get('DATABASE_URL', '').strip()
-POSTGRES = DATABASE_URL.startswith(('postgres://', 'postgresql://'))
-
 POOL_SIZE = int(os.environ.get('DB_POOL_SIZE', '8'))
 _pool = None
+IntegrityErrors = (psycopg.IntegrityError,)
 
-if POSTGRES:
-    import psycopg
-    IntegrityErrors = (sqlite3.IntegrityError, psycopg.IntegrityError)
-    try:  # a pool avoids a TCP + TLS handshake on every request
-        from psycopg_pool import ConnectionPool
-    except ImportError:  # pragma: no cover - falls back to one connection per request
-        ConnectionPool = None
-else:
-    psycopg = None
+try:  # a pool avoids a TCP + TLS handshake on every request
+    from psycopg_pool import ConnectionPool
+except ImportError:  # pragma: no cover - one connection per request still works
     ConnectionPool = None
-    IntegrityErrors = (sqlite3.IntegrityError,)
+
+
+class NotConfigured(RuntimeError):
+    """Raised when DATABASE_URL is missing or is not a PostgreSQL URL."""
+
+
+def require_url():
+    if not DATABASE_URL.startswith(('postgres://', 'postgresql://')):
+        raise NotConfigured(
+            'DATABASE_URL must be a PostgreSQL connection string, for example '
+            'postgresql://encore:password@localhost:5432/encore. See README → Database.')
+    return DATABASE_URL
 
 SCHEMA = '''
 CREATE TABLE IF NOT EXISTS tenants(id TEXT PRIMARY KEY,name TEXT NOT NULL,state TEXT NOT NULL,version INTEGER DEFAULT 0);
@@ -82,12 +87,21 @@ def _row_factory(cursor):
 
 
 def pool():
-    """Shared PostgreSQL connection pool, opened on first use."""
+    """Shared connection pool, opened on first use."""
     global _pool
     if _pool is None and ConnectionPool:
-        _pool = ConnectionPool(DATABASE_URL, min_size=1, max_size=POOL_SIZE, timeout=15, max_idle=300,
+        _pool = ConnectionPool(require_url(), min_size=1, max_size=POOL_SIZE, timeout=15, max_idle=300,
                                kwargs={'row_factory': _row_factory, 'connect_timeout': 10}, open=True)
     return _pool
+
+
+def reset_pool():
+    """Close the pool so a new DATABASE_URL takes effect (used by the tests)."""
+    global _pool, DATABASE_URL
+    if _pool is not None:
+        _pool.close()
+        _pool = None
+    DATABASE_URL = os.environ.get('DATABASE_URL', '').strip()
 
 
 class PostgresConnection:
@@ -95,7 +109,7 @@ class PostgresConnection:
 
     def __init__(self):
         self.pooled = pool()
-        self.raw = self.pooled.getconn() if self.pooled else psycopg.connect(DATABASE_URL, row_factory=_row_factory, connect_timeout=10)
+        self.raw = self.pooled.getconn() if self.pooled else psycopg.connect(require_url(), row_factory=_row_factory, connect_timeout=10)
 
     def execute(self, sql, params=()):
         statement = sql.strip().upper()
@@ -138,22 +152,12 @@ class PostgresConnection:
         return False
 
 
-def connect(sqlite_path):
-    if POSTGRES:
-        return PostgresConnection()
-    c = sqlite3.connect(sqlite_path, timeout=15)
-    c.row_factory = sqlite3.Row
-    c.execute('PRAGMA foreign_keys=ON')
-    c.execute('PRAGMA busy_timeout=15000')   # wait instead of failing when another writer holds the lock
-    c.execute('PRAGMA synchronous=NORMAL')   # durable enough with WAL, much faster than FULL
-    return c
+def connect():
+    return PostgresConnection()
 
 
 def create_schema(c):
-    if POSTGRES:
-        c.executescript(SCHEMA.format(serial='BIGSERIAL', blob='BYTEA'))
-    else:
-        c.executescript('PRAGMA journal_mode=WAL;' + SCHEMA.format(serial='INTEGER', blob='BLOB'))
+    c.executescript(SCHEMA.format(serial='BIGSERIAL', blob='BYTEA'))
 
 
 def migrate(c):
@@ -163,10 +167,7 @@ def migrate(c):
              ('tenants', 'status_note', "TEXT NOT NULL DEFAULT ''"),
              ('tenants', 'created', 'INTEGER NOT NULL DEFAULT 0')]
     for table, column, definition in added:
-        if POSTGRES:
-            c.execute(f'ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {definition}')
-        elif (columns := {r[1] for r in c.execute(f'PRAGMA table_info({table})')}) and column not in columns:
-            c.execute(f'ALTER TABLE {table} ADD COLUMN {column} {definition}')
+        c.execute(f'ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {definition}')
 
 
 def clean_old_rows(c, now):
@@ -179,4 +180,8 @@ def clean_old_rows(c, now):
 
 
 def describe():
-    return 'PostgreSQL' if POSTGRES else 'SQLite'
+    """Human-readable target, without credentials: postgresql://user:pass@host:5432/name -> host:5432/name."""
+    if not DATABASE_URL:
+        return 'PostgreSQL (not configured)'
+    tail = DATABASE_URL.split('@')[-1].split('?')[0].lstrip('/') or 'local socket'
+    return f'PostgreSQL ({tail})'

@@ -17,7 +17,7 @@ It lists what **must be fixed** (the server refuses to start in production until
 | --- | --- |
 | `ENCORE_ENV` | `production` |
 | `ENCORE_SECRET` | 32+ random bytes, e.g. `python3 -c "import secrets;print(secrets.token_hex(32))"` |
-| `DATABASE_URL` | PostgreSQL connection string (recommended). Without it, SQLite in `ENCORE_DATA` — back it up. |
+| `DATABASE_URL` | **Required.** PostgreSQL connection string. Encore has no other database and will not start without it. |
 | `PUBLIC_ORIGIN` or `ADMIN_ORIGIN` + `GUEST_ORIGIN` | `https://…` addresses |
 | `ENCORE_SINGLE_PORT` | `1` on one-port hosts such as Render (guest at `/`, admin at `/admin`) |
 | `TRUST_PROXY` | `1` only behind a trusted proxy that sets `X-Forwarded-For` |
@@ -55,7 +55,7 @@ Other hosts: `Dockerfile` builds both apps; see `deploy/Caddyfile` for HTTPS in 
 
 ## 5. Operations
 
-- **Backups:** enable PostgreSQL backups (or copy `ENCORE_DATA` daily for SQLite). Uploaded photos are stored in the database.
+- **Backups:** enable PostgreSQL backups — it holds every record and uploaded image. Keep a copy of `secret.key` from `ENCORE_DATA`.
 - **Monitoring:** point an uptime check at `/api/health` (GET or HEAD).
 - **Accounts:** organizers keep their one-time recovery code; the platform console can issue a new one (Accounts → Reset password).
 - **Fiscal receipts:** Encore receipts are not fiscal receipts. Confirm VAT and receipt obligations with your accountant.
@@ -63,7 +63,7 @@ Other hosts: `Dockerfile` builds both apps; see `deploy/Caddyfile` for HTTPS in 
 
 ## 6. Verified in this edition
 
-- 39 automated tests on SQLite and PostgreSQL (accounts, tenant isolation, pricing with VAT and service charge,
+- 45 automated tests on PostgreSQL (accounts, tenant isolation, pricing with VAT and service charge,
   stock, waiters and tips, cash orders, check-in, platform console, suspension, HEAD/robots/gzip).
 - Security headers (CSP, HSTS in production, frame and content-type protection), rate-limited sign-in and codes,
   hashed passwords, codes and sessions, server-side pricing, single-use tickets.
