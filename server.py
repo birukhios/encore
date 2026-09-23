@@ -78,6 +78,7 @@ TRUST_PROXY = os.environ.get('TRUST_PROXY') == '1'
 PAYMENTS_READY = False
 
 ADMIN_SESSION_DAYS, GUEST_SESSION_DAYS, PLATFORM_SESSION_HOURS = 7, 30, 12
+PROVIDER_CODE = 'provider:'  # marks a sign-in code the SMS provider generated and will verify
 OTP_TTL, OTP_RESEND, OTP_MAX_ATTEMPTS = 300, 60, 5
 STAFF_ROLES = {
     'Owner': ['settings', 'config', 'event', 'menu', 'table', 'delete', 'order_status', 'checkin', 'checkin_ticket', 'settle', 'cancel', 'waiter', 'stock', 'staff_order', 'inventory', 'inventory_adjust'],
@@ -848,17 +849,19 @@ class GuestHandler(BaseHandler):
                 raise ApiError(429, 'Too many codes were sent to this number. Try again in an hour.')
             code = f'{secrets.randbelow(1000000):06d}'
             try:
-                # The provider may generate the code itself (AfroMessage challenge); store what it sent.
-                code = sms.send_signin_code(phone, code, OTP_TTL)
+                # The provider may generate and later verify the code itself (AfroMessage challenge).
+                code, verification = sms.send_signin_code(phone, code, OTP_TTL)
             except sms.NotConfigured as exc:
                 log_sms_problem('not configured', phone, exc)
                 raise ApiError(503, 'Phone sign-in is temporarily unavailable. Please try again later.', 'SMS_NOT_CONFIGURED')
             except sms.DeliveryFailed as exc:
                 log_sms_problem('delivery failed', phone, exc)
                 raise ApiError(502, 'We could not send a code to this number. Check it and try again.', 'SMS_FAILED')
+            # With provider verification the code is never stored; only the id used to ask the provider.
+            stored = PROVIDER_CODE + verification if verification else hmac.new(secret(), (phone + ':' + code).encode(), 'sha256').hexdigest()
             c.execute('INSERT INTO otps(phone,code,expires,attempts,sent) VALUES(?,?,?,0,?) '
                       'ON CONFLICT(phone) DO UPDATE SET code=excluded.code,expires=excluded.expires,attempts=0,sent=excluded.sent',
-                      (phone, hmac.new(secret(), (phone + ':' + code).encode(), 'sha256').hexdigest(), now + OTP_TTL, now))
+                      (phone, stored, now + OTP_TTL, now))
             c.execute('INSERT INTO otp_log(phone,ip,created) VALUES(?,?,?)', (phone, self.client_ip(), now))
             return self.send({'sent': True, 'phone': phone, 'resendIn': OTP_RESEND, 'expiresIn': OTP_TTL})
         if path == '/api/guest/verify':
@@ -870,8 +873,16 @@ class GuestHandler(BaseHandler):
                 raise ValueError('This code has expired. Request a new one.')
             if otp['attempts'] >= OTP_MAX_ATTEMPTS:
                 raise ValueError('Too many incorrect codes. Request a new one.')
-            expected = hmac.new(secret(), (phone + ':' + code).encode(), 'sha256').hexdigest()
-            if not re.fullmatch(r'\d{6}', code) or not hmac.compare_digest(otp['code'], expected):
+            if otp['code'].startswith(PROVIDER_CODE):
+                try:
+                    correct = re.fullmatch(r'[A-Za-z0-9]{4,10}', code) and sms.verify_signin_code(phone, code, otp['code'][len(PROVIDER_CODE):])
+                except sms.DeliveryFailed as exc:
+                    log_sms_problem('verification failed', phone, exc)
+                    raise ApiError(502, 'We could not check that code. Please try again in a moment.', 'SMS_FAILED')
+            else:
+                expected = hmac.new(secret(), (phone + ':' + code).encode(), 'sha256').hexdigest()
+                correct = re.fullmatch(r'\d{6}', code) and hmac.compare_digest(otp['code'], expected)
+            if not correct:
                 c.execute('UPDATE otps SET attempts=attempts+1 WHERE phone=?', (phone,))
                 c.execute('COMMIT')  # keep the failed-attempt count even though the request fails
                 raise ValueError('That code is not correct.')
@@ -1005,6 +1016,12 @@ def create_platform_admin_cli():
 
 
 if __name__ == '__main__':
+    if '--sms-balance' in sys.argv:
+        try:
+            print(sms.afromessage_balance() if sms.provider_name() == 'afromessage' else 'Only AfroMessage reports a balance.')
+        except (sms.NotConfigured, sms.DeliveryFailed) as exc:
+            raise SystemExit(f'Could not read the balance: {exc}')
+        raise SystemExit(0)
     if '--sms-test' in sys.argv:
         number = sys.argv[sys.argv.index('--sms-test') + 1] if len(sys.argv) > sys.argv.index('--sms-test') + 1 else ''
         if not number:

@@ -385,6 +385,26 @@ class AppTests(unittest.TestCase):
         self.assertNotIn('invalid sender', body['error'])  # nor does the reason reach the guest
         self.assertEqual(s.mask_phone('+251911234567'), '+2519****4567')
 
+    def test_guest_signs_in_with_a_code_the_provider_verifies(self):
+        """AfroMessage's challenge endpoint issues the code; Encore stores only the verification id."""
+        asked = []
+        original_send, original_verify = sms.send_signin_code, sms.verify_signin_code
+        sms.send_signin_code = lambda phone, code, ttl, length=6: ('IGNORED', 'vid-42')
+        sms.verify_signin_code = lambda phone, code, vid: bool(asked.append((phone, code, vid))) or (code == 'A1B2C3' and vid == 'vid-42')
+        g = Client(self.guest.server_port)
+        try:
+            self.assertEqual(g('guest/otp', {'phone': '0966 123 123'})[0], 200)
+            with s.conn() as c:
+                stored = c.execute('SELECT code FROM otps WHERE phone=?', ('+251966123123',)).fetchone()['code']
+            self.assertEqual(stored, 'provider:vid-42')  # the code itself is never stored
+            self.assertEqual(g('guest/verify', {'phone': '0966123123', 'code': 'WRONG1'})[0], 400)
+            status, body = g('guest/verify', {'phone': '0966123123', 'code': 'A1B2C3', 'name': 'Provider Guest', 'acceptTerms': True})
+            self.assertEqual((status, body['guest']['name']), (200, 'Provider Guest'))
+        finally:
+            sms.send_signin_code, sms.verify_signin_code = original_send, original_verify
+        self.assertEqual([a[2] for a in asked], ['vid-42', 'vid-42'])
+        self.assertEqual(g('guest/me')[1]['guest']['phone'], '+251966123123')
+
     def test_env_file_fills_gaps_without_overriding(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / '.env'
@@ -811,23 +831,40 @@ class SmsProviderTests(unittest.TestCase):
             sms.send('+251911234567', 'hello')
         # Without the challenge endpoint, Encore sends the code it generated itself.
         self.reply = json.dumps({'acknowledge': 'success', 'response': {'message_id': 'abc'}}).encode()
-        self.assertEqual(sms.send_signin_code('+251911234567', '123456', 300), '123456')
+        self.assertEqual(sms.send_signin_code('+251911234567', '123456', 300), ('123456', ''))
         self.assertIn('123456', urllib.parse.unquote(self.sent[-1]['url']))
-        # With AFROMESSAGE_CHALLENGE=1 the gateway generates the code and returns it for verification.
-        self.use(AFROMESSAGE_CHALLENGE='1', AFROMESSAGE_PREFIX='Your Encore code is')
-        self.reply = json.dumps({'acknowledge': 'success', 'response': {'code': '778899', 'message_id': 'xyz'}}).encode()
-        self.assertEqual(sms.send_signin_code('+251911234567', '123456', 300), '778899')
+        # With AFROMESSAGE_CHALLENGE=1 the gateway generates the code and returns a verification id.
+        self.use(AFROMESSAGE_CHALLENGE='1', AFROMESSAGE_PREFIX='Your Afropay code is')
+        self.reply = json.dumps({'acknowledge': 'success', 'response': {'code': '778899', 'verificationId': 'vid-1', 'message_id': 'xyz'}}).encode()
+        self.assertEqual(sms.send_signin_code('+251911234567', '123456', 300), ('778899', 'vid-1'))
         url = urllib.parse.urlparse(self.sent[-1]['url'])
         query = dict(urllib.parse.parse_qsl(url.query))
         self.assertEqual(url.path, '/api/challenge')
         self.assertEqual((query['to'], query['len'], query['ttl'], query['t'], query['sender']),
                          ('+251911234567', '6', '300', '0', 'Encore'))
         self.assertNotIn('from', query)
-        self.assertEqual(query['pr'], 'Your Encore code is')
-        # A challenge that does not return the code cannot be verified later, so it must fail.
+        self.assertEqual(query['pr'], 'Your Afropay code is')
+        # A challenge with neither a code nor a verification id cannot be checked later, so it must fail.
         self.reply = json.dumps({'acknowledge': 'success', 'response': {'message_id': 'xyz'}}).encode()
-        with self.assertRaisesRegex(sms.DeliveryFailed, 'did not return the code'):
+        with self.assertRaisesRegex(sms.DeliveryFailed, 'neither a verification id nor a code'):
             sms.send_signin_code('+251911234567', '123456', 300)
+        # Verification asks /api/verify with the id and the code the guest typed.
+        self.reply = json.dumps({'acknowledge': 'success', 'response': {'phone': '+251911234567', 'code': '778899'}}).encode()
+        self.assertTrue(sms.verify_signin_code('+251911234567', '778899', 'vid-1'))
+        verify = dict(urllib.parse.parse_qsl(urllib.parse.urlparse(self.sent[-1]['url']).query))
+        self.assertEqual(urllib.parse.urlparse(self.sent[-1]['url']).path, '/api/verify')
+        self.assertEqual(verify, {'to': '+251911234567', 'code': '778899', 'vc': 'vid-1'})
+        self.reply = json.dumps({'acknowledge': 'error', 'response': {'errors': ['code not found']}}).encode()
+        self.assertFalse(sms.verify_signin_code('+251911234567', '000000', 'vid-1'))
+
+    def test_requests_carry_a_user_agent_cloudflare_accepts(self):
+        # Cloudflare answers the default urllib agent with 403 "error code: 1010".
+        self.use(SMS_PROVIDER='afromessage', AFROMESSAGE_TOKEN='tok')
+        self.reply = json.dumps({'acknowledge': 'success', 'response': {}}).encode()
+        sms.send('+251911234567', 'hello')
+        agent = self.sent[-1]['headers']['user-agent']
+        self.assertTrue(agent and 'python-urllib' not in agent.lower())
+        self.assertEqual(self.sent[-1]['headers']['accept'], 'application/json')
 
     def test_afromessage_needs_only_a_token_and_defaults_the_sender(self):
         self.use(SMS_PROVIDER='afromessage', AFROMESSAGE_TOKEN='tok')

@@ -31,6 +31,8 @@ import urllib.parse
 import urllib.request
 
 TIMEOUT = 15
+# Gateways behind Cloudflare reject the default urllib agent with "error code: 1010".
+USER_AGENT = os.environ.get('SMS_USER_AGENT') or 'Mozilla/5.0 (compatible; Encore/1.0; +https://github.com/birukhios/encore)'
 
 
 class NotConfigured(Exception):
@@ -88,7 +90,8 @@ def _request(url, data=None, headers=None, method='POST'):
 
     Both directions are logged so operators can see exactly what the gateway was asked and what it answered.
     """
-    request = urllib.request.Request(url, data=data, headers=headers or {}, method=method)
+    headers = {'User-Agent': USER_AGENT, 'Accept': 'application/json', **(headers or {})}
+    request = urllib.request.Request(url, data=data, headers=headers, method=method)
     payload = (data or b'').decode('utf-8', 'replace')
     _log(f'-> {method} {safe_url(url)}' + (f' body={safe_body(payload)}' if payload else ''))
     try:
@@ -183,16 +186,41 @@ def _send_afromessage(phone, text):
 
 
 def _afromessage_challenge(phone, ttl, length):
-    """AfroMessage generates and sends the code; it comes back in the response so Encore can verify it."""
+    """Ask AfroMessage to generate and send a code (/api/challenge).
+
+    The reply carries the code and a verificationId; Encore keeps the id and later asks /api/verify,
+    so the code itself is never stored.
+    """
     headers, base = _afromessage_auth()
     prefix, postfix, code_type = _env('AFROMESSAGE_PREFIX', 'AFROMESSAGE_POSTFIX', 'AFROMESSAGE_CODE_TYPE')
-    params = {**base, 'to': phone, 'len': length, 'ttl': ttl, 't': code_type or 0, 'sb': 0, 'sa': 0,
-              'pr': prefix or 'Your Encore code is', 'ps': postfix or 'It expires in 5 minutes. Never share this code.'}
+    params = {**base, 'to': phone, 'len': length, 'ttl': ttl, 't': code_type or 0, 'sb': 1, 'sa': 1,
+              'pr': prefix or 'Your Afropay code is', 'ps': postfix or '. It expires in 5 minutes. Never share this code.'}
     result = _afromessage_result(_get(f'{AFROMESSAGE_API}/challenge', params, headers))
+    verification = str(result.get('verificationId') or '').strip()
     code = str(result.get('code') or '').strip()
-    if not code:
-        raise DeliveryFailed('AfroMessage did not return the code it sent, so the sign-in cannot be verified.')
-    return code
+    if not verification and not code:
+        raise DeliveryFailed('AfroMessage returned neither a verification id nor a code, so the sign-in cannot be checked.')
+    return code, verification
+
+
+def _afromessage_verify(phone, code, verification_id):
+    """Ask AfroMessage whether this code is the one it sent (/api/verify). False means wrong or expired."""
+    headers, _ = _afromessage_auth()
+    params = {'to': phone, 'code': code}
+    if verification_id:
+        params['vc'] = verification_id
+    try:
+        _afromessage_result(_get(f'{AFROMESSAGE_API}/verify', params, headers))
+        return True
+    except DeliveryFailed as exc:
+        _log(f'verify rejected for {mask_phone(phone)}: {exc}')
+        return False
+
+
+def afromessage_balance():
+    """Remaining credit for the account behind the token (/api/balance)."""
+    headers, _ = _afromessage_auth()
+    return _afromessage_result(_get(f'{AFROMESSAGE_API}/balance', {}, headers))
 
 
 def _send_geezsms(phone, text):
@@ -280,18 +308,26 @@ def flag(name):
 
 
 def send_signin_code(phone, code, ttl, length=6):
-    """Deliver a sign-in code and return the code that was actually sent.
+    """Deliver a sign-in code. Returns (code, verification_id).
 
-    Most providers send the code Encore generated. AfroMessage's challenge endpoint generates its own
-    and returns it, so the caller stores whatever comes back.
+    Normally Encore's own code is sent and verified locally, so `verification_id` is empty.
+    With AfroMessage's challenge endpoint the gateway generates the code and verifies it later,
+    so a verification id comes back and the code itself never needs to be stored.
     """
     if provider_name() == 'afromessage' and flag('AFROMESSAGE_CHALLENGE'):
         missing = missing_settings()
         if missing:
             raise NotConfigured(f'afromessage is missing {", ".join(missing)}.')
         return _afromessage_challenge(phone, ttl, length)
-    send(phone, f'Your Encore code is {code}. It expires in {ttl // 60} minutes. Never share this code.')
-    return code
+    send(phone, f'Your Afropay code is {code}. It expires in {ttl // 60} minutes. Never share this code.')
+    return code, ''
+
+
+def verify_signin_code(phone, code, verification_id):
+    """Check a code with the provider that issued it. Only used when the provider generated it."""
+    if provider_name() == 'afromessage':
+        return _afromessage_verify(phone, code, verification_id)
+    raise NotConfigured('This provider cannot verify codes.')
 
 
 def send(phone, text):

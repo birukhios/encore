@@ -170,11 +170,25 @@ Encore calls the documented API: `GET https://api.afromessage.com/api/send` with
 The sender name defaults to **Afropay**; set `AFROMESSAGE_SENDER` to use a different approved name. A message counts as sent **only** when the reply is
 `{"acknowledge": "success", ...}`; anything else is reported as a failure and the guest sees a clear error.
 
-With `AFROMESSAGE_CHALLENGE=1`, sign-in codes use `GET /api/challenge`: AfroMessage generates, formats and sends the
-code and returns it, and Encore stores that code as an HMAC hash to verify the guest. Wording and format are
-configurable with `AFROMESSAGE_PREFIX` (default "Your Encore code is"), `AFROMESSAGE_POSTFIX` and `AFROMESSAGE_CODE_TYPE`
-(default `0`, numeric); length follows Encore's 6 digits and `ttl` its 5-minute expiry. If the reply has no code, the
-sign-in fails rather than leaving a code nobody can verify.
+With `AFROMESSAGE_CHALLENGE=1`, sign-in uses AfroMessage's own security-code endpoints:
+
+- `GET /api/challenge` generates, formats and sends the code, and returns a `verificationId`.
+- Encore stores **only** that id (`provider:<verificationId>`) — the code itself is never kept.
+- `GET /api/verify?to=…&vc=<verificationId>&code=<what the guest typed>` decides whether the code is right.
+
+Wording and format: `AFROMESSAGE_PREFIX` (default "Your Afropay code is"), `AFROMESSAGE_POSTFIX`,
+`AFROMESSAGE_CODE_TYPE` (`0` numeric, `1` letters, `2` alphanumeric); `len` follows Encore's 6 characters and `ttl`
+its 5-minute expiry. If the reply carries neither a code nor a verification id, sign-in fails rather than leaving a
+code nobody can check.
+
+**Cloudflare:** AfroMessage sits behind Cloudflare, which answers the default Python user agent with
+`403 error code: 1010`. Encore sends a normal `User-Agent` (override with `SMS_USER_AGENT`), which resolves it.
+
+Check the account without sending anything:
+
+```
+python3 server.py --sms-balance
+```
 
 Codes are stored as HMAC hashes, expire in 5 minutes, allow 5 attempts, need a 60-second wait before resending, and are
 limited to 5 per number per hour and 20 per IP per hour. Until a provider is configured, sign-in answers
