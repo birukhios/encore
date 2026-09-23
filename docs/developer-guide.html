@@ -1,0 +1,683 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Encore Developer Guide</title>
+<!--
+  Source of the Encore developer guide. Print to PDF (A4, background graphics on) or render headlessly:
+    chrome --headless --print-to-pdf=Encore_Developer_Guide.pdf docs/developer-guide.html
+  Keep it in step with the code: update the cover facts, §2 versions and §17 when behaviour changes.
+-->
+<style>
+@font-face { font-family: Manrope; src: url('../node_modules/@fontsource-variable/manrope/files/manrope-latin-wght-normal.woff2') format('woff2'); font-weight: 200 800; }
+:root { --red: #E61E32; --ink: #0D0D12; --muted: #5d6477; --line: #e3e5ea; --soft: #f6f6f8; --redsoft: #fff0f2; }
+@page { size: A4; margin: 18mm 16mm 20mm; }
+@page :first { margin: 14mm 12mm 16mm; }
+* { box-sizing: border-box; }
+html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+body { font-family: Manrope, Arial, sans-serif; color: var(--ink); font-size: 10.2pt; line-height: 1.55; margin: 0; }
+h1, h2, h3, h4 { margin: 0; line-height: 1.2; letter-spacing: -0.2px; }
+h1.section { font-size: 24pt; font-weight: 800; margin: 0 0 4mm; page-break-before: always; }
+h1.section .num { color: var(--red); margin-right: 3mm; }
+.lead { color: var(--muted); font-size: 11pt; margin: 0 0 7mm; max-width: 165mm; }
+h2 { font-size: 13.5pt; font-weight: 750; margin: 7mm 0 2.5mm; page-break-after: avoid; }
+h3 { font-size: 11pt; font-weight: 750; margin: 5mm 0 2mm; page-break-after: avoid; }
+p { margin: 0 0 2.6mm; }
+ul, ol { margin: 0 0 3mm; padding-left: 5mm; }
+li { margin-bottom: 1mm; }
+code, .mono { font-family: 'SF Mono', Menlo, Consolas, monospace; font-size: 8.6pt; background: var(--soft); padding: 0.3mm 1.2mm; border-radius: 1.2mm; }
+pre { font-family: 'SF Mono', Menlo, Consolas, monospace; font-size: 8.2pt; line-height: 1.45; background: #0D0D12; color: #e9e9ee; padding: 4mm 5mm; border-radius: 3mm; white-space: pre-wrap; margin: 0 0 4mm; page-break-inside: avoid; }
+pre .c { color: #8a8f9e; }
+pre .k { color: #ff6b7a; }
+table { width: 100%; border-collapse: collapse; margin: 0 0 4mm; font-size: 9pt; }
+table.keep { page-break-inside: avoid; }
+tr { page-break-inside: avoid; }
+th { text-align: left; background: #0D0D12; color: #fff; font-weight: 650; padding: 2mm 2.5mm; font-size: 8.6pt; }
+td { padding: 1.8mm 2.5mm; border-bottom: 1px solid var(--line); vertical-align: top; }
+tr:nth-child(even) td { background: #fafafb; }
+td code { background: #eeeff2; }
+.callout { border-left: 1.2mm solid var(--red); background: var(--redsoft); padding: 3mm 4mm; border-radius: 0 2mm 2mm 0; margin: 0 0 4mm; page-break-inside: avoid; }
+.callout.grey { border-color: #0D0D12; background: var(--soft); }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 4mm; margin-bottom: 4mm; }
+.grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3.5mm; margin-bottom: 4mm; }
+.card { border: 1px solid var(--line); border-radius: 3mm; padding: 3.5mm 4mm; page-break-inside: avoid; }
+.card h4 { font-size: 10.5pt; margin-bottom: 1.5mm; }
+.card p, .card li { font-size: 9pt; color: #353a48; }
+.tag { display: inline-block; font-size: 7.5pt; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; color: var(--red); margin-bottom: 1mm; }
+.badge { display: inline-block; font-size: 7.6pt; font-weight: 700; padding: 0.4mm 2mm; border-radius: 1.5mm; background: #eeeff2; margin: 0 1mm 1mm 0; }
+.badge.red { background: var(--red); color: #fff; }
+.badge.dark { background: #0D0D12; color: #fff; }
+.cover { height: 300mm; border-radius: 4mm; background: #0B0B0E; color: #fff; margin: 0; padding: 22mm 18mm; display: flex; flex-direction: column; justify-content: space-between; position: relative; overflow: hidden; }
+.cover .glow { position: absolute; right: -60mm; top: -40mm; width: 170mm; height: 170mm; border-radius: 50%; background: radial-gradient(circle, rgba(230,30,50,.55), rgba(230,30,50,0) 65%); }
+.cover .brand { display: flex; align-items: center; gap: 4mm; font-size: 20pt; font-weight: 800; position: relative; }
+.cover .brand svg { width: 13mm; height: 13mm; }
+.cover h1 { font-size: 40pt; font-weight: 800; letter-spacing: -1.2px; line-height: 1.05; position: relative; }
+.cover .sub { color: #c4c6cf; font-size: 13pt; max-width: 130mm; margin-top: 6mm; position: relative; }
+.cover .meta { display: grid; grid-template-columns: repeat(3, auto); gap: 3mm 12mm; color: #a7abb8; font-size: 9.5pt; position: relative; }
+.cover .meta b { display: block; color: #fff; font-size: 10.5pt; }
+.cover .eyebrow { color: var(--red); font-weight: 800; letter-spacing: 3px; font-size: 9pt; text-transform: uppercase; margin-bottom: 5mm; }
+.toc { page-break-before: always; }
+.toc ol { list-style: none; padding: 0; }
+.toc li { display: flex; gap: 4mm; padding: 2.2mm 0; border-bottom: 1px solid var(--line); font-size: 10.5pt; font-weight: 600; }
+.toc li span.n { color: var(--red); width: 9mm; font-weight: 800; }
+.toc li small { margin-left: auto; color: var(--muted); font-weight: 500; font-size: 8.8pt; }
+.diagram { border: 1px solid var(--line); border-radius: 3mm; padding: 5mm; margin: 0 0 5mm; background: #fcfcfd; page-break-inside: avoid; }
+.row { display: flex; gap: 3mm; align-items: stretch; }
+.box { flex: 1; border-radius: 2.5mm; padding: 3mm; font-size: 8.8pt; border: 1px solid var(--line); background: #fff; }
+.box b { display: block; font-size: 9.6pt; margin-bottom: .8mm; }
+.box.dark { background: #0D0D12; color: #fff; border-color: #0D0D12; }
+.box.dark small { color: #b9bcc6; }
+.box.red { background: var(--red); color: #fff; border-color: var(--red); }
+.box small { color: var(--muted); display: block; line-height: 1.4; }
+.arrow { text-align: center; color: var(--red); font-weight: 800; font-size: 13pt; margin: 1.2mm 0; }
+.flow { display: flex; align-items: center; gap: 1.5mm; flex-wrap: wrap; font-size: 8.8pt; }
+.flow .step { border: 1.5px solid #0D0D12; border-radius: 2mm; padding: 1.5mm 3mm; font-weight: 700; background: #fff; }
+.flow .step.red { border-color: var(--red); color: var(--red); }
+.flow .to { color: var(--red); font-weight: 800; }
+.tree { font-family: 'SF Mono', Menlo, Consolas, monospace; font-size: 8.1pt; line-height: 1.5; background: var(--soft); border-radius: 3mm; padding: 4mm 5mm; white-space: pre; page-break-inside: avoid; margin-bottom: 4mm; }
+.tree .d { color: var(--red); font-weight: 700; }
+.tree .m { color: #7a8091; }
+.formula { font-size: 11pt; font-weight: 700; text-align: center; padding: 4mm; background: #0D0D12; color: #fff; border-radius: 3mm; margin: 0 0 4mm; }
+.formula span { color: #ff7a88; }
+.keep { page-break-inside: avoid; }
+.footer-note { color: var(--muted); font-size: 8.5pt; margin-top: 6mm; }
+</style>
+</head>
+<body>
+
+<section class="cover">
+  <div class="glow"></div>
+  <div class="brand">
+    <svg viewBox="0 0 100 100"><defs><mask id="m"><rect width="100" height="100" fill="#fff"/><path d="M31 44c2-11 9.5-18 19.5-18S68 33 69.5 44z" fill="#000"/><path d="M31 56h69v10H62c-3 6-8 9-13 9-8.5 0-15.5-6-18-19z" fill="#000"/><circle cx="4" cy="52" r="6" fill="#000"/></mask></defs><circle cx="50" cy="50" r="46" fill="#E61E32" mask="url(#m)"/></svg>
+    encore
+  </div>
+  <div>
+    <div class="eyebrow">Developer guide · production edition</div>
+    <h1>How Encore<br>is built.</h1>
+    <p class="sub">Tools, architecture, folder structure, database, business rules, APIs, app states, security, testing and deployment — everything a developer needs to work on the Encore live-venue platform.</p>
+  </div>
+  <div class="meta">
+    <div><b>Version</b>23 September 2026</div>
+    <div><b>Commit</b>418893d</div>
+    <div><b>Repository</b>github.com/birukhios/encore</div>
+    <div><b>Backend</b>Python 3.11+ · PostgreSQL</div>
+    <div><b>Frontend</b>React 19 · Vite 6</div>
+    <div><b>Tests</b>39 (SQLite + PostgreSQL)</div>
+  </div>
+</section>
+
+<section class="toc">
+  <h1 style="font-size:24pt;font-weight:800;margin-bottom:6mm">Contents</h1>
+  <ol>
+    <li><span class="n">01</span>Platform overview<small>Three apps, design principles</small></li>
+    <li><span class="n">02</span>Tools and technologies<small>Every library, runtime and service</small></li>
+    <li><span class="n">03</span>Architecture<small>Request flow, handlers, background work</small></li>
+    <li><span class="n">04</span>Folder structure<small>What lives where</small></li>
+    <li><span class="n">05</span>Database<small>Tables, workspace document, indexes, retention</small></li>
+    <li><span class="n">06</span>Business rules<small>Pricing, payments, stock, waiters, check-in</small></li>
+    <li><span class="n">07</span>Authentication and roles<small>Organizers, guests, platform operators, SMS</small></li>
+    <li><span class="n">08</span>API reference<small>Endpoints and staff actions</small></li>
+    <li><span class="n">09</span>Frontend<small>Apps, shared UI, reports, PDF, printing</small></li>
+    <li><span class="n">10</span>App states<small>Loading, empty, error, offline, crash</small></li>
+    <li><span class="n">11</span>Security<small>Headers, hashing, limits, isolation</small></li>
+    <li><span class="n">12</span>Configuration<small>Environment variables</small></li>
+    <li><span class="n">13</span>Development workflow<small>Run, build, test, conventions</small></li>
+    <li><span class="n">14</span>Deployment and operations<small>Render, Docker, checks, backups</small></li>
+    <li><span class="n">15</span>Extending Encore<small>SMS, AfroPay, actions, reports</small></li>
+    <li><span class="n">16</span>Working with AI assistance<small>Repo rules, permissions, review</small></li>
+    <li><span class="n">17</span>Limitations and roadmap</li>
+  </ol>
+</section>
+
+<h1 class="section"><span class="num">01</span>Platform overview</h1>
+<p class="lead">Encore is a multi-tenant platform for concerts and live venues: ticketing, table ordering, stock, staff and analytics. Organizers run their venue from the admin app; guests book and order from their phones; Encore's own operators watch the whole platform.</p>
+
+<div class="grid3">
+  <div class="card"><span class="tag">Guests · /</span><h4>Guest web app</h4><p>Browse organizers and concerts, sign in with a phone code, reserve tickets (a QR per ticket), scan a table, order food and drinks, tip a waiter by badge number, pay by wallet or cash, follow the order, rate the organizer.</p></div>
+  <div class="card"><span class="tag">Organizers · /admin</span><h4>Organizer admin</h4><p>Dashboard, orders (including orders taken by staff), printable receipts and kitchen tickets, bookings and check-in, reports with suggestions and PDF/CSV export, events, menu, stock (store and menu), tables with QR codes, waiters, team roles, settings, and an in-app guide.</p></div>
+  <div class="card"><span class="tag">Encore staff · /admin/platform</span><h4>Platform console</h4><p>Cross-organization analytics, organization management (suspend, reactivate), guests, staff accounts (end sessions, reset password), activity log and system health.</p></div>
+</div>
+
+<h2>Design principles</h2>
+<ul>
+  <li><b>The server decides.</b> Prices, VAT, service charge, stock, capacity and payment state are always recalculated in <code>domain.py</code>; the browser only previews.</li>
+  <li><b>Fail closed, never pretend.</b> No demo mode exists in the product: sign-in codes are never shown on screen, and no payment is ever marked paid by the software. Cash is paid only when staff record it.</li>
+  <li><b>Money is integer cents.</b> VAT uses exact fractions with half-up rounding.</li>
+  <li><b>Tenant isolation.</b> One workspace document per organization; every staff request is scoped to the signed-in user's tenant.</li>
+  <li><b>Few dependencies.</b> The backend is the Python standard library plus one database driver.</li>
+  <li><b>Every state is designed.</b> Loading, empty, error, offline and crash states ship with each screen.</li>
+</ul>
+
+<h1 class="section"><span class="num">02</span>Tools and technologies</h1>
+<p class="lead">Everything used to build, test and run Encore, with versions and why it is there.</p>
+
+<h2>Backend</h2>
+<table>
+  <tr><th style="width:26%">Tool</th><th style="width:15%">Version</th><th>Used for</th></tr>
+  <tr><td><b>Python</b></td><td>3.11+ (3.12 in Docker)</td><td>Application server and business rules. <code>hashlib.scrypt</code> is required for password hashing.</td></tr>
+  <tr><td><b>http.server</b> (stdlib)</td><td>—</td><td><code>ThreadingHTTPServer</code> with custom handlers. No web framework: routing, JSON, cookies, CSP, gzip and HEAD are implemented in <code>server.py</code>.</td></tr>
+  <tr><td><b>sqlite3</b> (stdlib)</td><td>—</td><td>Local and single-server database: WAL, foreign keys, <code>busy_timeout</code>, <code>synchronous=NORMAL</code>.</td></tr>
+  <tr><td><b>PostgreSQL</b></td><td>Render managed</td><td>Production database (<code>DATABASE_URL</code>). Uploaded images live here too.</td></tr>
+  <tr><td><b>psycopg[binary,pool]</b></td><td>3.2.3</td><td>PostgreSQL driver and connection pool — the only third-party Python dependency.</td></tr>
+  <tr><td><b>urllib</b> (stdlib)</td><td>—</td><td>Outbound HTTP to SMS gateways, with timeouts and provider error mapping.</td></tr>
+  <tr><td><b>hmac · secrets · fractions · decimal · gzip</b></td><td>stdlib</td><td>Constant-time compares, tokens and codes, exact VAT, money parsing, response compression.</td></tr>
+</table>
+
+<h2>Frontend</h2>
+<table>
+  <tr><th style="width:26%">Tool</th><th style="width:15%">Version</th><th>Used for</th></tr>
+  <tr><td><b>React</b> + react-dom</td><td>19.2.0</td><td>All three apps. Hooks only; shared state is passed as a <code>ctx</code> object, no state library.</td></tr>
+  <tr><td><b>Vite</b></td><td>6.4.2</td><td>Dev servers with hot reload; multi-page production build (<code>admin.html</code>, <code>guest.html</code>).</td></tr>
+  <tr><td><b>@vitejs/plugin-react</b></td><td>5.0.4</td><td>JSX transform and fast refresh.</td></tr>
+  <tr><td><b>@fontsource-variable/manrope</b></td><td>5.3</td><td>Self-hosted Manrope (no external font requests; CSP stays strict).</td></tr>
+  <tr><td><b>qrcode</b> / <b>jsQR</b></td><td>1.5.4 / 1.4.0</td><td>Ticket and table QR codes; camera scanning (native <code>BarcodeDetector</code> when the browser has it).</td></tr>
+  <tr><td><b>jsPDF</b> + <b>jspdf-autotable</b></td><td>2.5.2 / 3.8.4</td><td>Branded PDF exports, loaded on demand in a separate chunk.</td></tr>
+  <tr><td><b>CSS</b> (one <code>src/styles.css</code>)</td><td>—</td><td>Design tokens, light/dark, responsive layouts, skeletons, print styles. No CSS framework.</td></tr>
+</table>
+
+<h2>Infrastructure, testing, tooling</h2>
+<table>
+  <tr><th style="width:26%">Tool</th><th>Used for</th></tr>
+  <tr><td><b>Docker</b></td><td>Two stages: <code>node:20-alpine</code> builds the apps, <code>python:3.12-slim</code> runs the server.</td></tr>
+  <tr><td><b>Render</b> (Blueprint)</td><td>Hosting: Docker web service + managed PostgreSQL from <code>render.yaml</code>; Cloudflare in front.</td></tr>
+  <tr><td><b>Caddy</b></td><td>Optional HTTPS proxy for VPS installs (<code>deploy/Caddyfile</code>).</td></tr>
+  <tr><td><b>SMS gateways</b></td><td>AfroMessage, Twilio, Africa's Talking, GeezSMS, or any gateway through the generic <code>http</code> provider.</td></tr>
+  <tr><td><b>unittest</b> (stdlib)</td><td>39 tests: real HTTP servers on random ports, a disposable database, and pure domain and provider tests.</td></tr>
+  <tr><td><b>pgserver</b></td><td>Throw-away PostgreSQL so the same suite runs on both databases.</td></tr>
+  <tr><td><b>Headless Chrome</b> (DevTools protocol)</td><td>Visual QA at phone/tablet/desktop widths, print and PDF checks, screenshots for documents.</td></tr>
+  <tr><td><b>Figma</b> + <code>html-to-figma/</code></td><td>Design source; icons extracted to <code>src/icons.json</code>.</td></tr>
+</table>
+
+<h1 class="section"><span class="num">03</span>Architecture</h1>
+<p class="lead">One small Python process serves two single-page React apps and a JSON API, backed by SQLite or PostgreSQL.</p>
+
+<div class="diagram">
+  <div class="row">
+    <div class="box"><b>Guest app</b><small>guest.html · React<br>phones first</small></div>
+    <div class="box"><b>Organizer admin</b><small>admin.html · React<br>/admin</small></div>
+    <div class="box"><b>Platform console</b><small>lazy chunk of admin.html<br>/admin/platform</small></div>
+  </div>
+  <div class="arrow">↓ HTTPS · JSON · cookies ↓</div>
+  <div class="row"><div class="box dark" style="flex:1"><b>Cloudflare / Render proxy</b><small>TLS, X-Forwarded-For</small></div></div>
+  <div class="arrow">↓</div>
+  <div class="row">
+    <div class="box red" style="flex:2"><b>server.py — ThreadingHTTPServer</b><small style="color:#ffe3e6">CombinedHandler → GuestHandler (/, /api/*) or AdminHandler (/admin, /admin/api/*)<br>static files · CSP · gzip · HEAD · robots · sessions · rate limits · routing · housekeeping thread</small></div>
+    <div class="box" style="flex:1"><b>sms.py</b><small>AfroMessage · Twilio · Africa's Talking · GeezSMS · generic HTTP</small></div>
+  </div>
+  <div class="arrow">↓</div>
+  <div class="row">
+    <div class="box dark" style="flex:2"><b>domain.py — business rules</b><small>settings, pricing, VAT, service charge, tips, bookings, orders, stock, store inventory, waiters, check-in</small></div>
+    <div class="box" style="flex:1"><b>db.py</b><small>SQLite / PostgreSQL adapter, pool, schema, migrations, retention</small></div>
+  </div>
+  <div class="arrow">↓</div>
+  <div class="row"><div class="box" style="flex:1"><b>Database</b><small>tenants (workspace JSON) · users · sessions · invites · guests · guest_sessions · otps · otp_log · notifications · ratings · uploads · audit · platform_admins · platform_sessions · platform_audit</small></div></div>
+</div>
+
+<h2>Request lifecycle</h2>
+<div class="flow keep" style="margin-bottom:4mm">
+  <span class="step">Request</span><span class="to">→</span><span class="step">Route by path</span><span class="to">→</span><span class="step">Origin · JSON · size checks</span><span class="to">→</span><span class="step">Session lookup</span><span class="to">→</span><span class="step">BEGIN IMMEDIATE</span><span class="to">→</span><span class="step red">domain.py rule</span><span class="to">→</span><span class="step">write_tenant (version+1)</span><span class="to">→</span><span class="step">COMMIT</span><span class="to">→</span><span class="step">JSON (gzip)</span>
+</div>
+<ul>
+  <li><b>Writes are serialized</b> with <code>BEGIN IMMEDIATE</code> (SQLite) or a transaction-scoped advisory lock (PostgreSQL), so two guests can never take the last ticket or the last bottle.</li>
+  <li><b>Optimistic concurrency:</b> staff actions send the workspace <code>version</code>; a stale version returns <code>409</code> and the admin app refreshes.</li>
+  <li><b>Errors map to status codes:</b> <code>ValueError→400</code>, <code>PermissionError→401</code>, <code>LookupError→404</code>, <code>ApiError(status)</code> for 403/409/429/502/503; anything unexpected becomes a generic 500.</li>
+  <li><b>Commit before respond,</b> so the client's next request always sees its own write.</li>
+  <li><b>Housekeeping thread</b> (hourly) deletes expired sessions, codes and stale logs — see §5.</li>
+</ul>
+
+<h2>Single-port and two-port modes</h2>
+<table class="keep">
+  <tr><th>Mode</th><th>Guest app</th><th>Organizer admin</th><th>When</th></tr>
+  <tr><td><code>ENCORE_SINGLE_PORT=1</code></td><td><code>https://host/</code> · API <code>/api/*</code></td><td><code>https://host/admin</code> · API <code>/admin/api/*</code></td><td>Render and other one-port hosts</td></tr>
+  <tr><td>Two ports (default)</td><td><code>GUEST_PORT</code> 8082</td><td><code>PORT</code> 8081</td><td>Local, or a VPS with separate domains</td></tr>
+</table>
+<p>Each app has its own cookie — <code>encore_session</code> (Strict), <code>encore_guest</code> (Lax, so a table QR opened from the camera keeps the session), <code>encore_platform</code> (Strict) — so identities never mix.</p>
+
+<h1 class="section"><span class="num">04</span>Folder structure</h1>
+<p class="lead">About 10,000 lines of application code. Backend at the root, the three apps in <code>src/</code>.</p>
+
+<div class="tree"><span class="d">encore-platform/</span>
+├── <b>server.py</b>            <span class="m">HTTP server, routing, sessions, APIs, platform console, CLI (--check, --sms-test)</span>
+├── <b>domain.py</b>            <span class="m">business rules: settings, pricing, orders, stock, waiters, check-in</span>
+├── <b>db.py</b>                <span class="m">SQLite/PostgreSQL adapter, pool, schema, migrations, retention</span>
+├── <b>sms.py</b>               <span class="m">SMS providers (AfroMessage, Twilio, Africa's Talking, GeezSMS, generic HTTP)</span>
+├── <b>launch.py</b>            <span class="m">finds Python 3.11+, runs tests (--test), starts the server</span>
+├── dev.mjs · vite.config.mjs   <span class="m">dev servers; multi-page build and chunk splitting</span>
+├── admin.html · guest.html     <span class="m">entry points</span>
+├── Dockerfile · render.yaml · .env.example · deploy/Caddyfile
+├── README.md · PRODUCTION.md · CLAUDE.md · START_HERE.txt
+├── <span class="d">.claude/</span>settings.json   <span class="m">tool permissions for AI-assisted work</span>
+├── <span class="d">.github/</span>pull_request_template.md · <span class="d">.githooks/</span>pre-commit  <span class="m">review and secret checks</span>
+├── <span class="d">docs/</span>              <span class="m">AI_DEPLOYMENT_CHECKLIST.md · developer-guide.html (this document)</span>
+├── <span class="d">public/</span>              <span class="m">favicons, PWA manifest, wallet logos</span>
+├── <span class="d">src/</span>
+│   ├── styles.css       <span class="m">tokens, components, responsive, dark mode, skeletons, print</span>
+│   ├── icons.json       <span class="m">SVG icons extracted from Figma</span>
+│   ├── <span class="d">shared/</span>          <span class="m">api.js · ui.jsx (incl. ErrorBoundary, Skeleton, OfflineBar) · theme.js · QR · Scanner · Logo · ImageUpload</span>
+│   ├── <span class="d">guest/</span>          <span class="m">main · GuestApp · screens · PhoneAuth · AfroPayCheckout · content</span>
+│   └── <span class="d">admin/</span>
+│       ├── main.jsx     <span class="m">routes /admin/platform → PlatformApp (lazy), else AdminApp</span>
+│       ├── AdminApp.jsx <span class="m">shell, navigation, roles, ctx.action()</span>
+│       ├── Auth.jsx · pages.jsx  <span class="m">sign-in; Overview, Events, Bookings, Check-ins, Tables, Menu, Orders, Team, Profile</span>
+│       ├── service.jsx  <span class="m">Stock (store + menu), Waiters, staff orders, printable slips</span>
+│       ├── Settings.jsx · Guide.jsx  <span class="m">all settings; in-app how-to</span>
+│       ├── Reports.jsx · reportData.js · charts.jsx · pdf.js  <span class="m">analytics, pure engine, charts, exports</span>
+│       └── PlatformApp.jsx <span class="m">platform console</span>
+├── <span class="d">tests/</span>               <span class="m">test_server.py (API, domain, SMS providers, platform) · test_journeys.py</span>
+├── <span class="d">html-to-figma/</span>       <span class="m">design tooling, not part of the runtime</span>
+├── <span class="d">dist/</span>                <span class="m">build output (git-ignored)</span>
+└── <span class="d">data/</span>                <span class="m">local SQLite, uploads, secret.key (git-ignored — never commit)</span></div>
+
+<h1 class="section"><span class="num">05</span>Database</h1>
+<p class="lead">Relational tables for identity, sessions and cross-tenant data; one JSON document per organization for everything that organization owns.</p>
+
+<div class="callout grey"><b>Why a workspace document?</b> An organization's events, menu, tables, orders, stock and settings change together and are read together. One document keeps every rule in plain Python, makes each staff save atomic, and lets <code>upgrade()</code> evolve the shape without SQL migrations. Writes are serialized and the <code>version</code> column gives optimistic concurrency.</div>
+
+<h2>SQL tables</h2>
+<table>
+  <tr><th style="width:19%">Table</th><th style="width:42%">Columns</th><th>Purpose</th></tr>
+  <tr><td><code>tenants</code></td><td>id PK, name, <b>state</b> (JSON), version, status, status_note, created</td><td>One row per organization; <code>status</code> active/suspended.</td></tr>
+  <tr><td><code>users</code></td><td>id PK, tenant FK, name, email UNIQUE, password (scrypt), recovery (sha256), role, avatar</td><td>Organizer staff: Owner, Admin, Service, Gate.</td></tr>
+  <tr><td><code>sessions</code></td><td>token PK (sha256), user FK CASCADE, expires</td><td>Organizer sessions, 7 days.</td></tr>
+  <tr><td><code>invites</code></td><td>token PK, tenant FK, email, role, expires</td><td>Team invitations, 7 days.</td></tr>
+  <tr><td><code>guests</code></td><td>id PK, phone UNIQUE (E.164), name, created, terms</td><td>Platform-wide guest accounts.</td></tr>
+  <tr><td><code>guest_sessions</code></td><td>token PK, guest FK, expires</td><td>Guest sessions, 30 days.</td></tr>
+  <tr><td><code>otps</code> / <code>otp_log</code></td><td>phone PK, code (HMAC), expires, attempts, sent / id, phone, ip, created</td><td>One pending sign-in code per phone; send-rate history.</td></tr>
+  <tr><td><code>notifications</code></td><td>id, tenant, audience, guest, kind, title, body, ref, created, read</td><td>In-app notifications for staff and guests.</td></tr>
+  <tr><td><code>ratings</code></td><td>(tenant, guest) PK, stars, comment, name, created, updated</td><td>One rating per guest per organization.</td></tr>
+  <tr><td><code>uploads</code></td><td>name PK, mime, data (BLOB/BYTEA), created</td><td>Images, ≤ 5 MB, PNG/JPEG/WebP checked by magic bytes.</td></tr>
+  <tr><td><code>audit</code></td><td>id, tenant, user, action, created</td><td>Staff actions and guest purchases.</td></tr>
+  <tr><td><code>platform_admins</code> / <code>platform_sessions</code> / <code>platform_audit</code></td><td>operators; sessions (12 h); action log</td><td>Encore's own console.</td></tr>
+</table>
+
+<h3>Indexes, pooling and retention</h3>
+<ul>
+  <li><b>Indexes</b> on every runtime lookup: notifications by guest and by tenant, session expiry (all three kinds), <code>users(tenant)</code>, <code>invites(expires)</code>, <code>audit(tenant, created)</code>, <code>otp_log(phone, created)</code>, <code>uploads(created)</code>.</li>
+  <li><b>PostgreSQL pool</b> (<code>psycopg_pool</code>, <code>DB_POOL_SIZE</code>, default 8) so requests reuse connections instead of a TCP+TLS handshake each time; without the pool package it falls back to one connection per request.</li>
+  <li><b>SQLite</b> runs with WAL, foreign keys, <code>busy_timeout=15s</code> and <code>synchronous=NORMAL</code>.</li>
+  <li><b>Retention</b> (<code>db.RETENTION</code>, applied at start-up and hourly): expired sessions, invites and codes immediately; <code>otp_log</code> after 1 day; read notifications after 180 days; audit rows after 400 days.</li>
+  <li><b>Migrations</b> are additive and idempotent: <code>CREATE TABLE/INDEX IF NOT EXISTS</code>, plus <code>db.migrate()</code> for new columns. SQL is written once with <code>?</code> and translated for PostgreSQL.</li>
+</ul>
+
+<h2>The workspace document (<code>tenants.state</code>)</h2>
+<pre><span class="c"># domain.blank(name) creates it; domain.upgrade(s) fills defaults for older documents</span>
+{
+  <span class="k">"name"</span>, <span class="k">"description"</span>, <span class="k">"currency"</span>: "ETB",
+  <span class="k">"events"</span>:    [ { id, name, date "YYYY-MM-DDTHH:MM", venue, description, price¢, capacity, published, image } ],
+  <span class="k">"menu"</span>:      [ { id, name, description, price¢, category, available, image, events[],
+                   trackStock, stock, lowStock } ],
+  <span class="k">"tables"</span>:    [ { id, name, event, seats, status, token (QR secret), code (6 letters) } ],
+  <span class="k">"bookings"</span>:  [ { id, ref "EN-XXXXXX", token, guest, name, phone, event, eventName, qty,
+                   tickets: [ { serial, token, used, usedAt, usedBy } ],
+                   subtotal¢, tax{label,rate,amount¢,included}, total¢,
+                   status Reserved|Checked in|Cancelled, paid, settlement, settledBy, settledAt, created } ],
+  <span class="k">"orders"</span>:    [ { id, ref, token, guest|null, name, phone, table, tableName, event,
+                   lines: [ { id, name, qty, price¢, total¢ } ], items (text),
+                   subtotal¢, service{label,rate,amount¢}, tax{…}, tip¢, total¢,
+                   waiter, waiterName, waiterNumber, takenBy,
+                   status Placed|Preparing|Ready|Delivered|Cancelled,
+                   paid, settlement cash|staff, settledBy, settledAt, created } ],
+  <span class="k">"waiters"</span>:   [ { id, name, phone, number "4821", active, created } ],
+  <span class="k">"inventory"</span>: [ { id, name, category, unit, quantity, reorderLevel, cost¢, supplier, created } ],
+  <span class="k">"stockLog"</span>:  [ { id, store?, item, name, unit?, change, after, reason, by, at } ],   <span class="c"># last 500</span>
+  <span class="k">"settings"</span>: { theme, ticketing, ordering, tips, service, payments, notifications,
+                support, legal, profile, menu, store, tax }
+}</pre>
+
+<h3>Settings groups (13)</h3>
+<table>
+  <tr><th style="width:18%">Group</th><th>Fields (defaults)</th></tr>
+  <tr><td>theme</td><td>accent #E61E32 (contrast-checked), mode, adminMode, logo, cover</td></tr>
+  <tr><td>ticketing</td><td>enabled, maxPerOrder 6, showRemaining</td></tr>
+  <tr><td>ordering</td><td>enabled, requireScan, ticketHoldersOnly, eventMenus</td></tr>
+  <tr><td>tips · service</td><td>enabled, presets [20, 50, 100], custom · enabled false, rate 10 (%)</td></tr>
+  <tr><td>payments</td><td>cash true (food &amp; drinks), ticketCash false (reserve and pay at the entrance)</td></tr>
+  <tr><td>tax</td><td>regime vat|none, vatRate 15, pricesIncludeTax false, tickets, menu, tin, vatNumber</td></tr>
+  <tr><td>menu · store</td><td>categories — menu: Food, Drinks · store: Drinks, Alcohol, Meat, Bakery, Produce, Dry goods, Dairy, Cleaning, Packaging, Other (all editable)</td></tr>
+  <tr><td>profile · support · legal · notifications</td><td>city, address, mapUrl, photos · email, phone, hours, faq · terms, privacy · SMS and staff alert toggles</td></tr>
+</table>
+
+<h1 class="section"><span class="num">06</span>Business rules</h1>
+<p class="lead">Everything lives in <code>domain.py</code>: functions take the workspace document, change it, and raise <code>ValueError</code> with a message the reader can act on.</p>
+
+<h2>Pricing (<code>quote_order</code>)</h2>
+<div class="formula">total = items <span>+</span> service charge <span>+</span> VAT(items + service) <span>+</span> tip</div>
+<ul>
+  <li><b>Items</b> are priced from the workspace, never from the client.</li>
+  <li><b>Service charge</b> (<code>service_for</code>): food &amp; drink orders only, a percentage of the item subtotal, half-up rounding. Never on tickets.</li>
+  <li><b>VAT</b> (<code>tax_for</code>): 15% by default, added on top, exact <code>Fraction</code> math; it applies to the service charge and never to tips.</li>
+  <li><b>Tip</b>: <code>money_cents</code> (max 50,000), must match a preset unless custom tips are on; rejected when tips are off. Credited to a waiter when the guest gives a badge number.</li>
+  <li><b>Worked example:</b> 100.00 items + 10% service (10.00) + 15% VAT on 110.00 (16.50) + 5.00 tip = <b>131.50</b>.</li>
+</ul>
+
+<h2>Payments</h2>
+<table>
+  <tr><th style="width:26%">Path</th><th>Rules</th></tr>
+  <tr><td><b>Online wallet</b> <code>POST /api/checkout</code></td><td>AfroPay is not connected, so this returns <code>503 PAYMENT_NOT_CONFIGURED</code> and nobody is charged. §15 describes the integration.</td></tr>
+  <tr><td><b>Cash, food &amp; drinks</b> <code>POST /api/order</code> <code>payment:"cash"</code></td><td>Allowed when <code>payments.cash</code> is on. The order reaches the kitchen immediately, marked unpaid with settlement <code>cash</code>.</td></tr>
+  <tr><td><b>Cash, tickets</b> same route, <code>kind:"booking"</code></td><td>Allowed when <code>payments.ticketCash</code> is on (off by default): reserve now, pay at the entrance. The booking holds capacity but stays unpaid.</td></tr>
+  <tr><td><b>Staff order</b> action <code>staff_order</code></td><td>Owner/Admin/Service. Any table, optional waiter, tip and guest name; Cash, Card at venue, or not paid yet; <code>takenBy</code> records the staff member.</td></tr>
+  <tr><td><b>Recording payment</b> action <code>settle</code></td><td>Cash or Card at venue only — bank transfer is not accepted. Sets <code>paid</code>, <code>settledBy</code>, <code>settledAt</code> and notifies the guest.</td></tr>
+</table>
+<p><b>Nothing is ever marked paid automatically.</b> An unpaid booking cannot be checked in, and a paid record cannot be cancelled.</p>
+
+<h2>Orders</h2>
+<div class="flow keep" style="margin-bottom:3mm">
+  <span class="step">Placed</span><span class="to">→</span><span class="step">Preparing</span><span class="to">→</span><span class="step">Ready</span><span class="to">→</span><span class="step">Delivered</span><span style="margin-left:6mm" class="step red">Cancelled</span><span>unpaid only · restores stock</span>
+</div>
+<p>Every order validates the table and menu, checks stock for all lines <i>before</i> deducting any (<code>_take_stock</code>), attaches the waiter, writes the stock log, and notifies staff and guest. Guests see each status change.</p>
+
+<h2>Tickets and check-in</h2>
+<ul>
+  <li><code>sold()</code> counts Reserved + Checked in tickets; overselling is rejected inside the write lock.</li>
+  <li>Each ticket carries its own random token; the QR payload is <code>REF:serial:token</code>.</li>
+  <li><code>checkin_ticket</code> takes a scanned QR or a typed reference (admitting the next unused ticket). Tickets are single use; unpaid or cancelled bookings are refused. <code>usedBy</code> records the staff member and is stripped from guest receipts.</li>
+</ul>
+
+<h2>Stock</h2>
+<div class="grid2">
+  <div class="card"><h4>Menu item stock</h4><ul><li><code>trackStock</code>, <code>stock</code>, <code>lowStock</code> per item.</li><li>Orders deduct; cancelling an unpaid order restores.</li><li>Guests see “Only N left”; sold-out items become unavailable.</li><li>Action <code>stock</code>: add, remove, set.</li></ul></div>
+  <div class="card"><h4>Store stock (supplies)</h4><ul><li><code>inventory</code>: beer, wine, bread, meat… with category, unit (15 built in), cost, supplier, reorder level.</li><li>Decimal quantities to 3 places (2.25 kg).</li><li>Action <code>inventory_adjust</code>: delivery (may update cost), used, waste, count.</li><li>Categories are editable per workspace.</li></ul></div>
+</div>
+<p>Both write to <code>stockLog</code> (change, resulting quantity, reason, who, when — last 500 entries).</p>
+
+<h2>Waiters, tips and other rules</h2>
+<table>
+  <tr><th style="width:24%">Area</th><th>Rule</th></tr>
+  <tr><td>Waiter numbers</td><td><code>waiter_number()</code> picks a random 4-digit number unused in that workspace (including inactive waiters). Regenerating retires the old badge. Waiters with orders cannot be deleted — deactivate instead.</td></tr>
+  <tr><td>Tables</td><td>Bound to one concert; permanent unguessable token plus a 6-letter code. <code>requireScan</code> and <code>ticketHoldersOnly</code> decide who may order.</td></tr>
+  <tr><td>Settings</td><td><code>configure(group, values)</code> validates each group; renaming a category cascades; a category in use cannot be removed; the accent colour must contrast with white.</td></tr>
+  <tr><td>Suspension</td><td>Suspended organizations: staff sessions deleted, sign-in returns <code>403 TENANT_SUSPENDED</code>, hidden from guests; existing receipts still open.</td></tr>
+  <tr><td>Ratings</td><td>Only guests who bought from the organization may rate (1–5 stars, optional comment).</td></tr>
+  <tr><td>References</td><td><code>EN-</code> + 6 characters from an alphabet without look-alikes (no 0/O, 1/I).</td></tr>
+</table>
+
+<h2>Analytics (<code>src/admin/reportData.js</code>)</h2>
+<p>Pure functions over the workspace document, shared by the dashboard, Reports, exports and the platform console.</p>
+<ul>
+  <li><code>buildReport(state, {from, to, eventId})</code> → summary (gross, net, VAT, tips, service charge, sell-through, check-in rate, attach rate, spend per guest…), previous-period comparison, events, best sellers, slow movers, categories, busiest and top-tipped tables, tips by waiter, weekday × hour heatmap, payment methods, daily series, top guests, latest 10 records, findings and <b>sales suggestions</b>.</li>
+  <li><code>buildPlatform(tenants, filters)</code> → per-organization reports plus merged platform totals in one currency, concentration and multi-organization guests.</li>
+  <li>Only paid, non-cancelled records count as sales. Identity checked in QA: gross = tickets + food &amp; drinks + service + VAT + tips.</li>
+</ul>
+
+<h1 class="section"><span class="num">07</span>Authentication and roles</h1>
+
+<div class="grid3">
+  <div class="card"><span class="tag">Organizers</span><h4>Email + password</h4><ul><li>scrypt (N=16384, r=8, p=1, 16-byte salt)</li><li>Password ≥ 12 characters</li><li>One-time recovery code (sha256)</li><li>Cookie 7 days, HttpOnly, SameSite=Strict, Secure in production</li><li>Invitation links for Admin, Service, Gate</li></ul></div>
+  <div class="card"><span class="tag">Guests</span><h4>Phone + SMS code</h4><ul><li>6 digits, HMAC-SHA256 with the server secret</li><li>5 minutes, 5 attempts, resend after 60 s</li><li>5 codes/hour per phone, 20/hour per IP</li><li>E.164 normalization (+251…)</li><li>Session 30 days, SameSite=Lax</li></ul></div>
+  <div class="card"><span class="tag">Encore staff</span><h4>Platform console</h4><ul><li>Separate <code>platform_admins</code> table</li><li>Created from env or <code>--create-platform-admin</code></li><li>12-hour sessions; 10 sign-ins / 15 min per IP</li><li>Every action written to <code>platform_audit</code></li><li>Cannot be used as an organizer session, or the reverse</li></ul></div>
+</div>
+
+<h2>SMS providers (<code>sms.py</code>)</h2>
+<table>
+  <tr><th style="width:22%"><code>SMS_PROVIDER</code></th><th>Variables</th><th style="width:28%">Request</th></tr>
+  <tr><td><code>afromessage</code></td><td>AFROMESSAGE_TOKEN, AFROMESSAGE_FROM (identifier id), AFROMESSAGE_SENDER, optional AFROMESSAGE_CALLBACK and AFROMESSAGE_CHALLENGE</td><td><code>GET /api/send</code> with a bearer token and <code>from</code>, <code>sender</code>, <code>to</code>, <code>message</code>; only <code>acknowledge: success</code> counts as delivered</td></tr>
+  <tr><td><code>twilio</code></td><td>TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM or TWILIO_MESSAGING_SERVICE_SID</td><td>Form POST, HTTP basic auth</td></tr>
+  <tr><td><code>africastalking</code></td><td>AT_USERNAME, AT_API_KEY, AT_FROM (optional)</td><td>Form POST, <code>apiKey</code> header (sandbox host when username is <code>sandbox</code>)</td></tr>
+  <tr><td><code>geezsms</code></td><td>GEEZSMS_TOKEN, GEEZSMS_FROM (optional)</td><td>JSON POST with token in the body</td></tr>
+  <tr><td><code>http</code></td><td>SMS_HTTP_URL, SMS_HTTP_AUTH, SMS_HTTP_BODY (<code>{phone}</code>, <code>{text}</code>), SMS_HTTP_METHOD, SMS_HTTP_CONTENT_TYPE</td><td>Any gateway: your own body template</td></tr>
+</table>
+<ul>
+  <li><b>AfroMessage challenge codes:</b> with <code>AFROMESSAGE_CHALLENGE=1</code>, sign-in uses <code>GET /api/challenge</code> — AfroMessage generates, formats and sends the code and returns it, and <code>send_signin_code()</code> hands that code back so the server stores its HMAC for verification. A challenge reply without a code fails closed. Wording and format come from <code>AFROMESSAGE_PREFIX</code>, <code>AFROMESSAGE_POSTFIX</code> and <code>AFROMESSAGE_CODE_TYPE</code>; <code>len</code> and <code>ttl</code> follow Encore's 6 digits and 5 minutes.</li>
+  <li><code>status()</code> reports which variables are still missing; the production check refuses to call SMS “working” until it can deliver.</li>
+  <li>Gateways that answer <code>200</code> with an error payload are treated as failures.</li>
+  <li>Prove delivery before launch: <code>python3 server.py --sms-test +251911234567</code>.</li>
+  <li>In development with no provider, messages print to the terminal and are never reported as sent; in production that fallback is refused.</li>
+</ul>
+
+<h2>Organizer roles</h2>
+<table class="keep">
+  <tr><th>Action or page</th><th>Owner</th><th>Admin</th><th>Service</th><th>Gate</th></tr>
+  <tr><td>Settings, events, menu, tables, delete</td><td>✓</td><td>✓</td><td>—</td><td>—</td></tr>
+  <tr><td>Stock (menu + store), waiters</td><td>✓</td><td>✓</td><td>—</td><td>—</td></tr>
+  <tr><td>Order status, record payment, cancel, staff orders</td><td>✓</td><td>✓</td><td>✓</td><td>—</td></tr>
+  <tr><td>Check-in (QR or reference)</td><td>✓</td><td>✓</td><td>—</td><td>✓</td></tr>
+  <tr><td>Reports, invitations</td><td>✓</td><td>✓</td><td>—</td><td>—</td></tr>
+  <tr><td>Remove team members</td><td>✓</td><td>—</td><td>—</td><td>—</td></tr>
+  <tr><td>In-app Guide</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
+</table>
+<p>Enforced server-side by <code>STAFF_ROLES</code>; <code>ROLE_PAGES</code> only hides what a role cannot use.</p>
+
+<h1 class="section"><span class="num">08</span>API reference</h1>
+<p class="lead">JSON over HTTPS. POST bodies are <code>application/json</code>, ≤ 7.5 MB, and any <code>Origin</code> header must match the app. Admin routes are served under <code>/admin/api/</code> in single-port mode.</p>
+
+<h2>Guest API (<code>/api/</code>)</h2>
+<table>
+  <tr><th style="width:9%">Method</th><th style="width:27%">Path</th><th style="width:11%">Auth</th><th>Purpose</th></tr>
+  <tr><td>GET · HEAD</td><td><code>health</code></td><td>—</td><td>Status, database kind, and whether SMS and payments are ready.</td></tr>
+  <tr><td>GET</td><td><code>workspaces</code></td><td>—</td><td>Active organizations with next events, rating and location.</td></tr>
+  <tr><td>GET</td><td><code>public?tenant=&amp;table=</code></td><td>optional</td><td>Public workspace: events, stock-aware menu, settings, ratings, table, whether waiters exist.</td></tr>
+  <tr><td>GET</td><td><code>table?tenant=&amp;code=|token=</code></td><td>—</td><td>Resolve a table QR or typed code (rate limited).</td></tr>
+  <tr><td>GET</td><td><code>receipt?tenant=&amp;ref=&amp;token=</code></td><td>token</td><td>Private receipt link.</td></tr>
+  <tr><td>POST</td><td><code>guest/otp</code> · <code>guest/verify</code></td><td>—</td><td>Send a code · verify it (creating the account with name and terms).</td></tr>
+  <tr><td>GET/POST</td><td><code>guest/me</code> · <code>guest/profile</code> · <code>guest/signout</code></td><td>guest</td><td>Current guest, rename, sign out.</td></tr>
+  <tr><td>GET</td><td><code>guest/records?tenant=</code></td><td>guest</td><td>My tickets and orders with this organizer.</td></tr>
+  <tr><td>GET/POST</td><td><code>guest/notifications</code> · <code>/read</code></td><td>guest</td><td>Notifications across organizers.</td></tr>
+  <tr><td>POST</td><td><code>quote</code></td><td>optional</td><td>Authoritative price: lines, service charge, VAT, tip, waiter.</td></tr>
+  <tr><td>POST</td><td><code>checkout</code></td><td>guest</td><td>Online wallet payment — 503 until AfroPay is connected.</td></tr>
+  <tr><td>POST</td><td><code>order</code></td><td>guest</td><td>Cash booking or order (<code>payment:"cash"</code>), subject to the organizer's settings.</td></tr>
+  <tr><td>POST</td><td><code>guest/rating</code></td><td>guest</td><td>Rate an organizer after buying from them.</td></tr>
+  <tr><td>GET</td><td><code>/robots.txt</code> · <code>/uploads/&lt;file&gt;</code></td><td>—</td><td>Crawl rules; uploaded images with immutable caching.</td></tr>
+</table>
+
+<h2>Organizer API (<code>/admin/api/</code>)</h2>
+<table>
+  <tr><th style="width:9%">Method</th><th style="width:27%">Path</th><th style="width:13%">Auth</th><th>Purpose</th></tr>
+  <tr><td>POST</td><td><code>signup</code> · <code>signin</code> · <code>recover</code></td><td>—</td><td>Create a workspace or accept an invitation · sign in · reset with a recovery code.</td></tr>
+  <tr><td>GET</td><td><code>me</code></td><td>staff</td><td>Bundle: user, workspace state, version, team, SMS status, payment readiness, unread count, ratings.</td></tr>
+  <tr><td>POST</td><td><code>signout</code> · <code>profile</code> · <code>password</code></td><td>staff</td><td>Account management; a password change ends every session.</td></tr>
+  <tr><td>POST</td><td><code>invite</code> · <code>team/remove</code></td><td>Owner/Admin</td><td>Invitation link · remove a member (Owner only).</td></tr>
+  <tr><td>POST</td><td><code>upload</code></td><td>Owner/Admin</td><td>Base64 image → <code>/uploads/…</code>, magic-byte checked.</td></tr>
+  <tr><td>GET/POST</td><td><code>notifications</code> · <code>/read</code></td><td>staff</td><td>Staff notification bell.</td></tr>
+  <tr><td>POST</td><td><code>action</code></td><td>by role</td><td><code>{op, data, version}</code> → <code>domain.mutate</code>; returns the refreshed bundle (plus <code>result</code> for scans and staff orders).</td></tr>
+</table>
+
+<h3>Staff actions (15)</h3>
+<p>
+<span class="badge dark">settings</span><span class="badge dark">config</span><span class="badge dark">event</span><span class="badge dark">menu</span><span class="badge dark">table</span><span class="badge dark">delete</span><span class="badge red">order_status</span><span class="badge red">settle</span><span class="badge red">cancel</span><span class="badge red">staff_order</span><span class="badge">checkin</span><span class="badge">checkin_ticket</span><span class="badge dark">waiter</span><span class="badge dark">stock</span><span class="badge dark">inventory</span><span class="badge dark">inventory_adjust</span>
+</p>
+
+<h2>Platform API (<code>/admin/api/platform/</code>)</h2>
+<table class="keep">
+  <tr><th style="width:9%">Method</th><th style="width:27%">Path</th><th>Purpose</th></tr>
+  <tr><td>POST</td><td><code>signin</code> · <code>signout</code></td><td>Platform session.</td></tr>
+  <tr><td>GET</td><td><code>me</code> · <code>data</code></td><td>Operator and system status · every organization (tokens stripped), guests, audit logs, counts.</td></tr>
+  <tr><td>POST</td><td><code>tenant/status</code></td><td>Suspend (reason required) or reactivate an organization.</td></tr>
+  <tr><td>POST</td><td><code>user/signout</code> · <code>user/reset</code></td><td>End an organizer's sessions · issue a one-time recovery code.</td></tr>
+</table>
+
+<h1 class="section"><span class="num">09</span>Frontend</h1>
+<p class="lead">Two Vite entry points produce three apps. Each app builds a <code>ctx</code> object and passes it to its pages.</p>
+
+<div class="grid2">
+  <div class="card"><h4>Admin app (<code>AdminApp.jsx</code>)</h4><ul><li>Loads <code>me</code>, polls every 20 s, applies the workspace theme.</li><li>Pages selected by <code>?page=</code>; navigation grouped: Run the night, Insights, Set up, Workspace, Help.</li><li><code>ctx.action(op, data)</code> sends the current version, updates state, and refreshes on a 409.</li><li><code>PageActions</code> portals page buttons into the header.</li></ul></div>
+  <div class="card"><h4>Guest app (<code>GuestApp.jsx</code>)</h4><ul><li>Directory → organizer → views: events, menu, bag, tickets, notifications, help.</li><li>Cart, tip and table stored per organizer in localStorage.</li><li><code>requireAuth()</code> opens phone sign-in and then continues the action.</li><li>Checkout sheet (wallet or cash) then the receipt sheet.</li></ul></div>
+</div>
+
+<h2>Shared building blocks</h2>
+<table>
+  <tr><th style="width:25%">Module</th><th>Provides</th></tr>
+  <tr><td><code>shared/api.js</code></td><td><code>api(path, data)</code>, <code>ApiError{status, code}</code>, <code>money()</code>, date helpers, <code>setApiBase('/admin/api/')</code>.</td></tr>
+  <tr><td><code>shared/ui.jsx</code></td><td>Icon, Glyph, Modal (focus trap, Escape, scroll lock, sheet variant), Field, Toggle, Avatar, Empty, Spinner, ErrorText, useToast, usePolling, ModeToggle — plus ErrorBoundary, Skeleton, SkeletonCards, Loading, ErrorState, useOnline, OfflineBar.</td></tr>
+  <tr><td><code>shared/theme.js</code></td><td><code>applyTheme({accent, mode})</code> and a per-device light/dark override.</td></tr>
+  <tr><td><code>QR.jsx</code> · <code>Scanner.jsx</code></td><td>QR rendering and camera scanning.</td></tr>
+  <tr><td><code>admin/charts.jsx</code></td><td>Kpi with Delta and Sparkline, TrendChart, Bars, Donut, Heatmap, sortable DataTable, Insights.</td></tr>
+  <tr><td><code>admin/pdf.js</code></td><td><code>exportPdf({title, organization, logo, sections})</code>: black header band, Encore mark, KPI tiles, tables, notes, page numbers.</td></tr>
+  <tr><td><code>admin/service.jsx</code></td><td><code>priceOrder()</code> preview, Stock (store + menu), Waiters with printable badges, staff order screen, printable receipt and kitchen ticket (portal-rendered for 80 mm printers).</td></tr>
+  <tr><td><code>admin/Guide.jsx</code></td><td>In-app how-to: setup steps, flows, a routine for the night, roles, guest link, FAQ.</td></tr>
+</table>
+
+<h2>Build output</h2>
+<table class="keep">
+  <tr><th>Chunk</th><th>Contents</th><th>Loaded</th></tr>
+  <tr><td><code>vendor</code> / <code>shared</code></td><td>React and node_modules / <code>src/shared/*</code></td><td>Always</td></tr>
+  <tr><td><code>admin</code> / <code>guest</code></td><td>App code</td><td>Per entry point</td></tr>
+  <tr><td><code>PlatformApp</code></td><td>Platform console</td><td>Only at <code>/admin/platform</code></td></tr>
+  <tr><td><code>pdf</code></td><td>jsPDF + autotable</td><td>Only when exporting</td></tr>
+</table>
+<p>Static files are served with immutable caching for <code>/assets/</code>, gzip for text types, and a per-file CSP with script hashes.</p>
+
+<h1 class="section"><span class="num">10</span>App states</h1>
+<p class="lead">Loading, empty, error, offline and crash states are part of each screen, not an afterthought.</p>
+<table>
+  <tr><th style="width:22%">State</th><th>How it is built</th></tr>
+  <tr><td><b>Loading</b></td><td><code>Skeleton</code> / <code>SkeletonCards</code> shimmer placeholders shaped like the content (sidebar, KPI row, cards), with <code>aria-busy</code> and a status label. <code>Loading</code> covers simple cases.</td></tr>
+  <tr><td><b>Busy</b></td><td>Buttons switch to a present-tense label (“Saving…”, “Placing order…”) and disable; the workspace refreshes after each action.</td></tr>
+  <tr><td><b>Empty</b></td><td><code>Empty</code> with an icon, one line of explanation and the action that fills it (for example “Add store item”).</td></tr>
+  <tr><td><b>Error</b></td><td><code>ErrorState</code> (title, provider message, <b>Try again</b>) for failed loads; <code>ErrorText</code> inline in forms; a banner with retry for background refreshes. Messages come from the server in plain language.</td></tr>
+  <tr><td><b>Offline</b></td><td><code>useOnline()</code> + <code>OfflineBar</code>: a fixed bar appears the moment the browser reports offline and disappears on reconnect.</td></tr>
+  <tr><td><b>Crash</b></td><td><code>ErrorBoundary</code> wraps every app: a friendly card with Reload, a link back to the start, and collapsed technical details; the error is logged to the console with its component stack.</td></tr>
+  <tr><td><b>Session lost</b></td><td>A 401 (or <code>TENANT_SUSPENDED</code>) clears the session and returns to sign-in instead of failing silently.</td></tr>
+</table>
+
+<h1 class="section"><span class="num">11</span>Security</h1>
+<div class="grid2">
+  <div class="card"><h4>Transport and headers</h4><ul><li>HSTS in production; Secure cookies.</li><li>CSP <code>default-src 'self'</code> with per-file script hashes, <code>frame-ancestors 'none'</code>.</li><li><code>X-Frame-Options: DENY</code>, <code>nosniff</code>, <code>Referrer-Policy: no-referrer</code>, camera-only Permissions-Policy.</li><li>API responses <code>no-store</code>; <code>robots.txt</code> keeps crawlers out of <code>/admin</code> and <code>/api</code>.</li></ul></div>
+  <div class="card"><h4>Credentials and secrets</h4><ul><li>scrypt passwords; session, invite and recovery tokens stored as sha256.</li><li>OTP codes are HMACs keyed by <code>ENCORE_SECRET</code>, compared in constant time.</li><li>Production refuses to start without <code>ENCORE_SECRET</code> and HTTPS origins.</li><li><code>data/</code>, <code>.env*</code> and keys are git-ignored; a pre-commit hook blocks credential-shaped strings.</li></ul></div>
+  <div class="card"><h4>Abuse limits</h4><ul><li>Organizer auth 30 / 15 min per IP; platform console 10 / 15 min.</li><li>Codes: 20/hour per IP, 5/hour per phone, 60 s resend, 5 attempts.</li><li>Orders 30 / 15 min per IP and 20 per guest; table lookups 30 / 10 min.</li><li>Bodies ≤ 7.5 MB; uploads ≤ 5 MB with magic-byte checks.</li></ul></div>
+  <div class="card"><h4>Data integrity</h4><ul><li>Tenant scoping on every staff query; guest records filtered by guest id.</li><li>Server-side prices, capacity, stock and tips; serialized writes with versions.</li><li>Unguessable ticket, table and receipt tokens; single-use check-in.</li><li>Platform data responses carry no password hashes or tokens; staff names never reach guest receipts.</li></ul></div>
+</div>
+
+<h1 class="section"><span class="num">12</span>Configuration</h1>
+<table>
+  <tr><th style="width:30%">Variable</th><th style="width:16%">Default</th><th>Meaning</th></tr>
+  <tr><td><code>ENCORE_ENV</code></td><td>development</td><td><code>production</code> enables secure cookies, HSTS and start-up checks.</td></tr>
+  <tr><td><code>ENCORE_SECRET</code></td><td>generated file</td><td>Required in production; keys the OTP HMAC.</td></tr>
+  <tr><td><code>DATABASE_URL</code></td><td>—</td><td>PostgreSQL connection string; unset means SQLite in <code>ENCORE_DATA</code>.</td></tr>
+  <tr><td><code>DB_POOL_SIZE</code></td><td>8</td><td>Maximum pooled PostgreSQL connections.</td></tr>
+  <tr><td><code>ENCORE_DATA</code></td><td>./data</td><td>SQLite file, legacy uploads, generated secret.</td></tr>
+  <tr><td><code>HOST</code> · <code>PORT</code> · <code>GUEST_PORT</code></td><td>127.0.0.1 · 8081 · 8082</td><td>Listen address and ports.</td></tr>
+  <tr><td><code>ENCORE_SINGLE_PORT</code></td><td>—</td><td><code>1</code> serves guest at <code>/</code> and admin at <code>/admin</code> on one port.</td></tr>
+  <tr><td><code>PUBLIC_ORIGIN</code> / <code>ADMIN_ORIGIN</code> / <code>GUEST_ORIGIN</code></td><td>local URLs</td><td>Public HTTPS addresses used for origin checks and QR links.</td></tr>
+  <tr><td><code>TRUST_PROXY</code></td><td>0</td><td><code>1</code> to read <code>X-Forwarded-For</code> for rate limits.</td></tr>
+  <tr><td><code>SMS_PROVIDER</code> + provider variables</td><td>console in dev</td><td>See §7. Without it, guest sign-in fails closed.</td></tr>
+  <tr><td><code>ENCORE_PLATFORM_EMAIL</code> · <code>_PASSWORD</code> · <code>_NAME</code></td><td>—</td><td>Creates or updates the platform operator at start-up.</td></tr>
+</table>
+
+<h1 class="section"><span class="num">13</span>Development workflow</h1>
+<h2>Prerequisites</h2>
+<ul><li>Python 3.11+ (macOS system Python 3.9 is not enough; <code>launch.py</code> finds a newer one).</li><li>Node 20+ and npm.</li><li>Optional: PostgreSQL, or <code>pgserver</code> for tests.</li></ul>
+
+<h2>Commands</h2>
+<pre><span class="c"># install web dependencies</span>
+npm install
+
+<span class="c"># build both apps into dist/, then run (admin :8081/admin, guest :8082)</span>
+npm run build
+python3 launch.py
+
+<span class="c"># hot reload: Python API + one Vite dev server per app</span>
+npm run dev
+
+<span class="c"># tests — 39, disposable database</span>
+npm test
+DATABASE_URL=postgresql://… python3 launch.py --test     <span class="c"># the same suite on PostgreSQL</span>
+
+<span class="c"># operations</span>
+ENCORE_ENV=production python3 server.py --check          <span class="c"># readiness report</span>
+python3 server.py --sms-test +251911234567               <span class="c"># prove SMS delivery</span>
+python3 server.py --create-platform-admin                <span class="c"># platform operator</span>
+git config core.hooksPath .githooks                      <span class="c"># enable the pre-commit checks</span></pre>
+
+<h2>Tests</h2>
+<ul>
+  <li><b>AppTests</b> — an admin and a guest server on random ports against a temporary database, with a capturing SMS provider: accounts, tenants, events, menu, tables, orders, check-in, tax, platform console, HEAD/robots/gzip.</li>
+  <li><b>DomainTests</b> — <code>domain.py</code> directly: pricing with VAT and service charge, stock and overselling, store inventory with units, waiters and tips, cash rules, category changes.</li>
+  <li><b>SmsProviderTests</b> — each provider's HTTP request captured and asserted (including AfroMessage's send and challenge calls and its error replies); unconfigured providers never report success.</li>
+  <li><b>JourneyTests</b> — longer flows: profiles, uploads, tenant isolation, concurrent bookings.</li>
+  <li>Add a test with every rule change, and run both databases before deploying.</li>
+</ul>
+
+<h2>Conventions</h2>
+<ul>
+  <li>Business rules only in <code>domain.py</code>; HTTP only in <code>server.py</code>.</li>
+  <li>Integer cents; validate with <code>money_cents()</code>, <code>whole()</code>, <code>number()</code>, <code>text()</code>.</li>
+  <li>Error messages are written for whoever reads them — guest or staff — in plain language.</li>
+  <li>New workspace fields get defaults in <code>blank()</code> and <code>upgrade()</code>; new columns go in <code>db.migrate()</code>.</li>
+  <li>Never fake a payment or a delivered message; never commit <code>data/</code>, secrets or customer data.</li>
+  <li>Guest app stays mobile-first: check 320, 375 and 768 px plus desktop.</li>
+</ul>
+
+<h1 class="section"><span class="num">14</span>Deployment and operations</h1>
+<div class="flow keep" style="margin-bottom:4mm"><span class="step">git push main</span><span class="to">→</span><span class="step">Render build (Dockerfile)</span><span class="to">→</span><span class="step">npm ci + vite build</span><span class="to">→</span><span class="step">python:3.12-slim</span><span class="to">→</span><span class="step">health check /api/health</span><span class="to">→</span><span class="step red">live</span></div>
+<ul>
+  <li><code>render.yaml</code> defines the Docker web service (single port, TRUST_PROXY, generated <code>ENCORE_SECRET</code>) and the managed PostgreSQL database; SMS and platform credentials are marked <code>sync: false</code> and set in the dashboard.</li>
+  <li>Use paid plans in production: the free web service sleeps (first request ~30–50 s) and free PostgreSQL expires after 30 days.</li>
+  <li>Any Docker host works: mount <code>/data</code> or set <code>DATABASE_URL</code> and put HTTPS in front (<code>deploy/Caddyfile</code>).</li>
+</ul>
+<table class="keep">
+  <tr><th style="width:26%">Task</th><th>How</th></tr>
+  <tr><td>Release readiness</td><td><code>python3 server.py --check</code> — lists what must be fixed and what to note.</td></tr>
+  <tr><td>Backups</td><td>PostgreSQL automated backups (images live in the database); for SQLite copy <code>ENCORE_DATA</code> daily.</td></tr>
+  <tr><td>Monitoring</td><td>Uptime check on <code>/api/health</code> (GET or HEAD); watch Render logs for 5xx.</td></tr>
+  <tr><td>Account recovery</td><td>Platform console → Accounts → Reset password issues a one-time recovery code.</td></tr>
+  <tr><td>Abusive organizer</td><td>Platform console → Organizations → Status → Suspend (the reason is logged).</td></tr>
+  <tr><td>Rollback</td><td>Redeploy the previous commit in Render; the database schema only ever gains columns.</td></tr>
+</table>
+
+<h1 class="section"><span class="num">15</span>Extending Encore</h1>
+
+<h2>Add an SMS provider</h2>
+<pre><span class="c"># sms.py</span>
+<span class="k">def</span> _send_mygateway(phone, text):
+    _json_post(<span class="k">'https://gateway.example/send'</span>, {<span class="k">'to'</span>: phone, <span class="k">'text'</span>: text},
+               {<span class="k">'Authorization'</span>: <span class="k">'Bearer '</span> + os.environ[<span class="k">'MYGATEWAY_TOKEN'</span>]})
+
+PROVIDERS[<span class="k">'mygateway'</span>] = _send_mygateway
+REQUIRED[<span class="k">'mygateway'</span>] = <span class="k">lambda</span>: [n <span class="k">for</span> n <span class="k">in</span> (<span class="k">'MYGATEWAY_TOKEN'</span>,) <span class="k">if not</span> os.environ.get(n)]
+<span class="c"># then: SMS_PROVIDER=mygateway python3 server.py --sms-test +2519…</span></pre>
+<p>A provider that generates its own sign-in codes (like AfroMessage's challenge endpoint) returns the code from <code>send_signin_code()</code>; the server stores whatever comes back. Or skip code entirely and use <code>SMS_PROVIDER=http</code> with a body template.</p>
+
+<h2>Connect AfroPay (online payments)</h2>
+<ol>
+  <li>Obtain the merchant API documentation and credentials: payment request, callback signature, status query, refunds.</li>
+  <li>Add <code>payments.py</code> shaped like <code>sms.py</code>: create a pending payment for a quote and return the redirect or USSD instructions.</li>
+  <li>Replace the <code>PAYMENT_NOT_CONFIGURED</code> branch of <code>/api/checkout</code>: create the booking or order unpaid with settlement <code>afropay</code> and a payment reference; set <code>PAYMENTS_READY</code> from configuration.</li>
+  <li>Add a callback endpoint that verifies the signature, then marks the record paid (<code>settledBy</code>, <code>settledAt</code>, <code>wallet</code>) inside a write transaction and notifies the guest. Make it idempotent.</li>
+  <li>Handle expiry (release capacity and stock) and refunds; add tests with recorded provider responses.</li>
+</ol>
+
+<h2>Add a staff action</h2>
+<ol>
+  <li>Add <code>elif op == 'my_action':</code> to <code>domain.mutate()</code> with validation and a readable <code>ValueError</code>.</li>
+  <li>Allow it for the right roles in <code>STAFF_ROLES</code>; add it to the <code>_by</code> list if the staff member's name should be recorded.</li>
+  <li>Call it with <code>ctx.action('my_action', data)</code>.</li>
+  <li>Add a domain test, and an <code>AppTests</code> test proving the refusal for roles that must not have it.</li>
+</ol>
+
+<h2>Add a report metric or a settings group</h2>
+<ol>
+  <li>Metric: compute it in <code>summarize()</code>/<code>buildReport()</code> (paid, non-cancelled only), show it with <code>Kpi</code>/<code>DataTable</code>, and add it to <code>reportPdfSections</code> and <code>reportCsvRows</code>; add a rule to <code>suggestions()</code> if it should drive advice.</li>
+  <li>Settings: defaults in <code>DEFAULT_SETTINGS</code>, validation in <code>configure()</code>, expose in <code>public_settings</code> only if guests need it, then a section in <code>Settings.jsx</code> using <code>useDraft</code> and <code>SaveBar</code>.</li>
+</ol>
+
+<h1 class="section"><span class="num">16</span>Working with AI assistance</h1>
+<p class="lead">The repository carries its own rules so AI-assisted changes are reviewable and safe.</p>
+<table>
+  <tr><th style="width:28%">File</th><th>What it does</th></tr>
+  <tr><td><code>CLAUDE.md</code></td><td>Working agreement: non-negotiable rules (never fake payments, server decides money, integer cents, no secrets or demo data), where code goes, style, and review expectations.</td></tr>
+  <tr><td><code>.claude/settings.json</code></td><td>Tool permissions: allow reads, edits under <code>src/</code>, build, test and ordinary git; deny <code>.env*</code>, <code>data/</code>, <code>rm -rf</code>, force pushes and direct database shells.</td></tr>
+  <tr><td><code>.github/pull_request_template.md</code></td><td>Verification checklist (tests on both databases, build, browser check) and the AI disclosure boxes.</td></tr>
+  <tr><td><code>.githooks/pre-commit</code></td><td>Blocks committing <code>data/</code>, <code>dist/</code>, <code>.env</code> and key files, scans the staged diff for credential patterns, and compiles staged Python. Enable with <code>git config core.hooksPath .githooks</code>.</td></tr>
+  <tr><td><code>docs/AI_DEPLOYMENT_CHECKLIST.md</code></td><td>The 22-point rollout checklist with what is done in the repository and what belongs to the team (account access, budgets, monitoring, training, governance).</td></tr>
+  <tr><td><code>docs/developer-guide.html</code></td><td>The source of this document. Print it to PDF after changing behaviour so the guide never drifts from the code.</td></tr>
+</table>
+<p>Security-sensitive areas — authentication, payments, permissions, SQL and uploads — need a second reviewer, and every new endpoint or action must state its roles and ship a test proving the refusal.</p>
+
+<h1 class="section"><span class="num">17</span>Limitations and roadmap</h1>
+<table>
+  <tr><th style="width:30%">Item</th><th>Status and next step</th></tr>
+  <tr><td><b>SMS credentials</b></td><td>Providers are implemented and tested, but no account is configured. Set <code>SMS_PROVIDER</code> and its variables, then run <code>--sms-test</code>. Until then guests cannot sign in.</td></tr>
+  <tr><td><b>AfroPay payments</b></td><td>Not connected (merchant documentation required). Online checkout fails closed; organizers trade with cash in the meantime.</td></tr>
+  <tr><td>Recipes / ingredient deduction</td><td>Store stock is adjusted by staff. Next: link menu items to store items (Tibs uses 0.25 kg beef) and deduct on order.</td></tr>
+  <tr><td>Workspace document size</td><td>Orders and bookings accumulate in one JSON document. For very large organizers, move records to their own tables and archive past events.</td></tr>
+  <tr><td>Rate limits in memory</td><td>Per process; use a shared store if you run more than one instance.</td></tr>
+  <tr><td>Analytics in the browser</td><td>Fine at current volumes; add server-side aggregation for long histories.</td></tr>
+  <tr><td>Email</td><td>No email receipts or password emails; recovery codes are used instead.</td></tr>
+  <tr><td>Fiscal receipts</td><td>Encore receipts are not fiscal receipts; integrate a certified device or service if required.</td></tr>
+  <tr><td>Unused dependency</td><td><code>kiwi-schema</code> can be removed from <code>package.json</code>.</td></tr>
+</table>
+<p class="footer-note">Encore developer guide · generated from <code>docs/developer-guide.html</code> at commit 418893d · 23 September 2026.</p>
+
+</body>
+</html>
