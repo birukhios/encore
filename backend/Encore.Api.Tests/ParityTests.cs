@@ -9,8 +9,10 @@ using Encore.Api.Persistence;
 namespace Encore.Api.Tests;
 
 /// <summary>
-/// Replays tests/parity.py's golden cases, which the Python domain.py computed. The .NET port must give the
-/// same quote or the same message for every one. Regenerate with `python3 tests/parity.py`.
+/// Golden cases recorded from the original Python rules (domain.py) before Python was retired: 888 quotes, input
+/// checks, and 30 scenarios of 60 staff actions and guest orders. The .NET rules must give the same result or the
+/// same message for every one. The file is frozen; when a rule changes on purpose, update the affected cases in the
+/// same commit and say why.
 /// </summary>
 public sealed class ParityTests
 {

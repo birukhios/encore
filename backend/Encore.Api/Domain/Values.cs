@@ -11,7 +11,7 @@ namespace Encore.Api.Domain;
 public sealed class DomainException(string message) : Exception(message);
 
 /// <summary>
-/// Input parsing ported from domain.py (text, email, number, money_cents, whole, flag, normalize_phone).
+/// Input parsing ported from the original Python rules (text, email, number, money_cents, whole, flag, normalize_phone).
 /// Inputs arrive as JSON from the browser, so every helper takes a JsonNode and never trusts its type.
 /// </summary>
 public static partial class Values

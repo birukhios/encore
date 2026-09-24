@@ -5,10 +5,9 @@ using System.Text.Json.Serialization;
 namespace Encore.Api.Persistence;
 
 /// <summary>
-/// The per-organization document stored in tenants.state (see domain.blank and domain.upgrade).
-/// The collections are typed at the top level; their items stay JSON until each rule moves to a .NET service
-/// and gets its own class. Unknown fields are carried through untouched, so a .NET save never drops data
-/// the Python server still writes.
+/// The per-organization document stored in tenants.state (see WorkspaceRules.Blank and Upgrade).
+/// The collections are typed at the top level; their items stay JSON so every field the screens use round-trips
+/// exactly. Unknown fields are carried through untouched, so a save never drops data an older version wrote.
 /// </summary>
 public sealed class Workspace
 {

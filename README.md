@@ -1,93 +1,52 @@
 # Encore concert platform
 
-> Technology stack migration: separate Next.js/TypeScript frontend shells are available in `apps/admin` and `apps/guest`, with a single .NET 8 API entry point in `backend/Encore.Api`. It currently relays to the existing Python business rules; native EF Core and Identity cutover remains pending. See [TECH_STACK.md](TECH_STACK.md) before changing deployment settings.
+> Deploying for real guests and money? Follow **[PRODUCTION.md](PRODUCTION.md)** and run `npm run check`.
 
-> Deploying for real guests and money? Follow **[PRODUCTION.md](PRODUCTION.md)** and run `python3 server.py --check`.
+Two web apps and one server, on one address:
 
-The existing Python/Vite deployment has two web apps backed by one Python server and one PostgreSQL database:
-
-| App | Default address | Who |
+| App | Local address | Who |
 | --- | --- | --- |
-| Organizer admin | http://127.0.0.1:8081/admin | Owners, admins, service and gate staff (email + password) |
-| Guest web app | http://127.0.0.1:8082/ | Concert guests (mobile number + SMS code) |
+| Organizer admin | http://127.0.0.1:8080/admin | Owners, admins, service and gate staff (email + password) |
+| Guest web app | http://127.0.0.1:8080/ | Concert guests (mobile number + SMS code) |
+| Platform console | http://127.0.0.1:8080/admin/platform | Encore's own operators |
 
-Each port serves only its own app and API routes; admin sessions never work on the guest port and vice versa.
+The apps call `/admin/api/*` and `/api/*`; organizer, guest and platform sessions use separate cookies and never open each other's routes.
 
-## Run the new stack locally
-
-Install .NET 8 SDK, Node.js 20+, Python 3.11+ and PostgreSQL. From the project root, use separate terminals with the same `DATABASE_URL`:
-
-```sh
-npm ci
-npm ci --prefix apps/admin
-npm ci --prefix apps/guest
-npm run build
-```
-
-```sh
-export DATABASE_URL='postgresql://...'
-export ADMIN_ORIGIN='http://127.0.0.1:3001'
-export GUEST_ORIGIN='http://127.0.0.1:3002'
-python3 launch.py --no-browser
-```
-
-```sh
-export DATABASE_URL='postgresql://...'
-dotnet run --project backend/Encore.Api --urls http://127.0.0.1:8080
-```
-
-```sh
-npm run dev --prefix apps/admin   # http://127.0.0.1:3001/admin
-npm run dev --prefix apps/guest   # http://127.0.0.1:3002/
-```
-
-This is a compatibility deployment: Python still handles sessions, SMS, tenant rules, payment state and domain actions behind the .NET API. The Identity migration is included, but the current apps do not use Identity sign-in. No production cutover has been completed.
+**Stack:** React + Vite screens (`src/`), a .NET 8 Web API (`backend/Encore.Api`: Controllers → Services → Repositories, EF Core, Swagger UI in development), PostgreSQL. Passwords are hashed with ASP.NET Core Identity's hasher. Next.js shells for the same screens live in `apps/` (see [TECH_STACK.md](TECH_STACK.md)).
 
 ## Run locally
 
-Needs Python 3.11+ (macOS's built-in `python3` 3.9 is not enough — the launcher finds a newer one automatically or tells you how to install it).
+Needs **Node.js 20+** and the **.NET 8 SDK** (Mac: `brew install --cask dotnet-sdk@8`).
 
 ```
-python3 launch.py
+npm ci
+npm run build
+npm start
 ```
 
-or double-click `Start_Encore.command` on a Mac. `dist/` must be built (`npm install && npm run build`, Node 20+).
+or double-click `Start_Encore.command` on a Mac. `npm start` opens the organizer admin.
 
-**Database.** Encore uses PostgreSQL only — the same engine in development, tests and production. Point `DATABASE_URL` at it:
+**Database.** Encore uses PostgreSQL only — the same engine in development, tests and production. Point `DATABASE_URL` at it in `.env`:
 
 ```
 DATABASE_URL=postgresql://encore:password@localhost:5432/encore
 ```
 
-No database installed? Run one in Docker:
+No database installed? Let Encore run a private one inside `data/postgres` by setting `ENCORE_LOCAL_DB=1` in `.env` (it uses the `embedded-postgres` npm package). Tables are created, and later changes applied, by EF Core migrations on start-up.
 
-```
-docker run -d --name encore-db -e POSTGRES_USER=encore -e POSTGRES_PASSWORD=password -e POSTGRES_DB=encore -p 5432:5432 postgres:16
-```
-
-…or let Encore run a private one for development:
-
-```
-pip install -r requirements-dev.txt
-ENCORE_LOCAL_DB=1 python3 launch.py      # PostgreSQL lives in data/postgres
-```
-
-The server refuses to start without a PostgreSQL `DATABASE_URL` — there is no file-based fallback. Tables and indexes
-are created on start-up.
-
-- **Development with hot reload:** `npm run dev` → admin http://127.0.0.1:5173/admin, guest http://127.0.0.1:5174/
-- **Tests:** `npm test` (45 integration tests; starts a throwaway PostgreSQL unless `DATABASE_URL` is set — needs `pip install -r requirements-dev.txt`)
-- **Build:** `npm run build`
+- **Development with hot reload:** `npm run dev` → admin http://127.0.0.1:5173/admin, guest http://127.0.0.1:5174/, API and Swagger UI http://127.0.0.1:8080/swagger. Uses `DATABASE_URL` if set, otherwise a private PostgreSQL in `data/postgres`.
+- **Tests:** `npm test` — the whole .NET suite (xUnit): HTTP journeys against the real app, the money and workspace rules, SMS providers, and golden cases recorded from the original rules. It starts a throwaway PostgreSQL; set `DATABASE_URL` to test against a server of your choice. Pass filters through: `npm test -- --filter GuestJourneyTests`.
+- **Build:** `npm run build` (web apps into `dist/`, then the API).
+- **Operator tools:** `npm run check` (production readiness), `npm run sms:test -- +251911234567`, `npm run sms:balance`, `npm run platform-admin`.
 
 There are no default accounts. Create a workspace at `/admin/signup` and save the one-time recovery code.
 
-In development, SMS messages (sign-in codes, booking and order updates) are **printed in the server terminal and not delivered**.
-In production set `SMS_PROVIDER` and its credentials - see **Guest sign-in (SMS)** below. The opt-in `ENCORE_DEMO=1` mode displays codes and simulates payment; never enable it for real guests or real money.
+Without an SMS provider, messages (sign-in codes, booking and order updates) are **printed in the server log and not delivered** (`[DEV SMS - NOT DELIVERED]`). In production set `SMS_PROVIDER` and its credentials — see **Guest sign-in (SMS)** below.
 
 ## Features
 
 **Organizer admin**
-- Accounts with scrypt passwords, server sessions, recovery codes, password change, invitations, member removal, Owner/Admin/Service/Gate roles enforced on the server, tenant isolation, optimistic concurrency.
+- Accounts with hashed passwords (ASP.NET Core Identity), server sessions, recovery codes, password change, invitations, member removal, Owner/Admin/Service/Gate roles enforced on the server, tenant isolation, optimistic concurrency.
 - Events with cover uploads, capacity tracking, publish/draft, delete when unused.
 - Menu items with photos, categories, availability, and *served at*: all concerts or selected concerts.
 - Tables bound to a concert with a permanent unguessable QR token and a 6-character code for manual entry; printable QR.
@@ -164,7 +123,7 @@ Loading, empty, error and offline states are part of the product: skeleton place
 
 For Encore's own operators, separate from organizer accounts: its own table, a 12-hour session cookie, and a stricter sign-in rate limit. Organizer sessions cannot open it, and a platform session does not open an organizer workspace.
 
-- **Create the account:** set `ENCORE_PLATFORM_EMAIL` and `ENCORE_PLATFORM_PASSWORD` (12+ characters) and restart, or run `python3 server.py --create-platform-admin`. On Render, set both in the service's Environment tab.
+- **Create the account:** set `ENCORE_PLATFORM_EMAIL` and `ENCORE_PLATFORM_PASSWORD` (12+ characters) and restart, or run `npm run platform-admin`. On Render, set both in the service's Environment tab.
 - **Overview:** platform sales total (in the most common currency; other currencies are listed but not added up), organizations, paying guests, tickets, orders, VAT and tips, compared with the previous period. Also a platform sales trend, findings (how concentrated sales are, inactive organizations, new guests), each organization's share of sales, an organization leaderboard, and guest account growth.
 - **Organizations:** search, filter by status, CSV export. Each organization's detail view shows a summary, the full analytics tabs, events, team (with **End sessions**), and **Suspend / Reactivate** with a required reason. Suspending signs out and blocks its staff and hides it from guests. Existing guest receipts still work, and nothing is deleted.
 - **Analytics:** the same six report tabs across all organizations or for one, with CSV and PDF export.
@@ -214,7 +173,7 @@ to log both in full while troubleshooting, then turn it off — a code in a log 
 Prove delivery before launch:
 
 ```
-SMS_PROVIDER=... python3 server.py --sms-test +251911234567
+npm run sms:test -- +251911234567
 ```
 
 ### AfroMessage (Ethiopia)
@@ -235,13 +194,13 @@ Wording and format: `AFROMESSAGE_PREFIX` (default "Your Afropay code is"), `AFRO
 its 5-minute expiry. If the reply carries neither a code nor a verification id, sign-in fails rather than leaving a
 code nobody can check.
 
-**Cloudflare:** AfroMessage sits behind Cloudflare, which answers the default Python user agent with
+**Cloudflare:** AfroMessage sits behind Cloudflare, which answers unknown user agents with
 `403 error code: 1010`. Encore sends a normal `User-Agent` (override with `SMS_USER_AGENT`), which resolves it.
 
 Check the account without sending anything:
 
 ```
-python3 server.py --sms-balance
+npm run sms:balance
 ```
 
 Codes are stored as HMAC hashes, expire in 5 minutes, allow 5 attempts, need a 60-second wait before resending, and are
@@ -250,21 +209,22 @@ limited to 5 per number per hour and 20 per IP per hour. Until a provider is con
 
 ## Deploy on Render
 
-`render.yaml` creates a **Render PostgreSQL database** (`encore-db`) and a web service connected to it through `DATABASE_URL`. All data — organizations, accounts, bookings, orders — and uploaded photos are stored in PostgreSQL, so restarts and redeploys keep everything.
+`render.yaml` creates a **Render PostgreSQL database** (`encore-db`) and a Docker web service connected to it through `DATABASE_URL`. The image (see `Dockerfile`) builds the web apps with Node and publishes the .NET API; one port serves everything. All data — organizations, accounts, bookings, orders — and uploaded photos are stored in PostgreSQL, so restarts and redeploys keep everything.
 
 1. Push to GitHub. In Render open **Blueprints → encore → Sync** (or enable auto-sync). Environment variable and database changes in `render.yaml` are only applied when the Blueprint syncs; redeploying the service alone is not enough.
 2. Guest app: `https://<service>.onrender.com/` · Organizer admin: `https://<service>.onrender.com/admin` (create the organizer at `/admin/signup`).
-3. Check `https://<service>.onrender.com/api/health` — it reports `"database": "PostgreSQL"` and `"demo": true` when configured correctly.
-4. **Demo mode (`ENCORE_DEMO=1`):** guest sign-in shows the code on screen with *Use code*, and online checkout simulates payment. Anyone can sign in as any number — set `ENCORE_DEMO=0` before real guests.
-5. **Plans:** the blueprint uses Render's free web service (sleeps when idle; first request takes ~1 minute) and free PostgreSQL, which **expires after 30 days**. Upgrade the database plan before then to keep data.
+3. Check `https://<service>.onrender.com/api/health` — it reports the database and whether SMS delivers.
+4. **Plans:** the blueprint uses Render's free web service (sleeps when idle; first request takes ~1 minute) and free PostgreSQL, which **expires after 30 days**. Upgrade the database plan before then to keep data.
+
+Existing data carries over unchanged: the first start of the .NET API records the existing tables as its baseline migration without altering them, and accounts created before the move keep their passwords (re-hashed with ASP.NET Core Identity at their next sign-in).
 
 ## Deploying elsewhere
 
-1. Two HTTPS hostnames, e.g. `admin.example.com` and `tickets.example.com` (table QR codes point at the guest hostname).
-2. Configure environment from `.env.example`: `ENCORE_ENV=production`, `ADMIN_ORIGIN`, `GUEST_ORIGIN` (https), `ENCORE_SECRET`, `ENCORE_DATA`, `TRUST_PROXY=1` behind the proxy. The server **refuses to start** in production with http origins or no secret.
-3. `docker build -t encore . && docker run -d -p 127.0.0.1:8081:8081 -p 127.0.0.1:8082:8082 -v encore-data:/data --env-file .env encore`
+1. One HTTPS hostname, e.g. `tickets.example.com` (guest app at `/`, organizer admin at `/admin`; table QR codes point at it).
+2. Configure environment from `.env.example`: `ENCORE_ENV=production`, `PUBLIC_ORIGIN` (https), `ENCORE_SECRET`, `DATABASE_URL`, `TRUST_PROXY=1` behind the proxy. The server **refuses to start** in production with an http origin or no secret.
+3. `docker build -t encore . && docker run -d -p 127.0.0.1:8080:8080 --env-file .env encore`
 4. Put `deploy/Caddyfile` (or equivalent) in front for TLS.
-5. Back up PostgreSQL (it holds every record and uploaded image) and the generated `secret.key` in `ENCORE_DATA`.
+5. Back up PostgreSQL (it holds every record and uploaded image).
 
 Production security headers: HSTS, CSP with hashed inline scripts, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `Permissions-Policy` (camera allowed for scanning), HttpOnly/Secure cookies (admin `SameSite=Strict`; guest `Lax` so table QR links opened from the camera keep the session).
 
@@ -273,7 +233,8 @@ Production security headers: HSTS, CSP with hashed inline scripts, `X-Frame-Opti
 These are **not done** and block calling this production-ready:
 - SMS credentials for one of the built-in providers (guest sign-in does not work in production without them).
 - AfroPay (online payment), refunds, reconciliation.
-- The server uses Python's standard-library threaded HTTP server with PostgreSQL (pooled). It is fine for a single venue's load behind a TLS proxy, but has no load testing, and rate limits are per process in memory.
+- No load testing. Rate limits are kept in memory per server instance, so run one instance (as the Render blueprint does).
+- The Docker image has not yet been built and run on Render after the move to .NET; do that on a staging service first.
 - No email delivery; admin password recovery is code-based.
 - Legal review of the platform terms/privacy text in `src/guest/content.js` and organizer terms.
 - Monitoring, automated backups, and a security review of the deployment.

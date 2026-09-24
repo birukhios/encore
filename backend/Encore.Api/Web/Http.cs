@@ -26,7 +26,7 @@ public sealed class NotFound(string message) : ApiException(404, message);
 
 /// <summary>
 /// One transaction per write request. Every writer takes the same advisory lock first, so read-check-write sequences
-/// (stock, ticket capacity, workspace versions) never interleave, exactly as the Python server serialized them.
+/// (stock, ticket capacity, workspace versions) never interleave, as the earlier Python server also guaranteed.
 /// </summary>
 public sealed class RequestTransaction(EncoreDbContext db)
 {
@@ -139,9 +139,11 @@ public static class Http
                 }
                 using var reader = new StreamReader(http.Request.Body, Encoding.UTF8);
                 var raw = await reader.ReadToEndAsync(); // always read the body so a refusal is not lost to a reset
+                // Writes are accepted only from this deployment's own pages (CSRF protection). Both apps share one
+                // origin in production; the dev servers use one each.
                 var origin = http.Request.Headers.Origin.ToString();
-                var expected = IsAdmin(http.Request.Path) ? options.AdminOrigin : options.GuestOrigin;
-                if (origin.Length > 0 && origin != expected) throw new NotAllowed("Request origin is not allowed.");
+                if (origin.Length > 0 && origin != options.AdminOrigin && origin != options.GuestOrigin)
+                    throw new NotAllowed("Request origin is not allowed.");
                 if (!(http.Request.ContentType ?? "").StartsWith("application/json", StringComparison.Ordinal))
                 {
                     await WriteJson(http, new JsonObject { ["error"] = "JSON required" }, 415);

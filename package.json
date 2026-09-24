@@ -5,9 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "node dev.mjs",
-    "build": "node node_modules/vite/bin/vite.js build",
-    "start": "python3 launch.py",
-    "test": "python3 launch.py --test"
+    "build": "node node_modules/vite/bin/vite.js build && dotnet build backend/Encore.Api -c Release --nologo -v quiet",
+    "start": "node scripts/start.mjs",
+    "test": "node scripts/test.mjs",
+    "check": "dotnet run --project backend/Encore.Api -c Release -- --check",
+    "sms:test": "dotnet run --project backend/Encore.Api -c Release -- --sms-test",
+    "sms:balance": "dotnet run --project backend/Encore.Api -c Release -- --sms-balance",
+    "platform-admin": "dotnet run --project backend/Encore.Api -c Release -- --create-platform-admin"
   },
   "dependencies": {
     "@fontsource-variable/manrope": "^5.3.0",
@@ -25,6 +29,9 @@
     "embedded-postgres": "^17.10.0-beta.17"
   },
   "allowScripts": {
-    "@embedded-postgres/darwin-x64@17.10.0-beta.17": true
+    "@embedded-postgres/darwin-x64@17.10.0-beta.17": true,
+    "@embedded-postgres/darwin-arm64@17.10.0-beta.17": true,
+    "@embedded-postgres/linux-x64@17.10.0-beta.17": true,
+    "@embedded-postgres/linux-arm64@17.10.0-beta.17": true
   }
 }

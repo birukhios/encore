@@ -8,7 +8,7 @@ using Npgsql;
 namespace Encore.Api.Tests;
 
 /// <summary>
-/// Runs against a real PostgreSQL named by DATABASE_URL (a throwaway one from pgserver works).
+/// Runs against a real PostgreSQL named by DATABASE_URL (npm test starts a throwaway one).
 /// Every test gets its own empty database so the tests can run in any order.
 /// </summary>
 public sealed class PersistenceTests : IAsyncLifetime

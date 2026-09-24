@@ -9,7 +9,7 @@ namespace Encore.Api.Domain;
 /// <summary>Something a guest should hear about after a staff action (in-app notification, maybe SMS).</summary>
 public sealed record Notice(JsonObject Record, string Kind, string Title, string Body);
 
-/// <summary>Staff actions on a workspace, and the records guests create. Ported from domain.py's mutate and friends.</summary>
+/// <summary>Staff actions on a workspace, and the records guests create. Ported from the original Python rules (domain.py).</summary>
 public static partial class Actions
 {
     public static readonly string[] SettlementMethods = ["Cash", "Card at venue"]; // bank transfers are not accepted

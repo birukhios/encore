@@ -1,8 +1,13 @@
 node_modules
 data
 dist
-.pnpm-store
-__pycache__
-tests
-*.pyc
 .env
+.env.*
+!.env.example
+**/bin
+**/obj
+backend/Encore.Api.Tests
+apps
+docs
+tests
+*.zip

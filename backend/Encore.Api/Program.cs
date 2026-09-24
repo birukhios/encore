@@ -67,6 +67,9 @@ if (problems.Any(p => p.Blocking))
     log.LogError("Encore cannot start until these are fixed. See .env.example.");
     return 1;
 }
+if (!string.IsNullOrEmpty(app.Configuration["GUEST_PORT"]))
+    log.LogWarning("GUEST_PORT is no longer used: one port ({Port}) serves both apps. Remove GUEST_PORT from .env, and remove ADMIN_ORIGIN/GUEST_ORIGIN unless you use the dev servers; otherwise table QR codes point at {Guest}.",
+        app.Configuration["PORT"] ?? "8080", options.GuestOrigin);
 await Startup.PrepareDatabaseAsync(app.Services);
 log.LogInformation("Database: {Database} · SMS: {Sms}", options.DescribeDatabase(), app.Services.GetRequiredService<SmsService>().Status().Label);
 log.LogInformation("Encore guest app: {Guest}/  ·  organizer admin: {Admin}/admin", options.GuestOrigin, options.AdminOrigin);

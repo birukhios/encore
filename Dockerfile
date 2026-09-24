@@ -1,23 +1,28 @@
-# Builds both web apps, then runs the Python server.
-# Local/VPS: two ports (8081 admin, 8082 guest) behind an HTTPS proxy (see deploy/Caddyfile).
-# Render and other one-port hosts: set ENCORE_SINGLE_PORT=1 (guest at /, admin at /admin) — see render.yaml.
+# Builds both web apps and the .NET API into one image. One port serves everything:
+# guest app at /, organizer admin at /admin, API at /api and /admin/api. See render.yaml.
 FROM node:20-alpine AS web
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci --no-audit --no-fund
+# Production dependencies only: the embedded PostgreSQL used by `npm test` is not needed to build.
+RUN npm ci --omit=dev --no-audit --no-fund
 COPY admin.html guest.html vite.config.mjs ./
 COPY public ./public
 COPY src ./src
-RUN npm run build
+RUN node node_modules/vite/bin/vite.js build
 
-FROM python:3.12-slim
-ENV PYTHONUNBUFFERED=1 ENCORE_ENV=production ENCORE_DATA=/data HOST=0.0.0.0 PORT=8081 GUEST_PORT=8082
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS api
+WORKDIR /src
+COPY backend/Encore.Api/Encore.Api.csproj Encore.Api/
+RUN dotnet restore Encore.Api/Encore.Api.csproj
+COPY backend/Encore.Api Encore.Api/
+RUN dotnet publish Encore.Api/Encore.Api.csproj -c Release -o /out --no-restore
+
+FROM mcr.microsoft.com/dotnet/aspnet:8.0
+ENV ENCORE_ENV=production ENCORE_ROOT=/app ENCORE_DATA=/data HOST=0.0.0.0 PORT=8080 DOTNET_CLI_TELEMETRY_OPTOUT=1
 WORKDIR /app
-COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
-COPY server.py domain.py db.py sms.py launch.py ./
+COPY --from=api /out ./api
 COPY --from=web /app/dist ./dist
-# Runs as root so an optional host-mounted disk at /data is writable. With DATABASE_URL, data lives in PostgreSQL.
+# All data and uploaded photos live in PostgreSQL. /data only holds a generated key when ENCORE_SECRET is unset.
 RUN mkdir -p /data
-EXPOSE 8081 8082
-CMD ["python", "launch.py", "--no-browser"]
+EXPOSE 8080
+CMD ["dotnet", "api/Encore.Api.dll"]

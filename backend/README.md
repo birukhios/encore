@@ -1,26 +1,42 @@
 # Encore .NET API
 
-This is the single .NET 8 API entry point for the admin and guest Next.js apps. It currently forwards the existing API contract to the loopback Python listeners while native business rules are migrated. The relay keeps current sessions, OTP verification, tenant checks, pricing and pay-at-venue settlement in force; it is not the final all-.NET backend.
+The one server for Encore: the organizer admin API (`/admin/api`), the guest API (`/api`), uploaded images, and the
+built web apps from `dist/`. .NET 8, ASP.NET Core, EF Core on PostgreSQL.
 
-Run PostgreSQL and the existing Python server first, bound to loopback. Then:
+| Folder | What it holds |
+| --- | --- |
+| `Controllers/` | HTTP endpoints. Thin: read the request, call a service, reply. Each states which roles may call it. |
+| `Services/` | Accounts and sessions (`StaffService`, `GuestService`, `PlatformService`), SMS, rate limits, notifications. |
+| `Domain/` | Business rules: pricing, VAT, stock, check-in, settings, staff actions. Pure functions over the workspace document. |
+| `Repositories/` | Data access over EF Core. |
+| `Persistence/` | `EncoreDbContext`, entities, the workspace document, and migrations (`Persistence/Migrations`). |
+| `Security/` | Passwords: ASP.NET Core Identity's hasher, and scrypt to verify accounts from the Python server. |
+| `Web/` | Request pipeline (body checks, transactions, errors, HEAD, gzip), static files, settings, command-line tools. |
+
+Run it through npm from the repository root (`npm start`, `npm run dev`, `npm test`), or directly:
 
 ```sh
-export DATABASE_URL='postgresql://...'
-export ASPNETCORE_URLS='http://127.0.0.1:8080'
-dotnet run --project backend/Encore.Api
+DATABASE_URL='postgresql://...' dotnet run --project backend/Encore.Api     # http://127.0.0.1:8080
 ```
 
-The Next.js apps target port 8080 by default. `ENCORE_BACKEND_URL` can override it. `Legacy__Admin` and `Legacy__Guest` override the internal Python listener addresses if their ports differ. Never expose the Python listeners to the public network when using the bridge. Swagger UI is available at `/swagger` in development. `/bridge/health` checks PostgreSQL access. `python3 backend/test_bridge.py` runs a disposable-account smoke check against the running stack.
+Swagger UI is at `/swagger` when `ASPNETCORE_ENVIRONMENT=Development` (`npm run dev` sets it).
 
-`EncoreIdentityDbContext` is deliberately separate from the legacy `users` and `sessions` tables. Its migration adds ASP.NET Core Identity tables without changing existing accounts. Identity is not yet used to authenticate the current apps. Do not switch account handling until a tested migration for existing scrypt hashes, roles, invitations, recovery and session behavior is complete.
+## Database
 
-## Data layer (migration phase 2)
-
-`Persistence/EncoreDbContext` maps the tables `db.py` owns. Its baseline migration uses the same `IF NOT EXISTS`
-DDL, so applying it to the live database changes nothing; its history lives in `__encore_migrations`, apart
-from Identity's. `WorkspaceRepository` saves the workspace document only if its version is unchanged.
+`EncoreDbContext` maps the tables the Python server created. The baseline migration uses the same
+`IF NOT EXISTS` DDL, so applying it to the live database changes nothing; its history lives in `__encore_migrations`.
+Migrations run on start-up. To change the schema:
 
 ```sh
+cd backend
 dotnet tool restore                      # dotnet-ef, pinned in .config/dotnet-tools.json
-DATABASE_URL='postgresql://...' dotnet test Encore.Api.Tests
+dotnet ef migrations add <Name> --project Encore.Api --context EncoreDbContext --output-dir Persistence/Migrations
 ```
+
+Writes run in one transaction per request behind a PostgreSQL advisory lock, so stock, capacity and workspace versions
+never race. `WorkspaceRepository.SaveAsync` also checks the version in the same statement.
+
+## Tests
+
+`npm test` starts a throwaway PostgreSQL and runs `Encore.Api.Tests`: HTTP journeys against the real app in-process,
+SMS providers with a fake gateway, and `ParityTests`, which replay golden cases recorded from the original Python rules.

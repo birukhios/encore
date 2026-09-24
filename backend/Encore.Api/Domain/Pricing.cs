@@ -7,9 +7,9 @@ using Encore.Api.Persistence;
 namespace Encore.Api.Domain;
 
 /// <summary>
-/// Server-side prices, VAT, service charge and tips, ported from domain.py (sold, find_table, find_waiter,
+/// Server-side prices, VAT, service charge and tips, ported from the original Python rules (sold, find_table, find_waiter,
 /// guest_event_ids, tax_for, service_for, quote_order). Every amount is integer cents; nothing the browser
-/// sends as a price or total is used. The quote keeps domain.py's JSON shape so the screens need no change.
+/// sends as a price or total is used. The quote keeps the JSON shape the screens already use.
 /// </summary>
 public static partial class Pricing
 {

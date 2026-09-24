@@ -4,7 +4,7 @@ using Microsoft.EntityFrameworkCore.Design;
 
 namespace Encore.Api.Persistence;
 
-// Maps the live schema owned by db.py. Its migration history is kept apart from Identity's so the two
+// Maps the live Encore schema (first created by the Python server). Its migration history is kept apart from Identity's so the two
 // contexts can evolve independently while both run against the one Encore database.
 public sealed class EncoreDbContext(DbContextOptions<EncoreDbContext> options) : DbContext(options)
 {

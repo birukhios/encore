@@ -1,9 +1,9 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
-// ENCORE_APP selects which app a dev server serves and which Python port it proxies to.
+// ENCORE_APP selects which app a dev server serves; both proxy API calls and images to the .NET API.
 const app = process.env.ENCORE_APP || 'admin';
-const apiPort = app === 'guest' ? process.env.GUEST_PORT || 8082 : process.env.PORT || 8081;
+const apiPort = process.env.ENCORE_API_PORT || 8080;
 
 export default defineConfig({
   build: {

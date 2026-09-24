@@ -97,12 +97,12 @@ td code { background: #eeeff2; }
     <p class="sub">Tools, architecture, folder structure, database, business rules, APIs, app states, security, testing and deployment — everything a developer needs to work on the Encore live-venue platform.</p>
   </div>
   <div class="meta">
-    <div><b>Version</b>23 September 2026</div>
-    <div><b>Commit</b>418893d</div>
+    <div><b>Version</b>24 September 2026</div>
+    <div><b>Branch</b>migration/dotnet-next</div>
     <div><b>Repository</b>github.com/birukhios/encore</div>
-    <div><b>Backend</b>Python 3.11+ · PostgreSQL</div>
+    <div><b>Backend</b>.NET 8 · EF Core · PostgreSQL</div>
     <div><b>Frontend</b>React 19 · Vite 6</div>
-    <div><b>Tests</b>45 (PostgreSQL)</div>
+    <div><b>Tests</b>1,042 (xUnit · PostgreSQL)</div>
   </div>
 </section>
 
@@ -140,11 +140,11 @@ td code { background: #eeeff2; }
 
 <h2>Design principles</h2>
 <ul>
-  <li><b>The server decides.</b> Prices, VAT, service charge, stock, capacity and payment state are always recalculated in <code>domain.py</code>; the browser only previews.</li>
+  <li><b>The server decides.</b> Prices, VAT, service charge, stock, capacity and payment state are always recalculated in <code>backend/Encore.Api/Domain</code>; the browser only previews.</li>
   <li><b>Fail closed, never pretend.</b> No demo mode exists in the product: sign-in codes are never shown on screen, and no payment is ever marked paid by the software. Cash is paid only when staff record it.</li>
   <li><b>Money is integer cents.</b> VAT uses exact fractions with half-up rounding.</li>
   <li><b>Tenant isolation.</b> One workspace document per organization; every staff request is scoped to the signed-in user's tenant.</li>
-  <li><b>Few dependencies.</b> The backend is the Python standard library plus one database driver.</li>
+  <li><b>Few dependencies.</b> The backend is ASP.NET Core with EF Core and the PostgreSQL driver; nothing else at run time.</li>
   <li><b>Every state is designed.</b> Loading, empty, error, offline and crash states ship with each screen.</li>
 </ul>
 
@@ -154,13 +154,12 @@ td code { background: #eeeff2; }
 <h2>Backend</h2>
 <table>
   <tr><th style="width:26%">Tool</th><th style="width:15%">Version</th><th>Used for</th></tr>
-  <tr><td><b>Python</b></td><td>3.11+ (3.12 in Docker)</td><td>Application server and business rules. <code>hashlib.scrypt</code> is required for password hashing.</td></tr>
-  <tr><td><b>http.server</b> (stdlib)</td><td>—</td><td><code>ThreadingHTTPServer</code> with custom handlers. No web framework: routing, JSON, cookies, CSP, gzip and HEAD are implemented in <code>server.py</code>.</td></tr>
+  <tr><td><b>.NET</b> (ASP.NET Core Web API)</td><td>8 (SDK 8.0.425, pinned in <code>backend/global.json</code>)</td><td>The one server: Controllers → Services → Repositories; request pipeline, static files, CLI tools.</td></tr>
+  <tr><td><b>Entity Framework Core</b> + <b>Npgsql</b></td><td>8.0</td><td>Data access and checked-in migrations (<code>Persistence/Migrations</code>); <code>dotnet-ef</code> pinned in <code>backend/.config/dotnet-tools.json</code>.</td></tr>
   <tr><td><b>PostgreSQL</b></td><td>16+</td><td>The only database: development, tests and production all use it.</td></tr>
-  
-  <tr><td><b>psycopg[binary,pool]</b></td><td>3.2.3</td><td>PostgreSQL driver and connection pool — the only third-party Python dependency.</td></tr>
-  <tr><td><b>urllib</b> (stdlib)</td><td>—</td><td>Outbound HTTP to SMS gateways, with timeouts and provider error mapping.</td></tr>
-  <tr><td><b>hmac · secrets · fractions · decimal · gzip</b></td><td>stdlib</td><td>Constant-time compares, tokens and codes, exact VAT, money parsing, response compression.</td></tr>
+  <tr><td><b>ASP.NET Core Identity</b> (password hasher)</td><td>8.0</td><td>Organizer and platform passwords. Hashes from the earlier Python server (scrypt) still verify and are re-hashed at the next sign-in.</td></tr>
+  <tr><td><b>Swashbuckle</b></td><td>6.9</td><td>Swagger UI at <code>/swagger</code> in development.</td></tr>
+  <tr><td><b>System.Text.Json · HttpClient · System.Security.Cryptography</b></td><td>built in</td><td>The workspace document, outbound SMS requests, HMAC, tokens and constant-time compares.</td></tr>
 </table>
 
 <h2>Frontend</h2>
@@ -178,18 +177,19 @@ td code { background: #eeeff2; }
 <h2>Infrastructure, testing, tooling</h2>
 <table>
   <tr><th style="width:26%">Tool</th><th>Used for</th></tr>
-  <tr><td><b>Docker</b></td><td>Two stages: <code>node:20-alpine</code> builds the apps, <code>python:3.12-slim</code> runs the server.</td></tr>
+  <tr><td><b>npm</b></td><td>Every command: <code>npm start</code>, <code>npm run dev</code>, <code>npm test</code>, <code>npm run build</code>, and the operator tools.</td></tr>
+  <tr><td><b>Docker</b></td><td>Three stages: <code>node:20-alpine</code> builds the apps, the .NET 8 SDK publishes the API, the ASP.NET 8 runtime image serves both.</td></tr>
   <tr><td><b>Render</b> (Blueprint)</td><td>Hosting: Docker web service + managed PostgreSQL from <code>render.yaml</code>; Cloudflare in front.</td></tr>
   <tr><td><b>Caddy</b></td><td>Optional HTTPS proxy for VPS installs (<code>deploy/Caddyfile</code>).</td></tr>
   <tr><td><b>SMS gateways</b></td><td>AfroMessage, Twilio, Africa's Talking, GeezSMS, or any gateway through the generic <code>http</code> provider.</td></tr>
-  <tr><td><b>unittest</b> (stdlib)</td><td>45 tests: real HTTP servers on random ports against a throwaway PostgreSQL, plus pure domain and provider tests.</td></tr>
-  <tr><td><b>pgserver</b></td><td>Throw-away PostgreSQL for tests and for <code>ENCORE_LOCAL_DB=1</code> — no database to install.</td></tr>
+  <tr><td><b>xUnit</b> + <b>WebApplicationFactory</b></td><td>The real app in-process against real PostgreSQL, SMS providers with a fake gateway, rules, and golden cases recorded from the original Python rules.</td></tr>
+  <tr><td><b>embedded-postgres</b> (npm)</td><td>Throw-away PostgreSQL for tests and a private one for <code>npm run dev</code> / <code>ENCORE_LOCAL_DB=1</code> — no database to install.</td></tr>
   <tr><td><b>Headless Chrome</b> (DevTools protocol)</td><td>Visual QA at phone/tablet/desktop widths, print and PDF checks, screenshots for documents.</td></tr>
   <tr><td><b>Figma</b> + <code>html-to-figma/</code></td><td>Design source; icons extracted to <code>src/icons.json</code>.</td></tr>
 </table>
 
 <h1 class="section"><span class="num">03</span>Architecture</h1>
-<p class="lead">One small Python process serves two single-page React apps and a JSON API, backed by one PostgreSQL database.</p>
+<p class="lead">One .NET 8 process serves two single-page React apps and a JSON API, backed by one PostgreSQL database.</p>
 
 <div class="diagram">
   <div class="row">
@@ -201,13 +201,13 @@ td code { background: #eeeff2; }
   <div class="row"><div class="box dark" style="flex:1"><b>Cloudflare / Render proxy</b><small>TLS, X-Forwarded-For</small></div></div>
   <div class="arrow">↓</div>
   <div class="row">
-    <div class="box red" style="flex:2"><b>server.py — ThreadingHTTPServer</b><small style="color:#ffe3e6">CombinedHandler → GuestHandler (/, /api/*) or AdminHandler (/admin, /admin/api/*)<br>static files · CSP · gzip · HEAD · robots · sessions · rate limits · routing · housekeeping thread</small></div>
-    <div class="box" style="flex:1"><b>sms.py</b><small>AfroMessage · Twilio · Africa's Talking · GeezSMS · generic HTTP</small></div>
+    <div class="box red" style="flex:2"><b>Encore.Api — ASP.NET Core</b><small style="color:#ffe3e6">Web/: pipeline (body checks, transactions, errors) · static files · CSP · gzip · HEAD · robots<br>Controllers/: Admin (/admin/api/*) · Platform · Guest (/api/*) → Services/: sessions · rate limits · housekeeping</small></div>
+    <div class="box" style="flex:1"><b>SmsService</b><small>AfroMessage · Twilio · Africa's Talking · GeezSMS · generic HTTP</small></div>
   </div>
   <div class="arrow">↓</div>
   <div class="row">
-    <div class="box dark" style="flex:2"><b>domain.py — business rules</b><small>settings, pricing, VAT, service charge, tips, bookings, orders, stock, store inventory, waiters, check-in</small></div>
-    <div class="box" style="flex:1"><b>db.py</b><small>PostgreSQL adapter, pool, schema, migrations, retention</small></div>
+    <div class="box dark" style="flex:2"><b>Domain/ — business rules</b><small>settings, pricing, VAT, service charge, tips, bookings, orders, stock, store inventory, waiters, check-in</small></div>
+    <div class="box" style="flex:1"><b>Repositories/ + Persistence/</b><small>EF Core, Npgsql pool, migrations, retention</small></div>
   </div>
   <div class="arrow">↓</div>
   <div class="row"><div class="box" style="flex:1"><b>Database</b><small>tenants (workspace JSON) · users · sessions · invites · guests · guest_sessions · otps · otp_log · notifications · ratings · uploads · audit · platform_admins · platform_sessions · platform_audit</small></div></div>
@@ -215,33 +215,41 @@ td code { background: #eeeff2; }
 
 <h2>Request lifecycle</h2>
 <div class="flow keep" style="margin-bottom:4mm">
-  <span class="step">Request</span><span class="to">→</span><span class="step">Route by path</span><span class="to">→</span><span class="step">Origin · JSON · size checks</span><span class="to">→</span><span class="step">Session lookup</span><span class="to">→</span><span class="step">BEGIN IMMEDIATE</span><span class="to">→</span><span class="step red">domain.py rule</span><span class="to">→</span><span class="step">write_tenant (version+1)</span><span class="to">→</span><span class="step">COMMIT</span><span class="to">→</span><span class="step">JSON (gzip)</span>
+  <span class="step">Request</span><span class="to">→</span><span class="step">Route by path</span><span class="to">→</span><span class="step">Origin · JSON · size checks</span><span class="to">→</span><span class="step">Session lookup</span><span class="to">→</span><span class="step">BEGIN + advisory lock</span><span class="to">→</span><span class="step red">Domain rule</span><span class="to">→</span><span class="step">SaveAsync (version+1)</span><span class="to">→</span><span class="step">COMMIT</span><span class="to">→</span><span class="step">JSON (gzip)</span>
 </div>
 <ul>
-  <li><b>Writes are serialized</b> with a transaction-scoped advisory lock (<code>BEGIN IMMEDIATE</code> → <code>pg_advisory_xact_lock</code>), so two guests can never take the last ticket or the last bottle.</li>
+  <li><b>Writes are serialized</b> with a transaction-scoped advisory lock (<code>RequestTransaction</code> → <code>pg_advisory_xact_lock</code>), so two guests can never take the last ticket or the last bottle.</li>
   <li><b>Optimistic concurrency:</b> staff actions send the workspace <code>version</code>; a stale version returns <code>409</code> and the admin app refreshes.</li>
-  <li><b>Errors map to status codes:</b> <code>ValueError→400</code>, <code>PermissionError→401</code>, <code>LookupError→404</code>, <code>ApiError(status)</code> for 403/409/429/502/503; anything unexpected becomes a generic 500.</li>
+  <li><b>Errors map to status codes:</b> <code>DomainException→400</code>, <code>NotAllowed→401</code>, <code>NotFound→404</code>, <code>ApiException(status, code)</code> for 403/409/429/502/503; anything unexpected is logged and becomes a generic 500.</li>
   <li><b>Commit before respond,</b> so the client's next request always sees its own write.</li>
-  <li><b>Housekeeping thread</b> (hourly) deletes expired sessions, codes and stale logs — see §5.</li>
+  <li><b>Housekeeping</b> (a hosted background service, hourly) deletes expired sessions, codes and stale logs — see §5.</li>
 </ul>
 
-<h2>Single-port and two-port modes</h2>
+<h2>One origin, three apps</h2>
 <table class="keep">
-  <tr><th>Mode</th><th>Guest app</th><th>Organizer admin</th><th>When</th></tr>
-  <tr><td><code>ENCORE_SINGLE_PORT=1</code></td><td><code>https://host/</code> · API <code>/api/*</code></td><td><code>https://host/admin</code> · API <code>/admin/api/*</code></td><td>Render and other one-port hosts</td></tr>
-  <tr><td>Two ports (default)</td><td><code>GUEST_PORT</code> 8082</td><td><code>PORT</code> 8081</td><td>Local, or a VPS with separate domains</td></tr>
+  <tr><th>App</th><th>Pages</th><th>API</th></tr>
+  <tr><td>Guest</td><td><code>https://host/</code></td><td><code>/api/*</code></td></tr>
+  <tr><td>Organizer admin</td><td><code>https://host/admin</code></td><td><code>/admin/api/*</code></td></tr>
+  <tr><td>Platform console</td><td><code>https://host/admin/platform</code></td><td><code>/admin/api/platform/*</code></td></tr>
 </table>
-<p>Each app has its own cookie — <code>encore_session</code> (Strict), <code>encore_guest</code> (Lax, so a table QR opened from the camera keeps the session), <code>encore_platform</code> (Strict) — so identities never mix.</p>
+<p>Each app has its own cookie — <code>encore_session</code> (Strict), <code>encore_guest</code> (Lax, so a table QR opened from the camera keeps the session), <code>encore_platform</code> (Strict) — so identities never mix. In development the two Vite dev servers are separate origins; <code>npm run dev</code> passes them to the API as <code>ADMIN_ORIGIN</code> and <code>GUEST_ORIGIN</code>.</p>
 
 <h1 class="section"><span class="num">04</span>Folder structure</h1>
-<p class="lead">About 10,000 lines of application code. Backend at the root, the three apps in <code>src/</code>.</p>
+<p class="lead">The .NET API in <code>backend/</code>, the three apps in <code>src/</code>, npm scripts at the root.</p>
 
 <div class="tree"><span class="d">encore-platform/</span>
-├── <b>server.py</b>            <span class="m">HTTP server, routing, sessions, APIs, platform console, CLI (--check, --sms-test)</span>
-├── <b>domain.py</b>            <span class="m">business rules: settings, pricing, orders, stock, waiters, check-in</span>
-├── <b>db.py</b>                <span class="m">PostgreSQL adapter, pool, schema, migrations, retention</span>
-├── <b>sms.py</b>               <span class="m">SMS providers (AfroMessage, Twilio, Africa's Talking, GeezSMS, generic HTTP)</span>
-├── <b>launch.py</b>            <span class="m">finds Python 3.11+, runs tests (--test), starts the server</span>
+├── <span class="d">backend/</span>
+│   ├── <span class="d">Encore.Api/</span>
+│   │   ├── <b>Controllers/</b>   <span class="m">Admin, Platform and Guest endpoints (thin)</span>
+│   │   ├── <b>Services/</b>      <span class="m">accounts and sessions, guest sign-in and orders, platform console, SMS, rate limits</span>
+│   │   ├── <b>Domain/</b>        <span class="m">business rules: settings, pricing, orders, stock, waiters, check-in</span>
+│   │   ├── <b>Repositories/</b>  <span class="m">data access over EF Core</span>
+│   │   ├── <b>Persistence/</b>   <span class="m">DbContext, entities, workspace document, migrations</span>
+│   │   ├── <b>Security/</b>      <span class="m">Identity password hasher, scrypt for older accounts</span>
+│   │   ├── <b>Web/</b>           <span class="m">pipeline, static files, settings, CLI (--check, --sms-test)</span>
+│   │   └── Program.cs     <span class="m">start-up, migrations, housekeeping</span>
+│   └── <span class="d">Encore.Api.Tests/</span>   <span class="m">xUnit: HTTP journeys, rules, SMS, golden cases</span>
+├── <span class="d">scripts/</span>            <span class="m">start.mjs · test.mjs · postgres.mjs (embedded PostgreSQL)</span>
 ├── dev.mjs · vite.config.mjs   <span class="m">dev servers; multi-page build and chunk splitting</span>
 ├── admin.html · guest.html     <span class="m">entry points</span>
 ├── Dockerfile · render.yaml · .env.example · deploy/Caddyfile
@@ -263,7 +271,7 @@ td code { background: #eeeff2; }
 │       ├── Settings.jsx · Guide.jsx  <span class="m">all settings; in-app how-to</span>
 │       ├── Reports.jsx · reportData.js · charts.jsx · pdf.js  <span class="m">analytics, pure engine, charts, exports</span>
 │       └── PlatformApp.jsx <span class="m">platform console</span>
-├── <span class="d">tests/</span>               <span class="m">test_server.py (API, domain, SMS providers, platform) · test_journeys.py</span>
+├── <span class="d">tests/</span>               <span class="m">checkout.html · checkout.jsx (visual fixture for the checkout screen)</span>
 ├── <span class="d">html-to-figma/</span>       <span class="m">design tooling, not part of the runtime</span>
 ├── <span class="d">dist/</span>                <span class="m">build output (git-ignored)</span>
 └── <span class="d">data/</span>                <span class="m">secret.key, legacy uploads, optional local PostgreSQL (git-ignored)</span></div>
@@ -271,13 +279,13 @@ td code { background: #eeeff2; }
 <h1 class="section"><span class="num">05</span>Database</h1>
 <p class="lead">One PostgreSQL database: relational tables for identity, sessions and cross-tenant data, and one JSON document per organization for everything that organization owns.</p>
 
-<div class="callout grey"><b>Why a workspace document?</b> An organization's events, menu, tables, orders, stock and settings change together and are read together. One document keeps every rule in plain Python, makes each staff save atomic, and lets <code>upgrade()</code> evolve the shape without SQL migrations. Writes are serialized and the <code>version</code> column gives optimistic concurrency.</div>
+<div class="callout grey"><b>Why a workspace document?</b> An organization's events, menu, tables, orders, stock and settings change together and are read together. One document keeps every rule in one place, makes each staff save atomic, and lets <code>WorkspaceRules.Upgrade()</code> evolve the shape without SQL migrations. Writes are serialized and the <code>version</code> column gives optimistic concurrency.</div>
 
 <h2>SQL tables</h2>
 <table>
   <tr><th style="width:19%">Table</th><th style="width:42%">Columns</th><th>Purpose</th></tr>
   <tr><td><code>tenants</code></td><td>id PK, name, <b>state</b> (JSON), version, status, status_note, created</td><td>One row per organization; <code>status</code> active/suspended.</td></tr>
-  <tr><td><code>users</code></td><td>id PK, tenant FK, name, email UNIQUE, password (scrypt), recovery (sha256), role, avatar</td><td>Organizer staff: Owner, Admin, Service, Gate.</td></tr>
+  <tr><td><code>users</code></td><td>id PK, tenant FK, name, email UNIQUE, password (Identity hash; scrypt for accounts not signed in since the move), recovery (sha256), role, avatar</td><td>Organizer staff: Owner, Admin, Service, Gate.</td></tr>
   <tr><td><code>sessions</code></td><td>token PK (sha256), user FK CASCADE, expires</td><td>Organizer sessions, 7 days.</td></tr>
   <tr><td><code>invites</code></td><td>token PK, tenant FK, email, role, expires</td><td>Team invitations, 7 days.</td></tr>
   <tr><td><code>guests</code></td><td>id PK, phone UNIQUE (E.164), name, created, terms</td><td>Platform-wide guest accounts.</td></tr>
@@ -293,10 +301,10 @@ td code { background: #eeeff2; }
 <h3>Indexes, pooling and retention</h3>
 <ul>
   <li><b>Indexes</b> on every runtime lookup: notifications by guest and by tenant, session expiry (all three kinds), <code>users(tenant)</code>, <code>invites(expires)</code>, <code>audit(tenant, created)</code>, <code>otp_log(phone, created)</code>, <code>uploads(created)</code>.</li>
-  <li><b>PostgreSQL pool</b> (<code>psycopg_pool</code>, <code>DB_POOL_SIZE</code>, default 8) so requests reuse connections instead of a TCP+TLS handshake each time; without the pool package it falls back to one connection per request.</li>
-  <li><b>One engine everywhere.</b> There is no second database and no file fallback: <code>db.require_url()</code> refuses to start without a PostgreSQL <code>DATABASE_URL</code>, and <code>npm test</code> starts a throwaway instance (<code>pgserver</code>) when none is set.</li>
-  <li><b>Retention</b> (<code>db.RETENTION</code>, applied at start-up and hourly): expired sessions, invites and codes immediately; <code>otp_log</code> after 1 day; read notifications after 180 days; audit rows after 400 days.</li>
-  <li><b>Migrations</b> are additive and idempotent: <code>CREATE TABLE/INDEX IF NOT EXISTS</code>, plus <code>db.migrate()</code> for new columns. SQL is written once with <code>?</code> and translated for PostgreSQL.</li>
+  <li><b>PostgreSQL pool</b> (Npgsql's built-in pool) so requests reuse connections instead of a TCP+TLS handshake each time.</li>
+  <li><b>One engine everywhere.</b> There is no second database and no file fallback: the server refuses to start without a PostgreSQL <code>DATABASE_URL</code>, and <code>npm test</code> starts a throwaway instance (<code>embedded-postgres</code>) when none is set.</li>
+  <li><b>Retention</b> (<code>ActivityRepository.CleanOldRowsAsync</code>, at start-up and hourly): expired sessions, invites and codes immediately; <code>otp_log</code> after 1 day; read notifications after 180 days; audit rows after 400 days.</li>
+  <li><b>Migrations</b> are EF Core migrations in <code>Persistence/Migrations</code>, applied on start-up. The baseline describes the tables the Python server created with <code>IF NOT EXISTS</code>, so it changes nothing on existing databases; its history table is <code>__encore_migrations</code>.</li>
 </ul>
 
 <h2>The workspace document (<code>tenants.state</code>)</h2>
@@ -338,9 +346,9 @@ td code { background: #eeeff2; }
 </table>
 
 <h1 class="section"><span class="num">06</span>Business rules</h1>
-<p class="lead">Everything lives in <code>domain.py</code>: functions take the workspace document, change it, and raise <code>ValueError</code> with a message the reader can act on.</p>
+<p class="lead">Everything lives in <code>backend/Encore.Api/Domain</code>: functions take the workspace document, change it, and raise <code>DomainException</code> with a message the reader can act on.</p>
 
-<h2>Pricing (<code>quote_order</code>)</h2>
+<h2>Pricing (<code>Pricing.QuoteOrder</code>)</h2>
 <div class="formula">total = items <span>+</span> service charge <span>+</span> VAT(items + service) <span>+</span> tip</div>
 <ul>
   <li><b>Items</b> are priced from the workspace, never from the client.</li>
@@ -403,12 +411,12 @@ td code { background: #eeeff2; }
 <h1 class="section"><span class="num">07</span>Authentication and roles</h1>
 
 <div class="grid3">
-  <div class="card"><span class="tag">Organizers</span><h4>Email + password</h4><ul><li>scrypt (N=16384, r=8, p=1, 16-byte salt)</li><li>Password ≥ 12 characters</li><li>One-time recovery code (sha256)</li><li>Cookie 7 days, HttpOnly, SameSite=Strict, Secure in production</li><li>Invitation links for Admin, Service, Gate</li></ul></div>
+  <div class="card"><span class="tag">Organizers</span><h4>Email + password</h4><ul><li>ASP.NET Core Identity hash (PBKDF2); older scrypt hashes re-hashed at sign-in</li><li>Password ≥ 12 characters</li><li>One-time recovery code (sha256)</li><li>Cookie 7 days, HttpOnly, SameSite=Strict, Secure in production</li><li>Invitation links for Admin, Service, Gate</li></ul></div>
   <div class="card"><span class="tag">Guests</span><h4>Phone + SMS code</h4><ul><li>6 digits, HMAC-SHA256 with the server secret</li><li>5 minutes, 5 attempts, resend after 60 s</li><li>5 codes/hour per phone, 20/hour per IP</li><li>E.164 normalization (+251…)</li><li>Session 30 days, SameSite=Lax</li></ul></div>
-  <div class="card"><span class="tag">Encore staff</span><h4>Platform console</h4><ul><li>Separate <code>platform_admins</code> table</li><li>Created from env or <code>--create-platform-admin</code></li><li>12-hour sessions; 10 sign-ins / 15 min per IP</li><li>Every action written to <code>platform_audit</code></li><li>Cannot be used as an organizer session, or the reverse</li></ul></div>
+  <div class="card"><span class="tag">Encore staff</span><h4>Platform console</h4><ul><li>Separate <code>platform_admins</code> table</li><li>Created from env or <code>npm run platform-admin</code></li><li>12-hour sessions; 10 sign-ins / 15 min per IP</li><li>Every action written to <code>platform_audit</code></li><li>Cannot be used as an organizer session, or the reverse</li></ul></div>
 </div>
 
-<h2>SMS providers (<code>sms.py</code>)</h2>
+<h2>SMS providers (<code>SmsService</code>)</h2>
 <table>
   <tr><th style="width:22%"><code>SMS_PROVIDER</code></th><th>Variables</th><th style="width:28%">Request</th></tr>
   <tr><td><code>afromessage</code></td><td>AFROMESSAGE_TOKEN; optional AFROMESSAGE_SENDER (default <code>Afropay</code>), AFROMESSAGE_CALLBACK and AFROMESSAGE_CHALLENGE</td><td><code>GET /api/send</code> with a bearer token and <code>sender</code>, <code>to</code>, <code>message</code> (no <code>from</code> — the token identifies the account); only <code>acknowledge: success</code> counts as delivered</td></tr>
@@ -419,12 +427,12 @@ td code { background: #eeeff2; }
 </table>
 <ul>
   <li><b>AfroMessage challenge and verify:</b> with <code>AFROMESSAGE_CHALLENGE=1</code>, <code>GET /api/challenge</code> generates and sends the code and returns a <code>verificationId</code>. The server stores only <code>provider:&lt;verificationId&gt;</code> in <code>otps.code</code> — never the code — and <code>GET /api/verify?to=…&amp;vc=…&amp;code=…</code> decides whether what the guest typed is right. A reply with neither a code nor an id fails closed. Wording comes from <code>AFROMESSAGE_PREFIX</code>, <code>AFROMESSAGE_POSTFIX</code> and <code>AFROMESSAGE_CODE_TYPE</code>; <code>--sms-balance</code> reads the account credit.</li>
-  <li><b>Cloudflare:</b> AfroMessage is fronted by Cloudflare, which rejects urllib's default agent with <code>403 error code: 1010</code>. Every request carries a normal <code>User-Agent</code> (override with <code>SMS_USER_AGENT</code>).</li>
-  <li><b>Logging:</b> every request and reply is written to the server log — <code>SMS -&gt; GET …</code> and <code>SMS &lt;- 200 {…}</code> — with the guest's number masked and the message and any generated code hidden. <code>SMS_DEBUG=1</code> logs them in full for short troubleshooting sessions.</li>
-  <li><code>status()</code> reports which variables are still missing; the production check refuses to call SMS “working” until it can deliver.</li>
+  <li><b>Cloudflare:</b> AfroMessage is fronted by Cloudflare, which rejects unknown agents with <code>403 error code: 1010</code>. Every request carries a normal <code>User-Agent</code> (override with <code>SMS_USER_AGENT</code>).</li>
+  <li><b>Logging:</b> every request and reply is written to the server log — <code>SMS -&gt; GET …</code> and <code>SMS &lt;- 200 {…}</code> — with the guest's number masked and the message and any generated code hidden. <code>SMS_DEBUG=1</code> logs them in full for short troubleshooting sessions. HttpClient's own request logging is switched off for SMS, because it would write the full URL.</li>
+  <li><code>Status()</code> reports which variables are still missing; the production check refuses to call SMS “working” until it can deliver.</li>
   <li>Gateways that answer <code>200</code> with an error payload are treated as failures.</li>
-  <li>Prove delivery before launch: <code>python3 server.py --sms-test +251911234567</code>.</li>
-  <li>In development with no provider, messages print to the terminal and are never reported as sent; in production that fallback is refused.</li>
+  <li>Prove delivery before launch: <code>npm run sms:test -- +251911234567</code>.</li>
+  <li>In development with no provider, messages print to the server log and are never reported as sent; in production that fallback is refused.</li>
 </ul>
 
 <h2>Organizer roles</h2>
@@ -546,114 +554,116 @@ td code { background: #eeeff2; }
   <tr><td><code>ENCORE_ENV</code></td><td>development</td><td><code>production</code> enables secure cookies, HSTS and start-up checks.</td></tr>
   <tr><td><code>ENCORE_SECRET</code></td><td>generated file</td><td>Required in production; keys the OTP HMAC.</td></tr>
   <tr><td><code>DATABASE_URL</code></td><td>—</td><td><b>Required.</b> PostgreSQL connection string; the server will not start without it.</td></tr>
-  <tr><td><code>DB_POOL_SIZE</code></td><td>8</td><td>Maximum pooled PostgreSQL connections.</td></tr>
-  <tr><td><code>ENCORE_DATA</code></td><td>./data</td><td>Generated secret, legacy uploads, and the local PostgreSQL when <code>ENCORE_LOCAL_DB=1</code>.</td></tr>
-  <tr><td><code>HOST</code> · <code>PORT</code> · <code>GUEST_PORT</code></td><td>127.0.0.1 · 8081 · 8082</td><td>Listen address and ports.</td></tr>
-  <tr><td><code>ENCORE_SINGLE_PORT</code></td><td>—</td><td><code>1</code> serves guest at <code>/</code> and admin at <code>/admin</code> on one port.</td></tr>
-  <tr><td><code>PUBLIC_ORIGIN</code> / <code>ADMIN_ORIGIN</code> / <code>GUEST_ORIGIN</code></td><td>local URLs</td><td>Public HTTPS addresses used for origin checks and QR links.</td></tr>
+  <tr><td><code>ENCORE_DATA</code></td><td>./data</td><td>Generated secret (when <code>ENCORE_SECRET</code> is unset), legacy uploads, and the local PostgreSQL.</td></tr>
+  <tr><td><code>HOST</code> · <code>PORT</code></td><td>127.0.0.1 · 8080</td><td>Listen address and port (both apps).</td></tr>
+  <tr><td><code>ENCORE_ROOT</code></td><td>folder with package.json</td><td>Where <code>dist/</code> is served from (<code>/app</code> in the Docker image).</td></tr>
+  <tr><td><code>PUBLIC_ORIGIN</code> / <code>ADMIN_ORIGIN</code> / <code>GUEST_ORIGIN</code></td><td>http://127.0.0.1:PORT</td><td>Public HTTPS address used for origin checks and QR links. <code>ADMIN_ORIGIN</code>/<code>GUEST_ORIGIN</code> only for the dev servers.</td></tr>
   <tr><td><code>TRUST_PROXY</code></td><td>0</td><td><code>1</code> to read <code>X-Forwarded-For</code> for rate limits.</td></tr>
   <tr><td><code>SMS_PROVIDER</code> + provider variables</td><td>console in dev</td><td>See §7. Without it, guest sign-in fails closed.</td></tr>
   <tr><td><code>ENCORE_PLATFORM_EMAIL</code> · <code>_PASSWORD</code> · <code>_NAME</code></td><td>—</td><td>Creates or updates the platform operator at start-up.</td></tr>
 </table>
-<p><b>Where they come from:</b> <code>server.load_env_file()</code> reads a <code>.env</code> file in the project folder at start-up for local work;
+<p><b>Where they come from:</b> <code>EncoreOptions.LoadEnvFile()</code> reads a <code>.env</code> file in the project folder at start-up for local work;
 anything already in the real environment wins, so hosts such as Render (service → Environment, keys declared in
 <code>render.yaml</code> with <code>sync: false</code>) are unaffected. <code>.env</code> is git-ignored and the pre-commit hook refuses to commit it.</p>
 
 <h1 class="section"><span class="num">13</span>Development workflow</h1>
 <h2>Prerequisites</h2>
-<ul><li>Python 3.11+ (macOS system Python 3.9 is not enough; <code>launch.py</code> finds a newer one).</li><li>Node 20+ and npm.</li><li>Optional: PostgreSQL, or <code>pgserver</code> for tests.</li></ul>
+<ul><li>Node 20+ and npm.</li><li>.NET 8 SDK (Mac: <code>brew install --cask dotnet-sdk@8</code>); <code>backend/global.json</code> pins 8.0.425.</li><li>Optional: PostgreSQL. Without one, <code>npm run dev</code> and <code>npm test</code> start their own.</li></ul>
 
 <h2>Commands</h2>
 <pre><span class="c"># install web dependencies</span>
-npm install
+npm ci
 
-<span class="c"># build both apps into dist/, then run (admin :8081/admin, guest :8082)</span>
+<span class="c"># build the apps into dist/ and the API, then run (admin :8080/admin, guest :8080/)</span>
 npm run build
-python3 launch.py
+npm start
 
-<span class="c"># hot reload: Python API + one Vite dev server per app</span>
+<span class="c"># hot reload: the .NET API + one Vite dev server per app; Swagger UI at :8080/swagger</span>
 npm run dev
 
-<span class="c"># tests — 45, PostgreSQL</span>
+<span class="c"># tests — the .NET suite on PostgreSQL</span>
 npm test                                                 <span class="c"># starts a throwaway PostgreSQL if DATABASE_URL is unset</span>
+npm test -- --filter GuestJourneyTests                   <span class="c"># one class</span>
 DATABASE_URL=postgresql://… npm test                     <span class="c"># or point it at your own database</span>
 
 <span class="c"># operations</span>
-ENCORE_ENV=production python3 server.py --check          <span class="c"># readiness report</span>
-python3 server.py --sms-test +251911234567               <span class="c"># prove SMS delivery</span>
-python3 server.py --create-platform-admin                <span class="c"># platform operator</span>
+ENCORE_ENV=production npm run check                      <span class="c"># readiness report</span>
+npm run sms:test -- +251911234567                        <span class="c"># prove SMS delivery</span>
+npm run platform-admin                                   <span class="c"># platform operator</span>
 git config core.hooksPath .githooks                      <span class="c"># enable the pre-commit checks</span></pre>
 
 <h2>Tests</h2>
 <ul>
-  <li><b>AppTests</b> — an admin and a guest server on random ports against a temporary database, with a capturing SMS provider: accounts, tenants, events, menu, tables, orders, check-in, tax, platform console, HEAD/robots/gzip.</li>
-  <li><b>DomainTests</b> — <code>domain.py</code> directly: pricing with VAT and service charge, stock and overselling, store inventory with units, waiters and tips, cash rules, category changes.</li>
-  <li><b>SmsProviderTests</b> — each provider's HTTP request captured and asserted (including AfroMessage's send and challenge calls and its error replies); unconfigured providers never report success.</li>
-  <li><b>JourneyTests</b> — longer flows: profiles, uploads, tenant isolation, concurrent bookings.</li>
-  <li>Add a test with every rule change, and run both databases before deploying.</li>
+  <li><b>OrganizerTests · GuestJourneyTests</b> — the real app in-process on its own PostgreSQL database, with SMS written to a file: accounts, roles and refusals, tenants, events, menu, tables, orders, check-in, tax, ratings, uploads, concurrent bookings, HEAD/robots/gzip, CSP.</li>
+  <li><b>PlatformConsoleTests · AfroMessageSignInTests · SmsNotConfiguredTests</b> — servers with their own settings: platform console and suspension, provider-verified codes with a fake AfroMessage, fail-closed sign-in, logs without numbers or codes, accounts carried over from the Python server.</li>
+  <li><b>DomainRuleTests · PricingTests</b> — the rules directly: pricing with VAT and service charge, stock and overselling, store inventory with units, waiters and tips, cash rules, category changes.</li>
+  <li><b>ParityTests</b> — golden cases recorded from the original Python rules: 941 pricing and input cases and 30 scenarios of 60 staff actions and guest orders, each compared step by step.</li>
+  <li><b>SmsProviderTests</b> — each provider's HTTP request captured and asserted (including AfroMessage's send, challenge and verify calls and its error replies); unconfigured providers never report success.</li>
+  <li><b>PersistenceTests · PasswordTests</b> — the baseline migration on an older database, version-checked saves, scrypt against RFC 7914 and a real Python hash.</li>
+  <li>Add a test with every rule change.</li>
 </ul>
 
 <h2>Conventions</h2>
 <ul>
-  <li>Business rules only in <code>domain.py</code>; HTTP only in <code>server.py</code>.</li>
-  <li>Integer cents; validate with <code>money_cents()</code>, <code>whole()</code>, <code>number()</code>, <code>text()</code>.</li>
+  <li>Business rules only in <code>Domain/</code>; controllers only read the request, call a service and reply.</li>
+  <li>Integer cents; validate with <code>Values.MoneyCents()</code>, <code>Whole()</code>, <code>Number()</code>, <code>Text()</code>.</li>
   <li>Error messages are written for whoever reads them — guest or staff — in plain language.</li>
-  <li>New workspace fields get defaults in <code>blank()</code> and <code>upgrade()</code>; new columns go in <code>db.migrate()</code>.</li>
+  <li>New workspace fields get defaults in <code>WorkspaceRules.Blank()</code> and <code>Upgrade()</code>; schema changes are EF Core migrations.</li>
   <li>Never fake a payment or a delivered message; never commit <code>data/</code>, secrets or customer data.</li>
   <li>Guest app stays mobile-first: check 320, 375 and 768 px plus desktop.</li>
 </ul>
 
 <h1 class="section"><span class="num">14</span>Deployment and operations</h1>
-<div class="flow keep" style="margin-bottom:4mm"><span class="step">git push main</span><span class="to">→</span><span class="step">Render build (Dockerfile)</span><span class="to">→</span><span class="step">npm ci + vite build</span><span class="to">→</span><span class="step">python:3.12-slim</span><span class="to">→</span><span class="step">health check /api/health</span><span class="to">→</span><span class="step red">live</span></div>
+<div class="flow keep" style="margin-bottom:4mm"><span class="step">git push main</span><span class="to">→</span><span class="step">Render build (Dockerfile)</span><span class="to">→</span><span class="step">npm ci + vite build</span><span class="to">→</span><span class="step">dotnet publish</span><span class="to">→</span><span class="step">aspnet:8.0</span><span class="to">→</span><span class="step">health check /api/health</span><span class="to">→</span><span class="step red">live</span></div>
 <ul>
   <li><code>render.yaml</code> defines the Docker web service (single port, TRUST_PROXY, generated <code>ENCORE_SECRET</code>) and the managed PostgreSQL database; SMS and platform credentials are marked <code>sync: false</code> and set in the dashboard.</li>
   <li>Use paid plans in production: the free web service sleeps (first request ~30–50 s) and free PostgreSQL expires after 30 days.</li>
-  <li>Any Docker host works: mount <code>/data</code> or set <code>DATABASE_URL</code> and put HTTPS in front (<code>deploy/Caddyfile</code>).</li>
+  <li>Any Docker host works: set <code>DATABASE_URL</code> and put HTTPS in front (<code>deploy/Caddyfile</code>).</li>
 </ul>
 <table class="keep">
   <tr><th style="width:26%">Task</th><th>How</th></tr>
-  <tr><td>Release readiness</td><td><code>python3 server.py --check</code> — lists what must be fixed and what to note.</td></tr>
+  <tr><td>Release readiness</td><td><code>npm run check</code> — lists what must be fixed and what to note.</td></tr>
   <tr><td>Backups</td><td>PostgreSQL automated backups — every record and image lives there. Keep <code>secret.key</code> from <code>ENCORE_DATA</code> too.</td></tr>
   <tr><td>Monitoring</td><td>Uptime check on <code>/api/health</code> (GET or HEAD); watch Render logs for 5xx.</td></tr>
   <tr><td>Account recovery</td><td>Platform console → Accounts → Reset password issues a one-time recovery code.</td></tr>
   <tr><td>Abusive organizer</td><td>Platform console → Organizations → Status → Suspend (the reason is logged).</td></tr>
-  <tr><td>Rollback</td><td>Redeploy the previous commit in Render; the database schema only ever gains columns.</td></tr>
+  <tr><td>Rollback</td><td>Redeploy the previous commit in Render; schema changes are additive. Rolling back past the .NET switch works on the same tables, but passwords re-hashed since then need <b>Forgot password?</b>.</td></tr>
 </table>
 
 <h1 class="section"><span class="num">15</span>Extending Encore</h1>
 
 <h2>Add an SMS provider</h2>
-<pre><span class="c"># sms.py</span>
-<span class="k">def</span> _send_mygateway(phone, text):
-    _json_post(<span class="k">'https://gateway.example/send'</span>, {<span class="k">'to'</span>: phone, <span class="k">'text'</span>: text},
-               {<span class="k">'Authorization'</span>: <span class="k">'Bearer '</span> + os.environ[<span class="k">'MYGATEWAY_TOKEN'</span>]})
+<pre><span class="c">// Services/SmsService.cs</span>
+<span class="k">private async</span> Task SendMyGateway(<span class="k">string</span> phone, <span class="k">string</span> text, CancellationToken ct) =&gt;
+    RejectErrorBody(<span class="k">await</span> Send(HttpMethod.Post, <span class="k">"https://gateway.example/send"</span>,
+        <span class="k">new</span> JsonObject { [<span class="k">"to"</span>] = phone, [<span class="k">"text"</span>] = text }.ToJsonString(), <span class="k">"application/json"</span>,
+        <span class="k">new</span>() { [<span class="k">"Authorization"</span>] = <span class="k">"Bearer "</span> + Env(<span class="k">"MYGATEWAY_TOKEN"</span>) }, ct));
 
-PROVIDERS[<span class="k">'mygateway'</span>] = _send_mygateway
-REQUIRED[<span class="k">'mygateway'</span>] = <span class="k">lambda</span>: [n <span class="k">for</span> n <span class="k">in</span> (<span class="k">'MYGATEWAY_TOKEN'</span>,) <span class="k">if not</span> os.environ.get(n)]
-<span class="c"># then: SMS_PROVIDER=mygateway python3 server.py --sms-test +2519…</span></pre>
-<p>A provider that generates its own sign-in codes (like AfroMessage's challenge endpoint) returns the code from <code>send_signin_code()</code>; the server stores whatever comes back. Or skip code entirely and use <code>SMS_PROVIDER=http</code> with a body template.</p>
+<span class="c">// add "mygateway" to Providers, its variables to MissingSettings(), and a case in SendAsync()</span>
+<span class="c">// then: SMS_PROVIDER=mygateway npm run sms:test -- +2519…</span></pre>
+<p>A provider that generates its own sign-in codes (like AfroMessage's challenge endpoint) returns the code and a verification id from <code>SendSigninCodeAsync()</code>; the server stores only the id. Or skip code entirely and use <code>SMS_PROVIDER=http</code> with a body template. Add a <code>SmsProviderTests</code> case that asserts the request.</p>
 
 <h2>Connect AfroPay (online payments)</h2>
 <ol>
   <li>Obtain the merchant API documentation and credentials: payment request, callback signature, status query, refunds.</li>
-  <li>Add <code>payments.py</code> shaped like <code>sms.py</code>: create a pending payment for a quote and return the redirect or USSD instructions.</li>
-  <li>Replace the <code>PAYMENT_NOT_CONFIGURED</code> branch of <code>/api/checkout</code>: create the booking or order unpaid with settlement <code>afropay</code> and a payment reference; set <code>PAYMENTS_READY</code> from configuration.</li>
+  <li>Add a <code>PaymentService</code> shaped like <code>SmsService</code>: create a pending payment for a quote and return the redirect or USSD instructions.</li>
+  <li>Replace the <code>PAYMENT_NOT_CONFIGURED</code> branch of <code>/api/checkout</code>: create the booking or order unpaid with settlement <code>afropay</code> and a payment reference; set <code>EncoreOptions.PaymentsReady</code> from configuration.</li>
   <li>Add a callback endpoint that verifies the signature, then marks the record paid (<code>settledBy</code>, <code>settledAt</code>, <code>wallet</code>) inside a write transaction and notifies the guest. Make it idempotent.</li>
   <li>Handle expiry (release capacity and stock) and refunds; add tests with recorded provider responses.</li>
 </ol>
 
 <h2>Add a staff action</h2>
 <ol>
-  <li>Add <code>elif op == 'my_action':</code> to <code>domain.mutate()</code> with validation and a readable <code>ValueError</code>.</li>
-  <li>Allow it for the right roles in <code>STAFF_ROLES</code>; add it to the <code>_by</code> list if the staff member's name should be recorded.</li>
+  <li>Add <code>case "my_action":</code> to <code>Actions.Mutate()</code> with validation and a readable <code>DomainException</code>.</li>
+  <li>Allow it for the right roles in <code>StaffService.RoleActions</code>; add it to <code>SignedActions</code> if the staff member's name should be recorded.</li>
   <li>Call it with <code>ctx.action('my_action', data)</code>.</li>
-  <li>Add a domain test, and an <code>AppTests</code> test proving the refusal for roles that must not have it.</li>
+  <li>Add a <code>DomainRuleTests</code> test, and an HTTP test proving the refusal for roles that must not have it.</li>
 </ol>
 
 <h2>Add a report metric or a settings group</h2>
 <ol>
   <li>Metric: compute it in <code>summarize()</code>/<code>buildReport()</code> (paid, non-cancelled only), show it with <code>Kpi</code>/<code>DataTable</code>, and add it to <code>reportPdfSections</code> and <code>reportCsvRows</code>; add a rule to <code>suggestions()</code> if it should drive advice.</li>
-  <li>Settings: defaults in <code>DEFAULT_SETTINGS</code>, validation in <code>configure()</code>, expose in <code>public_settings</code> only if guests need it, then a section in <code>Settings.jsx</code> using <code>useDraft</code> and <code>SaveBar</code>.</li>
+  <li>Settings: defaults in <code>WorkspaceRules.DefaultSettings</code>, validation in <code>SettingsRules.Configure()</code>, expose in <code>PublicSettings</code> only if guests need it, then a section in <code>Settings.jsx</code> using <code>useDraft</code> and <code>SaveBar</code>.</li>
 </ol>
 
 <h1 class="section"><span class="num">16</span>Working with AI assistance</h1>
@@ -662,8 +672,8 @@ REQUIRED[<span class="k">'mygateway'</span>] = <span class="k">lambda</span>: [n
   <tr><th style="width:28%">File</th><th>What it does</th></tr>
   <tr><td><code>CLAUDE.md</code></td><td>Working agreement: non-negotiable rules (never fake payments, server decides money, integer cents, no secrets or demo data), where code goes, style, and review expectations.</td></tr>
   <tr><td><code>.claude/settings.json</code></td><td>Tool permissions: allow reads, edits under <code>src/</code>, build, test and ordinary git; deny <code>.env*</code>, <code>data/</code>, <code>rm -rf</code>, force pushes and direct database shells.</td></tr>
-  <tr><td><code>.github/pull_request_template.md</code></td><td>Verification checklist (tests on both databases, build, browser check) and the AI disclosure boxes.</td></tr>
-  <tr><td><code>.githooks/pre-commit</code></td><td>Blocks committing <code>data/</code>, <code>dist/</code>, <code>.env</code> and key files, scans the staged diff for credential patterns, and compiles staged Python. Enable with <code>git config core.hooksPath .githooks</code>.</td></tr>
+  <tr><td><code>.github/pull_request_template.md</code></td><td>Verification checklist (tests, build, browser check, production check) and the AI disclosure boxes.</td></tr>
+  <tr><td><code>.githooks/pre-commit</code></td><td>Blocks committing <code>data/</code>, <code>dist/</code>, <code>.env</code> and key files, and scans the staged diff for credential patterns. Enable with <code>git config core.hooksPath .githooks</code>.</td></tr>
   <tr><td><code>docs/AI_DEPLOYMENT_CHECKLIST.md</code></td><td>The 22-point rollout checklist with what is done in the repository and what belongs to the team (account access, budgets, monitoring, training, governance).</td></tr>
   <tr><td><code>docs/developer-guide.html</code></td><td>The source of this document. Print it to PDF after changing behaviour so the guide never drifts from the code.</td></tr>
 </table>
@@ -677,12 +687,13 @@ REQUIRED[<span class="k">'mygateway'</span>] = <span class="k">lambda</span>: [n
   <tr><td>Recipes / ingredient deduction</td><td>Store stock is adjusted by staff. Next: link menu items to store items (Tibs uses 0.25 kg beef) and deduct on order.</td></tr>
   <tr><td>Workspace document size</td><td>Orders and bookings accumulate in one JSON document. For very large organizers, move records to their own tables and archive past events.</td></tr>
   <tr><td>Rate limits in memory</td><td>Per process; use a shared store if you run more than one instance.</td></tr>
+  <tr><td>Identity user store</td><td>Passwords use ASP.NET Core Identity's hasher; accounts are still Encore's own tables and sessions. Moving them to UserManager and the AspNet* tables is a separate change.</td></tr>
   <tr><td>Analytics in the browser</td><td>Fine at current volumes; add server-side aggregation for long histories.</td></tr>
   <tr><td>Email</td><td>No email receipts or password emails; recovery codes are used instead.</td></tr>
   <tr><td>Fiscal receipts</td><td>Encore receipts are not fiscal receipts; integrate a certified device or service if required.</td></tr>
   <tr><td>Unused dependency</td><td><code>kiwi-schema</code> can be removed from <code>package.json</code>.</td></tr>
 </table>
-<p class="footer-note">Encore developer guide · generated from <code>docs/developer-guide.html</code> at commit 418893d · 23 September 2026.</p>
+<p class="footer-note">Encore developer guide · generated from <code>docs/developer-guide.html</code> on branch migration/dotnet-next · 24 September 2026.</p>
 
 </body>
 </html>

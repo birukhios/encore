@@ -4,7 +4,7 @@ using Encore.Api.Persistence;
 
 namespace Encore.Api.Tests;
 
-/// <summary>The money rules from DomainTests in tests/test_server.py, stated in C#.</summary>
+/// <summary>The money rules from the original DomainTests, stated as readable examples.</summary>
 public sealed class PricingTests
 {
     private static Workspace Concert(Action<JsonObject>? settings = null)

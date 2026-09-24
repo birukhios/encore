@@ -4,10 +4,10 @@
 
 ## How it was verified
 
-- [ ] `npm test` (PostgreSQL — starts a throwaway database, or uses `DATABASE_URL`)
+- [ ] `npm test` (.NET suite on PostgreSQL — starts a throwaway database, or uses `DATABASE_URL`)
 - [ ] `npm run build`
 - [ ] Checked in a browser at phone and desktop widths (screenshots for UI changes)
-- [ ] `ENCORE_ENV=production python3 server.py --check` (for release branches)
+- [ ] `ENCORE_ENV=production npm run check` (for release branches)
 
 ## AI assistance
 
@@ -18,5 +18,5 @@
 ## Risk
 
 - [ ] Touches authentication, payments, permissions, SQL or uploads → needs a second reviewer
-- [ ] Changes the database schema or workspace document shape (migration + `upgrade()` included)
+- [ ] Changes the database schema or workspace document shape (EF Core migration + `WorkspaceRules.Upgrade()` included)
 - [ ] No secrets, customer data or demo data added to the repository

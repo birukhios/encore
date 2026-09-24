@@ -5,9 +5,9 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace Encore.Api.Persistence.Migrations
 {
     /// <summary>
-    /// Describes the schema db.py already created on every Encore database. It is written with IF NOT EXISTS,
-    /// exactly as db.create_schema and db.migrate run it, so applying it to the live database changes nothing
-    /// and applying it to an empty one produces the same tables Python expects.
+    /// Describes the schema the Python server created on every existing Encore database, with IF NOT EXISTS exactly as
+    /// it ran it, so applying it to the live database changes nothing and applying it to an empty one creates the
+    /// same tables.
     /// </summary>
     public partial class BaselineLegacySchema : Migration
     {

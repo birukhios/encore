@@ -1,7 +1,7 @@
 namespace Encore.Api.Persistence;
 
-// These classes mirror the tables db.py creates. Timestamps stay Unix seconds (INTEGER) because the
-// Python server reads the same rows until it is retired; changing a type here needs a real migration.
+// These classes mirror the tables the Python server created, which hold the live data. Timestamps are Unix seconds
+// (INTEGER); changing a column type needs a real migration, not just an edit here.
 
 public sealed class Tenant
 {

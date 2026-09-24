@@ -15,11 +15,13 @@ The new Next.js application shells live in `apps/admin` and `apps/guest`. They s
 
 ## Current runtime
 
-**The backend migration is not complete.** The Next apps now send API calls to the single .NET 8 listener in `backend/Encore.Api`. That listener has Controllers, a relay Service, an EF Core Repository, PostgreSQL access, Swagger UI and a generated Identity migration. It forwards the existing `/admin/api/*`, `/api/*` and `/uploads/*` contract to loopback-only Python listeners. `server.py`, `domain.py`, `db.py` and `sms.py` still enforce the working business rules, sessions and OTP. ASP.NET Core Identity tables exist but are not yet used for app sign-in. The existing Vite entry points remain runnable.
+**The backend runs on .NET; Python has been retired.** `backend/Encore.Api` is the only server: Controllers → Services → Repositories over EF Core and PostgreSQL, with checked-in migrations and Swagger UI in development. It serves the built screens (`dist/`), `/admin/api/*`, `/api/*` and `/uploads/*` on one origin. Every business rule from the Python server was ported and is checked against golden cases recorded from it (see `backend/Encore.Api.Tests/ParityTests.cs`). Organizer and platform passwords use ASP.NET Core Identity's password hasher; accounts from the Python server are verified with their scrypt hash and re-hashed at the next sign-in. Guests keep phone + SMS OTP.
 
-The attached September 23 PostgreSQL archive was compared with this checkout for the core server, domain, database and app source; those files matched before this work. Text in the archive is implementation reference, not an instruction to override the requested stack.
+Identity is used for password hashing only. Accounts stay in the existing `users` and `platform_admins` tables with Encore's own server sessions; the separate `EncoreIdentityDbContext` and its `InitialIdentity` migration (in `Data/` and `Migrations/`) are not used by the running app. Moving accounts into the Identity user store (UserManager, AspNetUsers) is a separate change with its own data migration.
 
-## Run the new frontend shells
+The React screens in `src/` are served by the Vite build (`npm run build`) and by the Next.js shells below. Tooling is npm only.
+
+## Run the Next.js shells
 
 Install the repository's packages and each application's packages, then run its `dev` or `build` script:
 
@@ -31,15 +33,12 @@ npm run dev --prefix apps/admin
 npm run dev --prefix apps/guest
 ```
 
-Admin defaults to port 3001 and guest to port 3002. Both proxy API calls to the .NET listener on port 8080. Start PostgreSQL and the existing Python API on loopback, then run the .NET API as shown in [backend/README.md](backend/README.md). `ENCORE_BACKEND_URL` can override the .NET address. Set Python's `ADMIN_ORIGIN` and `GUEST_ORIGIN` to the frontend origins when developing sign-in flows.
+Admin defaults to port 3001 and guest to port 3002. Both proxy API calls to the .NET API on port 8080 (`npm start`, or `dotnet run --project backend/Encore.Api`). `ENCORE_BACKEND_URL` can override the address. Set `ADMIN_ORIGIN=http://127.0.0.1:3001` and `GUEST_ORIGIN=http://127.0.0.1:3002` for the API when developing sign-in flows through them.
 
-## Backend cutover requirements
+## Remaining work
 
-1. Port the existing tenant state and every `domain.py` rule into .NET services. Preserve server-side pricing, VAT, stock, capacity, table ownership, optimistic concurrency, roles and in-person payment state.
-2. Replace the relay's data access with EF Core repositories. The generated `InitialIdentity` migration was applied successfully to a throwaway PostgreSQL database alongside the legacy schema. Existing scrypt password hashes and sessions still need an explicit account transition; never silently accept or bypass them. Keep guest SMS OTP with server verification and rate limits.
-3. Implement every current `/admin/api/*`, `/api/*` and `/uploads/*` response natively before removing the Python listeners. Keep online AfroPay checkout closed until the exact merchant contract is verified. Media must remain in the database.
-4. Run the current integration journeys against the native API and test real browser journeys on both screen sizes before retiring Python/Vite.
-
-The .NET bridge compiled with zero warnings, and its throwaway-database smoke test covered signup, session cookies, tenant visibility, public state, fail-closed checkout and signout. The 45 existing Python integration tests and all three frontend builds passed. The SDK was installed in a temporary directory for verification; it is not bundled with the repository. Public deployment remains unconfigured; see `README.md` and `design-qa.md` for readiness limits.
+1. Move screens from JavaScript to TypeScript and shadcn/ui gradually, with browser checks at 320, 375, 768 px and desktop.
+2. Decide whether the Next.js shells replace the Vite build in production; today the Docker image serves the Vite build.
+3. Keep online AfroPay checkout closed until the exact merchant contract is verified. Media stays in the database.
 
 The new apps use Next.js 16.3.6. A production dependency audit reports no guest-app advisories. The admin app retains the existing jsPDF 2.5.2 and jspdf-autotable 3.8.4 versions to preserve receipt behavior; npm reports three advisories across those packages and their DOMPurify dependency. Upgrading them requires PDF export regression checks before public deployment.

@@ -13,9 +13,9 @@ Update the status column when you complete an item.
 | 2 | Team trained on the permission model | **Your team** | Walk through `.claude/settings.json` in a session |
 | 3 | `.gitignore` includes Claude artifacts | **Done** | `.gitignore` |
 | 3 | No credentials in CLAUDE.md | **Done** | `CLAUDE.md` contains rules only |
-| 3 | PII handling and retention | **Done (product)** / your policy | Guest phone numbers and names only; automatic retention in `db.py` (`RETENTION`) |
+| 3 | PII handling and retention | **Done (product)** / your policy | Guest phone numbers and names only; automatic retention in `ActivityRepository.CleanOldRowsAsync` (hourly) |
 | 4 | AI code review process, PR template | **Done** | `.github/pull_request_template.md` |
-| 4 | Test coverage requirement | **Done** | 45 automated tests on PostgreSQL; the PR template requires a run |
+| 4 | Test coverage requirement | **Done** | `npm test`: the .NET suite on PostgreSQL (HTTP journeys, rules, golden cases); the PR template requires a run |
 
 ## Security
 
@@ -24,7 +24,7 @@ Update the status column when you complete an item.
 | 5 | Organization policy, MCP allowlist, audit logging | **Your team (enterprise)** | `/etc/claude-code/settings.json` on managed machines |
 | 6 | Network: proxy, firewall, no sensitive data in prompts | **Your team** | Do not paste real guest data or secrets into prompts |
 | 7 | No hardcoded keys, secret scanning, pre-commit hook | **Done** | `.githooks/pre-commit` — enable per clone: `git config core.hooksPath .githooks` |
-| 8 | Static analysis, dependency and licence checks | **Partly** | Python compile check in the hook; one Python dependency (`psycopg`), pinned. Add a scanner in CI when you add one |
+| 8 | Static analysis, dependency and licence checks | **Partly** | The .NET build has nullable analysis on and builds without warnings; NuGet and npm dependencies are pinned. Add a scanner (e.g. `dotnet list package --vulnerable`, `npm audit`) in CI when you add one |
 
 ## Operational
 

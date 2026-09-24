@@ -21,8 +21,6 @@ services:
           property: connectionString
       - key: ENCORE_ENV
         value: production
-      - key: ENCORE_SINGLE_PORT     # guest app at /, organizer admin at /admin
-        value: "1"
       - key: HOST
         value: 0.0.0.0
       - key: TRUST_PROXY            # Render's proxy sets X-Forwarded-For

@@ -14,9 +14,4 @@ if git diff --cached -U0 | grep -nE '(sk-ant-[A-Za-z0-9_-]{10,}|ANTHROPIC_API_KE
   echo "pre-commit: a credential may be in this commit. Move it to an environment variable."; exit 1
 fi
 
-# 3. Python syntax check on staged Python files.
-py=$(printf '%s\n' "$staged" | grep -E '\.py$' || true)
-if [ -n "$py" ]; then
-  python3 -m py_compile $py || { echo "pre-commit: Python syntax error."; exit 1; }
-fi
 exit 0

@@ -1,17 +1,20 @@
 ENCORE — START HERE
 
-1. Keep the encore-platform folder intact.
-2. On Mac, double-click Start_Encore.command (or in Terminal inside the folder: python3 launch.py).
-3. It starts two apps and opens the organizer admin:
-     Organizer admin:  http://127.0.0.1:8081/admin
-     Guest app:        http://127.0.0.1:8082/
-4. Keep the Terminal window open while you use Encore.
+1. Install Node.js 20 or newer (https://nodejs.org) and the .NET 8 SDK
+   (Mac: brew install --cask dotnet-sdk@8).
+2. Copy .env.example to .env. For a quick local try, set ENCORE_LOCAL_DB=1 in .env:
+   Encore then runs its own PostgreSQL inside data/postgres. Otherwise set DATABASE_URL.
+3. On Mac, double-click Start_Encore.command, or in Terminal inside the folder:
+     npm ci
+     npm run build
+     npm start
+4. It opens the organizer admin:
+     Organizer admin:  http://127.0.0.1:8080/admin
+     Guest app:        http://127.0.0.1:8080/
+5. Keep the Terminal window open while you use Encore.
 
-Requires Python 3.11 or newer. macOS's built-in python3 (3.9) cannot run Encore; the launcher
-finds a newer Python automatically if installed, otherwise it tells you how to install one.
-
-Guest sign-in codes: while running on your computer, SMS messages are NOT sent. The 6-digit
-code appears in the Terminal window, on a line starting with [DEV SMS - NOT DELIVERED].
+Guest sign-in codes: while running on your computer without an SMS provider, messages are NOT sent.
+The 6-digit code appears in the Terminal window, on a line starting with [DEV SMS - NOT DELIVERED].
 
 Do NOT double-click admin.html or guest.html; a file preview cannot reach the server.
 Table QR codes use the guest address above, which only works on this computer. Guests' phones
