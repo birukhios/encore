@@ -40,5 +40,5 @@ Work happens on the `migration/dotnet-next` branch. `main` keeps deploying the P
 
 - Every rule in CLAUDE.md still applies: never fake a payment or an SMS, the server decides money, integer cents.
 - No phase merges to `main` with a red contract suite.
-- The SDK used so far lives in `/private/tmp/encore-dotnet` (cleared on reboot). Install .NET 8 SDK permanently
-  (`brew install --cask dotnet-sdk@8` or the Microsoft installer) before relying on it.
+- .NET 8 SDK 8.0.425 is pinned in `backend/global.json` (install: `brew install --cask dotnet-sdk@8`); a newer SDK
+  alongside it is ignored for this repo. `dotnet tool restore` in `backend/` installs the pinned `dotnet-ef`.
