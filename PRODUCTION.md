@@ -1,7 +1,6 @@
 # Encore — production deployment
 
-This edition has **no demo mode**: sign-in codes are never shown on screen, payments are never simulated, and
-SMS "log" mode is disabled. Everything below must be in place before real guests and real money.
+Demo mode is opt-in. Keep `ENCORE_DEMO` unset in production: sign-in codes must not appear on screen, payments must not be simulated, and SMS "log" mode is disabled. Everything below must be in place before real guests and real money. The new Next.js/.NET gateway still depends on the Python API and is not a native .NET production cutover.
 
 ## 1. Check readiness
 

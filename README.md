@@ -1,8 +1,10 @@
 # Encore concert platform
 
+> Technology stack migration: separate Next.js/TypeScript frontend shells are available in `apps/admin` and `apps/guest`, with a single .NET 8 API entry point in `backend/Encore.Api`. It currently relays to the existing Python business rules; native EF Core and Identity cutover remains pending. See [TECH_STACK.md](TECH_STACK.md) before changing deployment settings.
+
 > Deploying for real guests and money? Follow **[PRODUCTION.md](PRODUCTION.md)** and run `python3 server.py --check`.
 
-Two separate web apps backed by one Python server and one PostgreSQL database:
+The existing Python/Vite deployment has two web apps backed by one Python server and one PostgreSQL database:
 
 | App | Default address | Who |
 | --- | --- | --- |
@@ -10,6 +12,36 @@ Two separate web apps backed by one Python server and one PostgreSQL database:
 | Guest web app | http://127.0.0.1:8082/ | Concert guests (mobile number + SMS code) |
 
 Each port serves only its own app and API routes; admin sessions never work on the guest port and vice versa.
+
+## Run the new stack locally
+
+Install .NET 8 SDK, Node.js 20+, Python 3.11+ and PostgreSQL. From the project root, use separate terminals with the same `DATABASE_URL`:
+
+```sh
+npm ci
+npm ci --prefix apps/admin
+npm ci --prefix apps/guest
+npm run build
+```
+
+```sh
+export DATABASE_URL='postgresql://...'
+export ADMIN_ORIGIN='http://127.0.0.1:3001'
+export GUEST_ORIGIN='http://127.0.0.1:3002'
+python3 launch.py --no-browser
+```
+
+```sh
+export DATABASE_URL='postgresql://...'
+dotnet run --project backend/Encore.Api --urls http://127.0.0.1:8080
+```
+
+```sh
+npm run dev --prefix apps/admin   # http://127.0.0.1:3001/admin
+npm run dev --prefix apps/guest   # http://127.0.0.1:3002/
+```
+
+This is a compatibility deployment: Python still handles sessions, SMS, tenant rules, payment state and domain actions behind the .NET API. The Identity migration is included, but the current apps do not use Identity sign-in. No production cutover has been completed.
 
 ## Run locally
 
@@ -50,7 +82,7 @@ are created on start-up.
 There are no default accounts. Create a workspace at `/admin/signup` and save the one-time recovery code.
 
 In development, SMS messages (sign-in codes, booking and order updates) are **printed in the server terminal and not delivered**.
-In production set `SMS_PROVIDER` and its credentials - see **Guest sign-in (SMS)** below. There is no demo mode: codes are never shown on screen and payments are never simulated.
+In production set `SMS_PROVIDER` and its credentials - see **Guest sign-in (SMS)** below. The opt-in `ENCORE_DEMO=1` mode displays codes and simulates payment; never enable it for real guests or real money.
 
 ## Features
 
