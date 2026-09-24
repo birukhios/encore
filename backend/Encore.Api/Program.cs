@@ -1,5 +1,6 @@
 using Encore.Api.Data;
 using Encore.Api.Models;
+using Encore.Api.Persistence;
 using Encore.Api.Repositories;
 using Encore.Api.Services;
 using Microsoft.AspNetCore.Identity;
@@ -12,10 +13,13 @@ if (string.IsNullOrWhiteSpace(databaseUrl))
 
 builder.Services.AddDbContext<EncoreIdentityDbContext>(options =>
     options.UseNpgsql(DatabaseUrl.ToConnectionString(databaseUrl)));
+builder.Services.AddDbContext<EncoreDbContext>(options =>
+    EncoreDbContext.Configure(options, DatabaseUrl.ToConnectionString(databaseUrl)));
 builder.Services.AddIdentityCore<EncoreIdentityUser>()
     .AddRoles<IdentityRole>()
     .AddEntityFrameworkStores<EncoreIdentityDbContext>();
 builder.Services.AddScoped<IReadinessRepository, ReadinessRepository>();
+builder.Services.AddScoped<IWorkspaceRepository, WorkspaceRepository>();
 builder.Services.AddScoped<ILegacyRelayService, LegacyRelayService>();
 builder.Services.AddHttpClient("legacy")
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
