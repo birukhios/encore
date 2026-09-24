@@ -20,6 +20,8 @@ if (string.IsNullOrEmpty(builder.Configuration["ASPNETCORE_URLS"]) && string.IsN
     builder.WebHost.UseUrls($"http://{host}:{port}");
 }
 builder.Logging.AddSimpleConsole(o => { o.SingleLine = true; o.TimestampFormat = "HH:mm:ss "; });
+builder.Logging.AddFilter("Microsoft.AspNetCore", LogLevel.Warning);
+builder.Logging.AddFilter("Microsoft.EntityFrameworkCore", LogLevel.Warning);
 
 builder.Services.AddSingleton(sp => EncoreOptions.From(sp.GetRequiredService<IConfiguration>()));
 builder.Services.AddDbContext<EncoreDbContext>((sp, db) =>
@@ -40,7 +42,9 @@ builder.Services.AddScoped<Notifier>();
 builder.Services.AddSingleton<Passwords>();
 builder.Services.AddSingleton<RateLimiter>();
 builder.Services.AddSingleton<SmsService>();
-builder.Services.AddHttpClient("sms", c => c.Timeout = TimeSpan.FromSeconds(15));
+// No built-in request logging: it would write the full URL, and AfroMessage's carries the number and the sign-in code.
+// SmsService logs every request itself, with both hidden.
+builder.Services.AddHttpClient("sms", c => c.Timeout = TimeSpan.FromSeconds(15)).RemoveAllLoggers();
 builder.Services.AddHostedService<Housekeeping>();
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();

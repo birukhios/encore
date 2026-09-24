@@ -90,9 +90,9 @@ public sealed class EncoreOptions
     /// Read KEY=VALUE lines from .env so local runs need no shell setup. Real environment variables always win, so
     /// hosts such as Render are unaffected. Quoted values are kept exactly; unquoted "  # note" is a comment. Never commit .env.
     /// </summary>
-    public static int LoadEnvFile(string path)
+    public static int LoadEnvFile(string path, bool honourSkip = true)
     {
-        if (Environment.GetEnvironmentVariable("ENCORE_SKIP_DOTENV") == "1" || !File.Exists(path)) return 0;
+        if ((honourSkip && Environment.GetEnvironmentVariable("ENCORE_SKIP_DOTENV") == "1") || !File.Exists(path)) return 0;
         var loaded = 0;
         foreach (var raw in File.ReadAllLines(path))
         {

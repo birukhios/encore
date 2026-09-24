@@ -20,5 +20,11 @@
     "react": "19.2.0",
     "react-dom": "19.2.0",
     "vite": "6.4.2"
+  },
+  "devDependencies": {
+    "embedded-postgres": "^17.10.0-beta.17"
+  },
+  "allowScripts": {
+    "@embedded-postgres/darwin-x64@17.10.0-beta.17": true
   }
 }
