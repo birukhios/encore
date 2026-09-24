@@ -15,19 +15,33 @@ import domain
 import server as s
 import sms
 
-SENT = []
+# Contract mode: set ENCORE_TEST_BASE_URL (e.g. http://127.0.0.1:8080) to run the HTTP tests against any running
+# Encore server — the .NET API included. That server must use SMS_PROVIDER=file with SMS_FILE=ENCORE_TEST_SMS_FILE
+# and ENCORE_TEST_MODE=1. Without it, the Python server is started in-process.
+TARGET = os.environ.get('ENCORE_TEST_BASE_URL', '').rstrip('/')
+SMS_SINK = os.environ.get('ENCORE_TEST_SMS_FILE') or str(Path(tempfile.gettempdir()) / f'encore-sms-{os.getpid()}.jsonl')
 
 
-def capture_sms(phone, text):
-    SENT.append((phone, text))
+def sent():
+    """Messages the server under test has sent, oldest first, as (phone, text)."""
+    try:
+        lines = Path(SMS_SINK).read_text(encoding='utf-8').splitlines()
+    except OSError:
+        return []
+    return [(m['phone'], m['text']) for m in (json.loads(line) for line in lines if line.strip())]
+
+
+def python_only(test):
+    """For tests that inspect or patch the Python server itself rather than its HTTP contract."""
+    return unittest.skipIf(TARGET, 'inspects the Python server directly')(test)
 
 
 class Client:
-    def __init__(self, port, prefix='/api/'):
-        self.port, self.cookies, self.prefix = port, {}, prefix
+    def __init__(self, port, prefix='/api/', host='127.0.0.1'):
+        self.port, self.cookies, self.prefix, self.host = port, {}, prefix, host
 
     def __call__(self, path, data=None, origin=None):
-        c = http.client.HTTPConnection('127.0.0.1', self.port)
+        c = http.client.HTTPConnection(self.host, self.port)
         h = {}
         if data is not None:
             h['Content-Type'] = 'application/json'
@@ -52,6 +66,15 @@ class Client:
 class AppTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        if TARGET:
+            url = urllib.parse.urlparse(TARGET)
+            cls.host, cls.admin_port, cls.guest_port, cls.admin_prefix = url.hostname, url.port or 80, url.port or 80, '/admin/api/'
+            cls.external = True
+            return
+        cls.external = False
+        cls.host, cls.admin_prefix = '127.0.0.1', '/api/'
+        Path(SMS_SINK).write_text('')
+        sms.os.environ.update(SMS_PROVIDER='file', SMS_FILE=SMS_SINK)
         cls.temp = tempfile.TemporaryDirectory()
         s.DATA = Path(cls.temp.name)
         s.UPLOADS = Path(cls.temp.name) / 'uploads'
@@ -62,28 +85,41 @@ class AppTests(unittest.TestCase):
                           'otps', 'guest_sessions', 'guests', 'audit', 'invites', 'sessions', 'users', 'uploads', 'tenants'):
                 c.execute(f'DROP TABLE IF EXISTS {table} CASCADE')
         s.init()
-        cls.original_send = sms.send
-        sms.PROVIDERS['test'] = capture_sms
-        sms.os.environ['SMS_PROVIDER'] = 'test'
         cls.admin = s.serve(s.AdminHandler, '127.0.0.1', 0)
         cls.guest = s.serve(s.GuestHandler, '127.0.0.1', 0)
+        cls.admin_port, cls.guest_port = cls.admin.server_port, cls.guest.server_port
         for srv in [cls.admin, cls.guest]:
             threading.Thread(target=srv.serve_forever, daemon=True).start()
 
     @classmethod
     def tearDownClass(cls):
+        if cls.external:
+            return
         sms.os.environ.pop('SMS_PROVIDER', None)
-        sms.PROVIDERS.pop('test', None)
         for srv in [cls.admin, cls.guest]:
             srv.shutdown()
             srv.server_close()
         cls.temp.cleanup()
 
     def setUp(self):
-        s.ATTEMPTS.clear()
+        if not self.external:
+            s.ATTEMPTS.clear()
+
+    def code_for(self, phone):
+        """The newest sign-in code texted to this number (from the SMS sink)."""
+        for number, text in reversed(sent()):
+            if number == phone:
+                return re.search(r'\b(\d{6})\b', text).group(1)
+        self.fail(f'no code was sent to {phone}')
+
+    def new_admin(self):
+        return Client(self.admin_port, self.admin_prefix, self.host)
+
+    def new_guest(self):
+        return Client(self.guest_port, '/api/', self.host)
 
     def staff(self):
-        c = Client(self.admin.server_port)
+        c = self.new_admin()
         pw = secrets.token_urlsafe(24)
         mail = secrets.token_hex(5) + '@example.com'
         status, b = c('signup', {'name': 'Test Organizer', 'team': 'Test Workspace', 'email': mail, 'password': pw})
@@ -97,11 +133,11 @@ class AppTests(unittest.TestCase):
         return status, body
 
     def guest_client(self, name='Guest'):
-        g = Client(self.guest.server_port)
+        g = self.new_guest()
         phone = '09' + ''.join(secrets.choice('0123456789') for _ in range(8))
-        status, sent = g('guest/otp', {'phone': phone})
+        status, reply = g('guest/otp', {'phone': phone})
         self.assertEqual(status, 200)
-        code = sent.get('demoCode') or re.search(r'\b(\d{6})\b', SENT[-1][1]).group(1)
+        code = self.code_for(reply['phone'])
         self.assertEqual(g('guest/verify', {'phone': phone, 'code': code})[1], {'needsName': True})
         status, body = g('guest/verify', {'phone': phone, 'code': code, 'name': name, 'acceptTerms': True})
         self.assertEqual(status, 200)
@@ -116,14 +152,14 @@ class AppTests(unittest.TestCase):
     def test_account_session_logout_and_recovery(self):
         c, b, mail, pw = self.staff()
         self.assertEqual(c('me')[0], 200)
-        anon = Client(self.admin.server_port)
+        anon = self.new_admin()
         self.assertEqual(anon('signin', {'email': mail, 'password': 'wrong'})[0], 401)
         c('signout', {})
         self.assertEqual(c('me')[0], 401)
         new = secrets.token_urlsafe(24)
         self.assertEqual(anon('recover', {'email': mail, 'password': new, 'recovery': b['recovery']})[0], 200)
         self.assertEqual(anon('signin', {'email': mail, 'password': new})[0], 200)
-        self.assertEqual(Client(self.admin.server_port)('signin', {'email': mail, 'password': pw})[0], 401)
+        self.assertEqual(self.new_admin()('signin', {'email': mail, 'password': pw})[0], 401)
 
     def test_tenant_isolation_and_optimistic_updates(self):
         a, _, _, _ = self.staff()
@@ -133,15 +169,17 @@ class AppTests(unittest.TestCase):
         self.assertEqual(b('me')[1]['state']['name'], 'Test Workspace')
         self.assertEqual(a('action', v)[0], 409)
 
+    @python_only
     def test_apps_are_separated_by_port(self):
         c, _, _, _ = self.staff()
-        g = Client(self.guest.server_port)
+        g = self.new_guest()
         g.cookies = dict(c.cookies)
         self.assertEqual(g('me')[0], 404)
         self.assertEqual(g('action', {'op': 'settings', 'version': 0, 'data': {}})[0], 404)
-        self.assertEqual(Client(self.admin.server_port)('guest/otp', {'phone': '0911111111'})[0], 404)
-        self.assertEqual(Client(self.admin.server_port)('workspaces')[0], 404)
+        self.assertEqual(self.new_admin()('guest/otp', {'phone': '0911111111'})[0], 404)
+        self.assertEqual(self.new_admin()('workspaces')[0], 404)
 
+    @python_only
     def test_single_port_routing(self):
         combined = s.serve(s.CombinedHandler, '127.0.0.1', 0)
         threading.Thread(target=combined.serve_forever, daemon=True).start()
@@ -174,7 +212,7 @@ class AppTests(unittest.TestCase):
         self.act(c, 'event', {'name': 'Concert', 'description': 'Live show', 'date': '2026-11-02T18:00', 'venue': 'Hall', 'price': '10.50', 'capacity': 100, 'published': False})
         e = c('me')[1]['state']['events'][0]
         t = b['user']['tenant']
-        g = Client(self.guest.server_port)
+        g = self.new_guest()
         self.assertEqual(g('public?tenant=' + t)[1]['events'], [])
         self.act(c, 'table', {'name': 'Table 1', 'event': e['id'], 'seats': 4})
         self.act(c, 'table', {'name': 'Table 2', 'event': e['id'], 'seats': 4})
@@ -190,7 +228,7 @@ class AppTests(unittest.TestCase):
         c, _, _, _ = self.staff()
         mail = secrets.token_hex(4) + '@example.com'
         token = c('invite', {'email': mail, 'role': 'Service'})[1]['url'].split('invite=')[1]
-        svc = Client(self.admin.server_port)
+        svc = self.new_admin()
         status, body = svc('signup', {'name': 'Service Staff', 'email': mail, 'password': secrets.token_urlsafe(24), 'invite': token})
         self.assertEqual(status, 201)
         self.assertEqual(svc('action', {'op': 'settings', 'version': 0, 'data': {}})[0], 401)
@@ -200,11 +238,12 @@ class AppTests(unittest.TestCase):
 
     def test_payment_cannot_be_forged(self):
         c, b, _, _ = self.staff()
-        status, body = Client(self.guest.server_port)('checkout', {'tenant': b['user']['tenant'], 'kind': 'booking', 'paid': True, 'total': 1})
+        status, body = self.new_guest()('checkout', {'tenant': b['user']['tenant'], 'kind': 'booking', 'paid': True, 'total': 1})
         self.assertEqual((status, body['code']), (503, 'PAYMENT_NOT_CONFIGURED'))
         state = c('me')[1]['state']
         self.assertEqual((state['orders'], state['bookings']), ([], []))
 
+    @python_only
     def test_profile_avatar_and_old_database_migration(self):
         c, _, _, _ = self.staff()
         png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII='
@@ -240,7 +279,7 @@ class AppTests(unittest.TestCase):
         self.assertEqual(self.act(c, 'config', {'group': 'ordering', 'values': {'enabled': True, 'requireScan': False, 'ticketHoldersOnly': True}})[0], 400)
         self.assertEqual(self.act(c, 'config', {'group': 'support', 'values': {'email': 'help@example.com', 'faq': [{'q': 'Parking?', 'a': 'Free.'}]}})[0], 200)
         self.act(c, 'config', {'group': 'legal', 'values': {'terms': 'Be kind.', 'privacy': ''}})
-        pub = Client(self.guest.server_port)('public?tenant=' + t)[1]
+        pub = self.new_guest()('public?tenant=' + t)[1]
         self.assertEqual(pub['settings']['theme'], {'accent': '#1A4DB3', 'mode': 'dark', 'adminMode': 'dark', 'logo': '', 'cover': ''})
         self.assertEqual(pub['settings']['support']['faq'][0]['q'], 'Parking?')
         self.assertEqual(pub['settings']['legal']['terms'], 'Be kind.')
@@ -254,26 +293,27 @@ class AppTests(unittest.TestCase):
     # ------------------------------------------------------------ guests
 
     def test_guest_otp_rules(self):
-        g = Client(self.guest.server_port)
+        g = self.new_guest()
         self.assertEqual(g('guest/otp', {'phone': '12'})[0], 400)
         self.assertEqual(g('guest/otp', {'phone': '0922 000 111'})[0], 200)
-        self.assertEqual(SENT[-1][0], '+251922000111')
+        self.assertEqual(sent()[-1][0], '+251922000111')
         self.assertEqual(g('guest/otp', {'phone': '+251922000111'})[1]['code'], 'OTP_WAIT')
         for _ in range(5):
             self.assertEqual(g('guest/verify', {'phone': '0922000111', 'code': '000000'})[0], 400)
-        code = re.search(r'\b(\d{6})\b', SENT[-1][1]).group(1)
+        code = re.search(r'\b(\d{6})\b', sent()[-1][1]).group(1)
         self.assertIn('Too many', g('guest/verify', {'phone': '0922000111', 'code': code})[1]['error'])
         self.assertEqual(g('guest/me')[1], {'guest': None})
         self.assertEqual(g('order', {'tenant': 'x', 'kind': 'booking'})[0], 401)
 
+    @python_only
     def test_otp_fails_closed_without_provider(self):
         sms.os.environ['SMS_PROVIDER'] = ''
         sms.os.environ['ENCORE_ENV'] = 'production'
         try:
-            status, body = Client(self.guest.server_port)('guest/otp', {'phone': '0933000111'})
+            status, body = self.new_guest()('guest/otp', {'phone': '0933000111'})
             self.assertEqual((status, body['code']), (503, 'SMS_NOT_CONFIGURED'))
         finally:
-            sms.os.environ['SMS_PROVIDER'] = 'test'
+            sms.os.environ['SMS_PROVIDER'] = 'file'
             sms.os.environ.pop('ENCORE_ENV')
 
     def test_online_payments_fail_closed_and_cash_is_opt_in(self):
@@ -366,20 +406,21 @@ class AppTests(unittest.TestCase):
             self.assertEqual(self.act(c, 'order_status', {'id': order['id'], 'status': status_name})[0], 200)
         self.assertEqual(g('receipt?tenant=' + t + '&ref=' + rec['ref'] + '&token=' + rec['token'])[1]['status'], 'Delivered')
         self.assertEqual(g('receipt?tenant=' + t + '&ref=' + rec['ref'] + '&token=wrong')[0], 404)
-        self.assertTrue(any('ready' in msg and phone == guest['phone'] for phone, msg in SENT))
+        self.assertTrue(any('ready' in msg and phone == guest['phone'] for phone, msg in sent()))
 
 
+    @python_only
     def test_sms_failures_are_logged_without_the_number_or_secrets(self):
         import io
         from contextlib import redirect_stderr
         captured = io.StringIO()
-        original = sms.PROVIDERS.get('test')
-        sms.PROVIDERS['test'] = lambda phone, text: (_ for _ in ()).throw(sms.DeliveryFailed('403: invalid sender name'))
+        original = sms.PROVIDERS.get('file')
+        sms.PROVIDERS['file'] = lambda phone, text: (_ for _ in ()).throw(sms.DeliveryFailed('403: invalid sender name'))
         try:
             with redirect_stderr(captured):
-                status, body = Client(self.guest.server_port)('guest/otp', {'phone': '0955 123 456'})
+                status, body = self.new_guest()('guest/otp', {'phone': '0955 123 456'})
         finally:
-            sms.PROVIDERS['test'] = original
+            sms.PROVIDERS['file'] = original
         self.assertEqual((status, body['code']), (502, 'SMS_FAILED'))
         logged = captured.getvalue()
         self.assertIn('invalid sender name', logged)      # operators see the provider's reason
@@ -387,13 +428,14 @@ class AppTests(unittest.TestCase):
         self.assertNotIn('invalid sender', body['error'])  # nor does the reason reach the guest
         self.assertEqual(s.mask_phone('+251911234567'), '+2519****4567')
 
+    @python_only
     def test_guest_signs_in_with_a_code_the_provider_verifies(self):
         """AfroMessage's challenge endpoint issues the code; Encore stores only the verification id."""
         asked = []
         original_send, original_verify = sms.send_signin_code, sms.verify_signin_code
         sms.send_signin_code = lambda phone, code, ttl, length=6: ('IGNORED', 'vid-42')
         sms.verify_signin_code = lambda phone, code, vid: bool(asked.append((phone, code, vid))) or (code == 'A1B2C3' and vid == 'vid-42')
-        g = Client(self.guest.server_port)
+        g = self.new_guest()
         try:
             self.assertEqual(g('guest/otp', {'phone': '0966 123 123'})[0], 200)
             with s.conn() as c:
@@ -407,6 +449,7 @@ class AppTests(unittest.TestCase):
         self.assertEqual([a[2] for a in asked], ['vid-42', 'vid-42'])
         self.assertEqual(g('guest/me')[1]['guest']['phone'], '+251966123123')
 
+    @python_only
     def test_env_file_fills_gaps_without_overriding(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / '.env'
@@ -431,7 +474,7 @@ class AppTests(unittest.TestCase):
 
     def test_head_robots_and_gzip(self):
         import gzip as gz
-        c = http.client.HTTPConnection('127.0.0.1', self.guest.server_port)
+        c = http.client.HTTPConnection(self.host, self.guest_port)
         c.request('HEAD', '/api/health')
         r = c.getresponse()
         self.assertEqual((r.status, r.read()), (200, b''))
@@ -448,6 +491,7 @@ class AppTests(unittest.TestCase):
 
     # ------------------------------------------------------------ platform console
 
+    @python_only
     def test_platform_admin_console_and_suspension(self):
         c, b, mail, pw = self.staff()
         tenant = b['user']['tenant']
@@ -456,7 +500,7 @@ class AppTests(unittest.TestCase):
         self.act(c, 'config', {'group': 'payments', 'values': {'cash': True, 'ticketCash': True}})
         self.assertEqual(g('order', {'tenant': tenant, 'kind': 'booking', 'event': event['id'], 'qty': 1, 'payment': 'cash'})[0], 201)
 
-        platform = Client(self.admin.server_port)
+        platform = self.new_admin()
         self.assertEqual(platform('platform/data')[0], 401)
         self.assertEqual(c('platform/data')[0], 401)  # organizer sessions never open the platform console
         admin_mail, admin_pw = secrets.token_hex(5) + '@encore.test', secrets.token_urlsafe(18)
@@ -482,22 +526,22 @@ class AppTests(unittest.TestCase):
         self.assertEqual(platform('platform/tenant/status', {'tenant': tenant, 'status': 'suspended', 'note': ''})[0], 400)
         self.assertEqual(platform('platform/tenant/status', {'tenant': tenant, 'status': 'suspended', 'note': 'Review'})[0], 200)
         self.assertEqual(c('me')[0], 401)  # staff sessions ended
-        status, body = Client(self.admin.server_port)('signin', {'email': mail, 'password': pw})
+        status, body = self.new_admin()('signin', {'email': mail, 'password': pw})
         self.assertEqual((status, body.get('code')), (403, 'TENANT_SUSPENDED'))
         self.assertNotIn(tenant, [w['id'] for w in g('workspaces')[1]])
         self.assertEqual(g('public?tenant=' + tenant)[0], 404)
 
         self.assertEqual(platform('platform/tenant/status', {'tenant': tenant, 'status': 'active'})[0], 200)
-        self.assertEqual(Client(self.admin.server_port)('signin', {'email': mail, 'password': pw})[0], 200)
+        self.assertEqual(self.new_admin()('signin', {'email': mail, 'password': pw})[0], 200)
         self.assertIn(tenant, [w['id'] for w in g('workspaces')[1]])
         actions = [a['action'] for a in platform('platform/data')[1]['platformAudit']]
         self.assertEqual(actions[:3], ['reactivate', 'suspend', 'signin'])
         user_id = mine['team'][0]['id']
-        self.assertEqual(Client(self.admin.server_port)('platform/user/reset', {'user': user_id})[0], 401)
+        self.assertEqual(self.new_admin()('platform/user/reset', {'user': user_id})[0], 401)
         status, reset = platform('platform/user/reset', {'user': user_id})
         self.assertEqual((status, reset['email']), (200, mail))
         new_pw = secrets.token_urlsafe(18)
-        anon = Client(self.admin.server_port)
+        anon = self.new_admin()
         self.assertEqual(anon('recover', {'email': mail, 'password': new_pw, 'recovery': 'old-or-wrong'})[0], 401)
         self.assertEqual(anon('recover', {'email': mail, 'password': new_pw, 'recovery': reset['recovery']})[0], 200)
         self.assertEqual(anon('signin', {'email': mail, 'password': new_pw})[0], 200)
@@ -555,7 +599,7 @@ class EthiopiaTaxCategoryProfileTests(AppTests):
         self.assertEqual(self.act(c, 'config', {'group': 'profile', 'values': {'city': 'Addis Ababa', 'address': 'Bole Road', 'mapUrl': 'https://maps.app.goo.gl/abc123', 'photos': [url]}})[0], 200)
         self.assertEqual(self.act(c, 'config', {'group': 'profile', 'values': {'city': 'Addis Ababa', 'address': 'Bole Road', 'mapUrl': 'https://maps.example/x', 'photos': [url]}})[0], 400)
         self.act(c, 'config', {'group': 'profile', 'values': {'city': 'Addis Ababa', 'address': 'Bole Road', 'mapUrl': '', 'photos': [url]}})
-        org = next(w for w in Client(self.guest.server_port)('workspaces')[1] if w['id'] == t)
+        org = next(w for w in self.new_guest()('workspaces')[1] if w['id'] == t)
         self.assertEqual((org['photo'], org['address'], org['city'], org['events'], org['rating']['average']), (url, 'Bole Road', 'Addis Ababa', 1, 5.0))
         self.assertEqual(org['mapLink'], 'https://www.google.com/maps/search/?api=1&query=Bole%20Road%2C%20Addis%20Ababa%2C%20Ethiopia')
 

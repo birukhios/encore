@@ -19,7 +19,7 @@ class JourneyTests(test_server.AppTests):
     def test_profile_password_and_session_revocation(self):
         c, _, mail, pw = self.staff()
         self.assertEqual(c('profile', {'name': 'Updated'})[1]['user']['name'], 'Updated')
-        second = Client(self.admin.server_port)
+        second = self.new_admin()
         self.assertEqual(second('signin', {'email': mail, 'password': pw})[0], 200)
         new = secrets.token_urlsafe(24)
         stale = dict(c.cookies)
@@ -27,7 +27,7 @@ class JourneyTests(test_server.AppTests):
         c.cookies = stale
         for client in [c, second]:
             self.assertEqual(client('me')[0], 401)
-        self.assertEqual(Client(self.admin.server_port)('signin', {'email': mail, 'password': new})[0], 200)
+        self.assertEqual(self.new_admin()('signin', {'email': mail, 'password': new})[0], 200)
 
     def test_table_tokens_unique_stable_and_concert_bound(self):
         _, c, e = self.catalog()
@@ -48,8 +48,8 @@ class JourneyTests(test_server.AppTests):
         status, body = c('upload', {'data': png})
         self.assertEqual(status, 200)
         import base64, http.client
-        for port in [self.admin.server_port, self.guest.server_port]:
-            conn = http.client.HTTPConnection('127.0.0.1', port)
+        for port in [self.admin_port, self.guest_port]:
+            conn = http.client.HTTPConnection(self.host, port)
             conn.request('GET', body['url'])
             resp = conn.getresponse()
             self.assertEqual((resp.status, resp.getheader('Content-Type'), resp.read()), (200, 'image/png', base64.b64decode(png)))
@@ -59,8 +59,8 @@ class JourneyTests(test_server.AppTests):
         self.assertEqual(other('me')[1]['state']['events'], [])
 
     def test_non_object_request_is_rejected(self):
-        self.assertEqual(Client(self.admin.server_port)('signup', [])[0], 400)
-        self.assertEqual(Client(self.guest.server_port)('guest/otp', [])[0], 400)
+        self.assertEqual(self.new_admin()('signup', [])[0], 400)
+        self.assertEqual(self.new_guest()('guest/otp', [])[0], 400)
 
     def test_online_booking_capacity_and_receipt(self):
         b, c, e = self.catalog()
@@ -68,14 +68,14 @@ class JourneyTests(test_server.AppTests):
         g, _ = self.guest_client()
         self.act(c, 'config', {'group': 'payments', 'values': {'cash': True, 'ticketCash': True}})
         payload = {'tenant': tenant, 'kind': 'booking', 'event': e['id'], 'qty': 2, 'payment': 'cash', 'paid': True, 'total': 1}
-        self.assertEqual(Client(self.guest.server_port)('order', payload)[0], 401)
+        self.assertEqual(self.new_guest()('order', payload)[0], 401)
         status, rec = g('order', payload)
         self.assertEqual(status, 201)
         self.assertEqual((rec['subtotal'], rec['tax']['amount'], rec['total'], rec['paid']), (2100, 315, 2415, False))  # 21.00 + 15% VAT
         self.assertEqual(g('order', payload)[0], 400)  # sold out
         path = 'receipt?tenant=' + tenant + '&ref=' + rec['ref'] + '&token='
         self.assertEqual(g(path + 'wrong')[0], 404)
-        self.assertEqual(Client(self.guest.server_port)(path + rec['token'])[0], 200)
+        self.assertEqual(self.new_guest()(path + rec['token'])[0], 200)
 
     def test_concurrent_booking_never_oversells(self):
         b, c, e = self.catalog()

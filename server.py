@@ -73,6 +73,8 @@ else:
     ADMIN_ORIGIN = (os.environ.get('ADMIN_ORIGIN') or _PUBLIC or f'http://127.0.0.1:{ADMIN_PORT}').rstrip('/')
     GUEST_ORIGIN = (os.environ.get('GUEST_ORIGIN') or f'http://127.0.0.1:{GUEST_PORT}').rstrip('/')
 TRUST_PROXY = os.environ.get('TRUST_PROXY') == '1'
+# Contract tests create many accounts from one address; this lifts rate limits for them. Never honoured in production.
+TEST_MODE = os.environ.get('ENCORE_TEST_MODE') == '1' and not PROD
 # Online card/wallet payments (AfroPay) are not connected yet: checkout fails closed until they are.
 PAYMENTS_READY = False
 
@@ -226,6 +228,8 @@ def log_sms_problem(kind, phone, exc):
 
 
 def rate_limited(key, limit, window):
+    if TEST_MODE:
+        return False
     now = time.time()
     with LOCK:
         hits = [t for t in ATTEMPTS.get(key, []) if t > now - window]

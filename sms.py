@@ -256,7 +256,14 @@ def _reject_error_body(body):
         raise DeliveryFailed(str(data.get('response') or data.get('message') or data.get('error') or body)[:200])
 
 
+def _send_file(phone, text):
+    """Development and tests only: append the message to SMS_FILE so any process can read the code."""
+    with open(os.environ['SMS_FILE'], 'a', encoding='utf-8') as sink:
+        sink.write(json.dumps({'phone': phone, 'text': text}) + '\n')
+
+
 PROVIDERS = {
+    'file': _send_file,
     'twilio': _send_twilio,
     'africastalking': _send_africastalking,
     'afromessage': _send_afromessage,
@@ -264,6 +271,7 @@ PROVIDERS = {
     'http': _send_http,
 }
 REQUIRED = {
+    'file': lambda: [n for n in ('SMS_FILE',) if not os.environ.get(n)],
     'twilio': _twilio_missing,
     'africastalking': lambda: [n for n in ('AT_USERNAME', 'AT_API_KEY') if not os.environ.get(n)],
     'afromessage': lambda: [n for n in ('AFROMESSAGE_TOKEN',) if not os.environ.get(n)],
@@ -291,6 +299,8 @@ def missing_settings():
 def status():
     """Human-readable delivery status for the admin settings screen and the production check."""
     name = provider_name()
+    if name == 'file':
+        return {'provider': 'file', 'delivers': not production(), 'label': 'Test sink: messages are written to SMS_FILE, not sent'}
     if name in PROVIDERS:
         missing = missing_settings()
         if missing:
@@ -333,6 +343,8 @@ def verify_signin_code(phone, code, verification_id):
 def send(phone, text):
     """Deliver one message. Raises NotConfigured or DeliveryFailed; returns the provider name on success."""
     name = provider_name()
+    if name == 'file' and production():
+        raise NotConfigured('The file SMS sink is for development and tests only.')
     if name in PROVIDERS:
         missing = missing_settings()
         if missing:
