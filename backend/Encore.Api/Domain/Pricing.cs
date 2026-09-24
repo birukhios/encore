@@ -17,7 +17,7 @@ public static partial class Pricing
 
     public static long Sold(Workspace s, string? eventId) =>
         s.Bookings.Where(b => Str(b["event"]) == eventId && HoldingStatuses.Contains(Str(b["status"])))
-            .Sum(b => b["qty"] is null ? 0L : (long)Values.Decimal(b["qty"]));
+            .Sum(b => b["qty"] is null ? 0L : Values.Long(b["qty"]));
 
     public static JsonObject? FindTable(Workspace s, string? token = null, string? code = null)
     {
@@ -162,11 +162,11 @@ public static partial class Pricing
             throw new DomainException("Choose tickets or a menu order.");
         }
 
-        var subtotal = lines.Sum(l => (long)l["total"]!);
+        var subtotal = lines.Sum(l => Values.Long(l["total"]));
         var service = kind == "menu" ? ServiceFor(s, subtotal) : null;
-        var serviceAmount = service is null ? 0 : (long)service["amount"]!;
+        var serviceAmount = service is null ? 0 : Values.Long(service["amount"]);
         var tax = TaxFor(s, kind, subtotal + serviceAmount); // VAT applies to the service charge too
-        var extra = tax is not null && !Values.Truthy(tax["included"]) ? (long)tax["amount"]! : 0;
+        var extra = tax is not null && !Values.Truthy(tax["included"]) ? Values.Long(tax["amount"]) : 0;
         var taxCfg = Group(s, "tax");
         var w = kind == "menu" ? waiter : null;
         return new JsonObject
@@ -216,7 +216,7 @@ public static partial class Pricing
     private static long RoundHalfUp(BigInteger num, BigInteger den) => (long)BigInteger.Divide(2 * num + den, 2 * den);
 
     /// <summary>Python's "{:g}": 15.0 prints as 15, 12.5 as 12.5.</summary>
-    private static string General(decimal d) => d.ToString("0.#####", CultureInfo.InvariantCulture);
+    private static string General(decimal d) => Values.PyG((double)d);
 
     [GeneratedRegex(@"\D")] private static partial Regex NotDigits();
 }

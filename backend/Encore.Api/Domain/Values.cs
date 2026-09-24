@@ -71,7 +71,7 @@ public static partial class Values
         v is JsonValue value && (
             (value.TryGetValue(out bool b) && b) ||
             (value.TryGetValue(out string? s) && s is "on" or "true" or "1") ||
-            (value.GetValueKind() == JsonValueKind.Number && value.GetValue<double>() == 1));
+            (value.GetValueKind() == JsonValueKind.Number && Double(value) == 1));
 
     /// <summary>E.164; Ethiopian local formats are accepted.</summary>
     public static string NormalizePhone(JsonNode? v)
@@ -91,11 +91,40 @@ public static partial class Values
         JsonObject o => o.Count > 0,
         JsonValue x when x.TryGetValue(out bool b) => b,
         JsonValue x when x.TryGetValue(out string? s) => s.Length > 0,
-        JsonValue x when x.GetValueKind() == JsonValueKind.Number => x.GetValue<decimal>() != 0,
+        JsonValue x when x.GetValueKind() == JsonValueKind.Number => Double(x) != 0,
         _ => true,
     };
 
-    public static decimal Decimal(JsonNode? v) => v!.GetValue<decimal>();
+    /// <summary>
+    /// A stored number as decimal. Works for numbers parsed from JSON and for ones this server created as long,
+    /// int or double (System.Text.Json's GetValue only converts the former).
+    /// </summary>
+    public static decimal Decimal(JsonNode? v)
+    {
+        if (v is not JsonValue x || x.GetValueKind() != JsonValueKind.Number) throw new InvalidDataException("A stored number is missing.");
+        if (x.TryGetValue(out decimal d)) return d;
+        if (x.TryGetValue(out long l)) return l;
+        if (x.TryGetValue(out int i)) return i;
+        return decimal.Parse(x.ToJsonString(), NumberStyles.Float, CultureInfo.InvariantCulture);
+    }
+
+    public static double Double(JsonNode? v)
+    {
+        if (v is not JsonValue x || x.GetValueKind() != JsonValueKind.Number) throw new InvalidDataException("A stored number is missing.");
+        return x.TryGetValue(out double d) ? d : double.Parse(x.ToJsonString(), NumberStyles.Float, CultureInfo.InvariantCulture);
+    }
+
+    public static long Long(JsonNode? v) => (long)Decimal(v);
+
+    /// <summary>Python's "{:g}": 70.0 prints as 70, 10.25 as 10.25, six significant digits.</summary>
+    public static string PyG(double n)
+    {
+        var text = n.ToString("G6", CultureInfo.InvariantCulture);
+        var e = text.IndexOf('E');
+        if (e < 0) return text;
+        var exponent = int.Parse(text[(e + 1)..], CultureInfo.InvariantCulture);
+        return text[..e] + "e" + (exponent < 0 ? "-" : "+") + Math.Abs(exponent).ToString("00", CultureInfo.InvariantCulture);
+    }
 
     /// <summary>What Python's str() prints for a JSON scalar, for messages that quote stored values.</summary>
     public static string Show(JsonNode? v) =>
@@ -111,7 +140,7 @@ public static partial class Values
     {
         n = 0;
         if (v is not JsonValue x) return false;
-        if (x.GetValueKind() == JsonValueKind.Number) { n = x.GetValue<double>(); return true; }
+        if (x.GetValueKind() == JsonValueKind.Number) { n = Double(x); return true; }
         if (!x.TryGetValue(out string? s)) return false;
         s = s.Trim();
         // Python's float() also accepts these; they then fail the range check with its message.
