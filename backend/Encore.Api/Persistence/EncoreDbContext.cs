@@ -1,4 +1,3 @@
-using Encore.Api.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
 
@@ -201,7 +200,7 @@ public sealed class EncoreDbContextFactory : IDesignTimeDbContextFactory<EncoreD
         // Migrations are generated offline; a placeholder address is enough and nothing connects to it.
         var url = Environment.GetEnvironmentVariable("DATABASE_URL") ?? "postgresql://design:design@localhost:5432/design";
         var options = new DbContextOptionsBuilder<EncoreDbContext>();
-        EncoreDbContext.Configure(options, DatabaseUrl.ToConnectionString(url));
+        EncoreDbContext.Configure(options, ConnectionString.FromUrl(url));
         return new EncoreDbContext(options.Options);
     }
 }

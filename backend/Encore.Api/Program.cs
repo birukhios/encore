@@ -1,4 +1,3 @@
-using Encore.Api.Data;
 using Encore.Api.Domain;
 using Encore.Api.Persistence;
 using Encore.Api.Repositories;
@@ -7,7 +6,7 @@ using Encore.Api.Services;
 using Encore.Api.Web;
 using Microsoft.EntityFrameworkCore;
 
-// Local runs read .env (never committed); real environment variables, such as Render's, always win.
+// Local runs read .env (never committed); process environment variables always win.
 var root = RootFolder();
 EncoreOptions.LoadEnvFile(Path.Combine(root, ".env"));
 Environment.SetEnvironmentVariable("ENCORE_ROOT", Environment.GetEnvironmentVariable("ENCORE_ROOT") ?? root);
@@ -27,7 +26,7 @@ builder.Services.AddSingleton(sp => EncoreOptions.From(sp.GetRequiredService<ICo
 builder.Services.AddDbContext<EncoreDbContext>((sp, db) =>
 {
     var settings = sp.GetRequiredService<EncoreOptions>();
-    EncoreDbContext.Configure(db, settings.DatabaseConfigured ? DatabaseUrl.ToConnectionString(settings.DatabaseUrl) : "Host=unconfigured");
+    EncoreDbContext.Configure(db, settings.DatabaseConfigured ? ConnectionString.FromUrl(settings.DatabaseUrl) : "Host=unconfigured");
 });
 builder.Services.AddScoped<RequestTransaction>();
 builder.Services.AddScoped<AccountRepository>();

@@ -12,4 +12,8 @@
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="8.0.11" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.9.0" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- Never committed (an old ignore rule matched it) and unused: keep local builds identical to the deploy build. -->
+    <Compile Remove="Data/**" />
+  </ItemGroup>
 </Project>

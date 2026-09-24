@@ -6,12 +6,12 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
-using Encore.Api.Data;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Encore.Api.Persistence;
 using Npgsql;
 
 namespace Encore.Api.Tests;
@@ -43,7 +43,7 @@ public class EncoreApp : WebApplicationFactory<Program>, IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        _admin = Api.Data.DatabaseUrl.ToConnectionString(TestSetup.DatabaseUrl());
+        _admin = ConnectionString.FromUrl(TestSetup.DatabaseUrl());
         await using var c = new NpgsqlConnection(_admin);
         await c.OpenAsync();
         await new NpgsqlCommand($"CREATE DATABASE {_database}", c).ExecuteNonQueryAsync();

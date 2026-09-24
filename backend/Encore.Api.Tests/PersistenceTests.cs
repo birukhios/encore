@@ -1,5 +1,4 @@
 using System.Text.Json.Nodes;
-using Encore.Api.Data;
 using Encore.Api.Persistence;
 using Encore.Api.Repositories;
 using Microsoft.EntityFrameworkCore;
@@ -21,7 +20,7 @@ public sealed class PersistenceTests : IAsyncLifetime
     {
         var url = Environment.GetEnvironmentVariable("DATABASE_URL")
             ?? throw new InvalidOperationException("Set DATABASE_URL to a PostgreSQL server for the .NET tests.");
-        _admin = DatabaseUrl.ToConnectionString(url);
+        _admin = ConnectionString.FromUrl(url);
         await using (var c = new NpgsqlConnection(_admin))
         {
             await c.OpenAsync();
