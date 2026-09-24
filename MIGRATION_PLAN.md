@@ -28,7 +28,7 @@ Work happens on the `migration/dotnet-next` branch. `main` keeps deploying the P
 | # | Phase | Done when |
 | --- | --- | --- |
 | 0 | Baseline branch, footer shipped on `main` | ✅ |
-| 1 | Contract tests can target any server; test-only SMS sink and rate-limit relaxation | Suite passes against Python through the new harness |
+| 1 | Contract tests can target any server; test-only SMS sink and rate-limit relaxation | ✅ 37 contract tests pass through the .NET relay (8 inspect Python directly) |
 | 2 | EF Core data layer over the existing schema; baseline migration; workspace document model | Reads/writes the live schema in tests |
 | 3 | Business rules (`domain.py`) as .NET services with xUnit tests mirroring `DomainTests` | Pricing, VAT, stock, waiters, check-in parity |
 | 4 | Native endpoints, group by group: health/public → guest OTP + orders → organizer auth → staff actions → platform console → uploads | Contract suite green against .NET for each group |

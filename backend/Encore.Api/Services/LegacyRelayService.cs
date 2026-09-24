@@ -23,7 +23,8 @@ public sealed class LegacyRelayService(IHttpClientFactory clients, IConfiguratio
         var admin = path.StartsWith("/admin/api/", StringComparison.Ordinal);
         var guest = path.StartsWith("/api/", StringComparison.Ordinal);
         var upload = path.StartsWith("/uploads/", StringComparison.Ordinal);
-        if (!admin && !guest && !upload)
+        var robots = path == "/robots.txt";
+        if (!admin && !guest && !upload && !robots)
         {
             context.Response.StatusCode = 404;
             return;
@@ -66,6 +67,8 @@ public sealed class LegacyRelayService(IHttpClientFactory clients, IConfiguratio
                 if (!HopHeaders.Contains(header.Key)) context.Response.Headers[header.Key] = header.Value.ToArray();
             }
             context.Response.Headers.Remove("transfer-encoding");
+            // Content-Length is dropped with the hop headers, but a HEAD reply must still say how large the body would be.
+            if (incoming.Content.Headers.ContentLength is long length) context.Response.ContentLength = length;
             if (!HttpMethods.IsHead(context.Request.Method))
                 await incoming.Content.CopyToAsync(context.Response.Body, cancellationToken);
         }

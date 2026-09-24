@@ -10,5 +10,6 @@ public sealed class RelayController(ILegacyRelayService relay) : ControllerBase
     [Route("api/{**path}")]
     [Route("admin/api/{**path}")]
     [Route("uploads/{**path}")]
+    [Route("robots.txt")]
     public Task Forward(CancellationToken cancellationToken) => relay.ForwardAsync(HttpContext, cancellationToken);
 }
