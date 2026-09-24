@@ -760,6 +760,12 @@ class DomainTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'paid online only'):
             domain.guest_record(s, {'kind': 'menu', 'items': {'food': 1}}, guest)
 
+    def test_parity_fixture_is_current(self):
+        # The .NET port replays this fixture; if domain.py's money rules change, regenerate it and update the port.
+        import parity
+        self.assertEqual(parity.FIXTURE.read_text(encoding='utf-8'), parity.render(),
+                         'Run python3 tests/parity.py, then make the .NET tests pass again.')
+
     def test_phone_normalization(self):
         for raw in ['0911 234 567', '911234567', '+251911234567', '00251 911-234-567']:
             self.assertEqual(domain.normalize_phone(raw), '+251911234567')
