@@ -341,6 +341,9 @@ input[type='checkbox'], input[type='radio'] { width: auto; accent-color: var(--a
 
 /* ---------------------------------------------------------------- guest app */
 .guest-app { max-width: 520px; margin: 0 auto; min-height: 100dvh; background: var(--canvas); position: relative; padding-bottom: calc(84px + env(safe-area-inset-bottom)); }
+.powered-by-afropay { padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); color: var(--muted); background: var(--canvas); font-size: 11px; font-weight: 600; text-align: center; }
+/* Inside a venue the guest app has a fixed bottom navigation; keep the credit above it, not behind it. */
+.guest-app:has(.bottomnav) ~ .powered-by-afropay { padding-bottom: calc(84px + 12px + env(safe-area-inset-bottom)); }
 .guest-top { position: sticky; top: 0; z-index: 30; display: flex; align-items: center; gap: 10px; padding: 12px 16px; background: color-mix(in srgb, var(--surface) 90%, transparent); backdrop-filter: blur(12px); border-bottom: 1px solid var(--line-soft); min-height: 64px; }
 .guest-top .org { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; border: 0; background: none; padding: 0; justify-content: flex-start; min-height: 40px; text-align: left; }
 .guest-top .org img, .orglogo { width: 36px; height: 36px; border-radius: 10px; object-fit: cover; flex-shrink: 0; }

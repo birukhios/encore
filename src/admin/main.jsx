@@ -18,6 +18,7 @@ createRoot(document.getElementById('root')).render(
       {platform
         ? <Suspense fallback={<Loading label="Opening Encore Platform…" />}><PlatformApp /></Suspense>
         : <AdminApp />}
+      <footer className="powered-by-afropay">Powered by Afropay</footer>
       <OfflineBar />
     </ErrorBoundary>
   </React.StrictMode>,

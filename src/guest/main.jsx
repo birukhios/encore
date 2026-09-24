@@ -9,6 +9,7 @@ createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <ErrorBoundary homeHref="/">
       <GuestApp />
+      <footer className="powered-by-afropay">Powered by Afropay</footer>
       <OfflineBar />
     </ErrorBoundary>
   </React.StrictMode>,
