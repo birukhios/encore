@@ -687,6 +687,7 @@ export function PrintOrder({ ctx, order, onClose }) {
             <div className="slip-center">
               <span>{order.status === 'Cancelled' ? 'CANCELLED' : order.paid ? `PAID · ${order.settledBy || 'Online'}` : 'NOT PAID'}</span>
               {order.takenBy && <span>Served by {order.takenBy}</span>}
+              {order.confirmedBy && <span>Confirmed by {order.confirmedBy}</span>}
               {tax.regime !== 'none' && <small>This is not a fiscal receipt.</small>}
               <small>Thank you · Powered by Encore</small>
             </div>

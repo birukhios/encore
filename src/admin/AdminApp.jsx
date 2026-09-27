@@ -127,7 +127,7 @@ export default function AdminApp() {
   if (!session) return <Auth onAuth={result => { setSession(result); go('Overview'); if (result.recovery) setRecovery(result.recovery); }} />;
 
   const { state } = session;
-  const activeOrders = state.orders.filter(o => ['Placed', 'Preparing', 'Ready'].includes(o.status)).length;
+  const activeOrders = state.orders.filter(o => ['Awaiting cashier', 'Placed', 'Preparing', 'Ready'].includes(o.status)).length;
   const meta = PAGES[current];
   const Page = { Overview, Events, Bookings, 'Check-ins': CheckIns, Reports, Tables, Menu, Stock, Waiters, Orders, Team, Settings, Profile, Guide }[current];
   const lowStock = state.menu.filter(i => i.trackStock && i.stock <= i.lowStock).length + (state.inventory || []).filter(i => i.quantity <= i.reorderLevel).length;
@@ -140,7 +140,7 @@ export default function AdminApp() {
           {state.settings.theme.logo ? <img className="side-logo" src={state.settings.theme.logo} alt="" /> : <LogoMark size={36} />}
           <span className="grow" style={{ minWidth: 0 }}>
             <b className="side-org">{state.name}</b>
-            <small className="side-role">{role}</small>
+            <small className="side-role">{role === 'Service' ? 'Cashier & service' : role}</small>
           </span>
           <button className="icon-btn menu-toggle ghost" aria-label="Close navigation" onClick={() => setNavOpen(false)}><Glyph name="x" /></button>
         </div>

@@ -289,6 +289,7 @@ export default function GuestApp() {
           onPay={payload => completeCheckout(payload, 'checkout')}
           paymentsReady={!!data.paymentReady}
           cashAllowed={sheet.payload.kind === 'menu' ? data.settings.payments?.cash !== false : !!data.settings.payments?.ticketCash}
+          cashierConfirm={!!data.settings.ordering?.cashierConfirm}
           onCash={payload => completeCheckout({ ...payload, payment: 'cash' }, 'order')} />
       )}
       {auth && (

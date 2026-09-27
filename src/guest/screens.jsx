@@ -7,6 +7,9 @@ import { copyText, Empty, ErrorText, Glyph, Icon, Modal, Spinner, StarIcon } fro
 import { PLATFORM_FAQ, PLATFORM_PRIVACY, PLATFORM_TERMS } from './content';
 
 const ORDER_STEPS = ['Placed', 'Preparing', 'Ready', 'Delivered'];
+const OPEN_ORDER = ['Awaiting cashier', 'Placed', 'Preparing', 'Ready'];
+// With cashier confirmation the order starts in the cashier queue; the step is shown as "Cashier".
+const stepsFor = r => r.status === 'Awaiting cashier' || r.confirmedAt ? ['Awaiting cashier', ...ORDER_STEPS] : ORDER_STEPS;
 
 /** Mirrors domain.tax_for on the server, for display before checkout. The server's quote is authoritative. */
 export function taxFor(cfg, kind, cents) {
@@ -358,12 +361,12 @@ export function TicketsScreen({ ctx }) {
         <section className="card"><Empty icon="ticket" title="No tickets yet" body="Reserve tickets for a concert, then scan your table to order food and drinks." action="Explore events" onAction={() => go('events')} /></section>
       )}
       <div className="guest-grid">
-        {orders.filter(o => ['Placed', 'Preparing', 'Ready'].includes(o.status)).map(r => <RecordCard key={r.ref} ctx={ctx} r={r} />)}
+        {orders.filter(o => OPEN_ORDER.includes(o.status)).map(r => <RecordCard key={r.ref} ctx={ctx} r={r} />)}
         {upcoming.map(r => <RecordCard key={r.ref} ctx={ctx} r={r} />)}
       </div>
-      {(past.length > 0 || orders.some(o => !['Placed', 'Preparing', 'Ready'].includes(o.status))) && <h3 style={{ marginTop: 8 }}>Past</h3>}
+      {(past.length > 0 || orders.some(o => !OPEN_ORDER.includes(o.status))) && <h3 style={{ marginTop: 8 }}>Past</h3>}
       <div className="guest-grid">
-        {[...orders.filter(o => !['Placed', 'Preparing', 'Ready'].includes(o.status)), ...past].sort((a, b) => b.created - a.created).map(r => <RecordCard key={r.ref} ctx={ctx} r={r} />)}
+        {[...orders.filter(o => !OPEN_ORDER.includes(o.status)), ...past].sort((a, b) => b.created - a.created).map(r => <RecordCard key={r.ref} ctx={ctx} r={r} />)}
       </div>
     </>
   );
@@ -372,7 +375,8 @@ export function TicketsScreen({ ctx }) {
 function RecordCard({ ctx, r }) {
   const { money, setSheet } = ctx;
   const booking = r.kind === 'booking';
-  const step = ORDER_STEPS.indexOf(r.status);
+  const steps = stepsFor(r);
+  const step = steps.indexOf(r.status);
   return (
     <article className="ticketcard">
       <div className="top">
@@ -387,7 +391,7 @@ function RecordCard({ ctx, r }) {
       <div className="bottom">
         {!booking && r.status !== 'Cancelled' && (
           <div className="progress" role="img" aria-label={'Order status: ' + r.status}>
-            {ORDER_STEPS.map((s, i) => <span key={s} className={step >= i ? 'done' : ''}>{s}</span>)}
+            {steps.map((s, i) => <span key={s} className={step >= i ? 'done' : ''}>{s === 'Awaiting cashier' ? 'Cashier' : s}</span>)}
           </div>
         )}
         {booking && r.status === 'Checked in' && <p className="notice success">Checked in. Enjoy the show!</p>}
@@ -409,9 +413,10 @@ export function ReceiptModal({ ctx, receipt: r, onClose }) {
   const status = r.status === 'Cancelled' ? 'This was cancelled by the organizer.'
     : r.paid ? `Paid (${r.settledBy}).`
     : booking ? `Pay ${money(r.total)} at the entrance. Staff scan your QR code once it is paid.`
+    : r.status === 'Awaiting cashier' ? `Pay ${money(r.total)} in cash at the cashier. Your order goes to the kitchen once the cashier confirms it.`
     : `Pay ${money(r.total)} in cash to your waiter when your order arrives.`;
   return (
-    <Modal sheet eyebrow={r.merchant} title={booking ? (r.status === 'Reserved' ? "You're on the list." : r.eventName) : 'Order ' + r.status.toLowerCase() + '.'} label="Receipt" onClose={onClose}
+    <Modal sheet eyebrow={r.merchant} title={booking ? (r.status === 'Reserved' ? "You're on the list." : r.eventName) : r.status === 'Awaiting cashier' ? 'Waiting for the cashier.' : 'Order ' + r.status.toLowerCase() + '.'} label="Receipt" onClose={onClose}
       footer={<button className="primary block" onClick={onClose}>Done</button>}>
       <p>Reference <b style={{ color: 'var(--ink)' }}>{r.ref}</b> · {r.name}</p>
       {booking && <p className="small">{r.venue} · {dateTime(r.date)}</p>}
@@ -793,9 +798,9 @@ export function HelpScreen({ ctx }) {
           <li><b>Find your night.</b> Pick the concert you want and tap Get tickets.</li>
           <li><b>Sign in with your phone.</b> Enter your mobile number and the 6-digit code we text you. No password to remember.</li>
           <li><b>Get your tickets.</b> Pay with your mobile wallet, or — if this organizer allows it — reserve and pay at the entrance. Every ticket has its own QR code under <b>Tickets</b>.</li>
-          <li><b>At your table.</b> Scan the QR code on the table (or type the short code under it) to open that night's menu.</li>
+          <li><b>At your table.</b> Scan the menu QR code on the table or wall to open the menu. Sign in with your phone if you haven't yet.</li>
           <li><b>Order and tip.</b> Add what you want, choose a tip, and type your waiter's badge number so the tip reaches them.</li>
-          <li><b>Pay.</b> Use your wallet, or choose Cash and pay your waiter when the order arrives.</li>
+          <li><b>Pay.</b> Use your wallet, or choose Cash and pay. Where the venue has cashiers, a cashier confirms your order before the kitchen starts it.</li>
           <li><b>Follow your order.</b> <b>Tickets</b> shows every order and its status, from placed to delivered.</li>
         </ol>
         <p className="small">Staff will never ask for your sign-in code or your wallet PIN.</p>

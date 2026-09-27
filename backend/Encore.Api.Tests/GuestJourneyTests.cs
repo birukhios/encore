@@ -89,6 +89,8 @@ public sealed class GuestJourneyTests(EncoreApp app) : ServerTest(app)
     {
         var (c, b, _, _) = await Staff();
         var t = Tenant(b);
+        // The table-scan rules, still available to organizers who want them (new workspaces have them off).
+        await Act(c, "config", new { group = "ordering", values = new { enabled = true, requireScan = true, ticketHoldersOnly = true, eventMenus = true, cashierConfirm = false } });
         var e = await Concert(c, price: "0");
         var other = await Concert(c, price: "0");
         await Act(c, "menu", new { name = "Tea", description = "Hot", price = "50", category = "Drinks", available = true, events = new[] { (string)e["id"]! } });
@@ -180,6 +182,57 @@ public sealed class GuestJourneyTests(EncoreApp app) : ServerTest(app)
         var org = (await App.Guest().Call("workspaces")).Body.AsArray().First(w => (string)w!["id"]! == t)!;
         Assert.Equal((url, "Bole Road", "Addis Ababa", 1, 5.0), ((string)org["photo"]!, (string)org["address"]!, (string)org["city"]!, (int)org["events"]!, (double)org["rating"]!["average"]!));
         Assert.Equal("https://www.google.com/maps/search/?api=1&query=Bole%20Road%2C%20Addis%20Ababa%2C%20Ethiopia", (string)org["mapLink"]!);
+    }
+
+    [Fact]
+    public async Task Cashier_confirms_orders_placed_with_the_menu_qr_and_a_waiter_number()
+    {
+        var (owner, b, _, _) = await Staff();
+        var t = Tenant(b);
+        await Concert(owner);
+        await Act(owner, "menu", new { name = "Tibs", description = "Hot", price = "100", category = "Food", available = true, trackStock = true, stock = 5, lowStock = 1 });
+        await Act(owner, "waiter", new { name = "Abel Tesfaye" });
+        var state = await State(owner);
+        var item = (string)state["menu"]![0]!["id"]!;
+        var number = (string)state["waiters"]![0]!["number"]!;
+
+        async Task<Client> Member(string role)
+        {
+            var mail = Guid.NewGuid().ToString("N")[..8] + "@example.com";
+            var token = ((string)(await owner.Call("invite", new { email = mail, role })).Body["url"]!).Split("invite=")[1];
+            var m = App.Admin();
+            Assert.Equal(201, await m.Status("signup", new { name = role + " Staff", email = mail, password = Password(), invite = token }));
+            return m;
+        }
+        var cashier = await Member("Service");
+        var gate = await Member("Gate");
+
+        // No table scan: the guest orders from the menu QR and names the waiter.
+        var (g, _) = await GuestClient("Menu Guest");
+        var (status, rec) = await g.Call("order", new JsonObject { ["tenant"] = t, ["kind"] = "menu", ["items"] = new JsonObject { [item] = 2 }, ["waiter"] = number, ["payment"] = "cash" });
+        Assert.Equal(201, status);
+        Assert.Equal(("Awaiting cashier", false, number), ((string)rec["status"]!, (bool)rec["paid"]!, (string)rec["waiterNumber"]!));
+        var order = (await State(owner))["orders"]![0]!;
+        var id = (string)order["id"]!;
+
+        // Only staff with the cashier queue may claim or confirm; the kitchen cannot start it yet.
+        Assert.Equal(401, (await Act(gate, "claim", new { id })).Status);
+        Assert.Equal(401, (await Act(gate, "confirm_order", new { id })).Status);
+        Assert.Equal(400, (await Act(owner, "order_status", new { id, status = "Preparing" })).Status);
+
+        Assert.Equal(200, (await Act(cashier, "claim", new { id })).Status);
+        Assert.Equal("Service Staff", (string)(await State(owner))["orders"]![0]!["claimedBy"]!);
+        Assert.Contains("Take the payment first", (string)(await Act(cashier, "confirm_order", new { id })).Body["error"]!);
+        Assert.Equal(200, (await Act(cashier, "settle", new { id, method = "Cash" })).Status);
+        Assert.Equal(200, (await Act(cashier, "confirm_order", new { id })).Status);
+        var confirmed = (await State(owner))["orders"]![0]!;
+        Assert.Equal(("Placed", true, "Service Staff"), ((string)confirmed["status"]!, (bool)confirmed["paid"]!, (string)confirmed["confirmedBy"]!));
+        Assert.Contains((await g.Call("guest/notifications")).Body.AsArray(), n => ((string)n!["title"]!).EndsWith("Confirmed"));
+
+        // From here the kitchen and waiter flow is unchanged.
+        foreach (var next in new[] { "Preparing", "Ready", "Delivered" })
+            Assert.Equal(200, (await Act(cashier, "order_status", new { id, status = next })).Status);
+        Assert.Equal(3L, (long)(await State(owner))["menu"]![0]!["stock"]!);
     }
 
     [Fact]

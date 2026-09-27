@@ -13,7 +13,7 @@ function WalletLogo({ id, name }) {
 }
 
 /** Review and pay. Online wallet payments fail closed until AfroPay is connected; cash is recorded by staff. */
-export default function AfroPayCheckout({ quote, payload, onBack, onClose, onPay, onCash, cashAllowed = false, paymentsReady = false }) {
+export default function AfroPayCheckout({ quote, payload, onBack, onClose, onPay, onCash, cashAllowed = false, paymentsReady = false, cashierConfirm = false }) {
   const [method, setMethod] = useState(paymentsReady ? 'wallet' : 'cash');
   const [wallet, setWallet] = useState('telebirr');
   const [phone, setPhone] = useState('');
@@ -57,7 +57,7 @@ export default function AfroPayCheckout({ quote, payload, onBack, onClose, onPay
         <div className="afro-merchant"><small>Paying</small><strong>{quote.merchant}</strong>{quote.tableName && <span>{quote.tableName}</span>}</div>
         <form onSubmit={pay}>
           {method === 'cash'
-            ? <p className="notice" role="status"><b>Pay with cash.</b> {booking ? `Your tickets are reserved now. Pay ${amount(quote.total)} at the entrance — staff check you in once it is paid.` : `Your order goes to the kitchen now. Pay your waiter ${amount(quote.total)} when it arrives.`}</p>
+            ? <p className="notice" role="status"><b>Pay with cash.</b> {booking ? `Your tickets are reserved now. Pay ${amount(quote.total)} at the entrance — staff check you in once it is paid.` : (cashierConfirm ? `Pay ${amount(quote.total)} at the cashier. The cashier confirms your order and it goes to the kitchen.` : `Your order goes to the kitchen now. Pay your waiter ${amount(quote.total)} when it arrives.`)}</p>
             : <p className="notice warning" role="status">Online wallet payments are not available yet. {cashAllowed ? 'Choose Cash to continue.' : 'Please ask staff how to pay.'}</p>}
           <h2 style={{ marginTop: 22 }}>Review your {booking ? 'booking' : 'order'}</h2>
           <div className="afro-lines">
@@ -74,7 +74,7 @@ export default function AfroPayCheckout({ quote, payload, onBack, onClose, onPay
               <legend className="afro-legend">How would you like to pay?</legend>
               <div className="pay-choice-options">
                 <label className={(method === 'wallet' ? 'chosen' : '') + (paymentsReady ? '' : ' disabled')} aria-disabled={!paymentsReady}><input type="radio" name="method" disabled={!paymentsReady} checked={method === 'wallet'} onChange={() => setMethod('wallet')} /><b>Mobile wallet</b><small>{paymentsReady ? 'Pay now' : 'Not available yet'}</small></label>
-                <label className={method === 'cash' ? 'chosen' : ''}><input type="radio" name="method" checked={method === 'cash'} onChange={() => setMethod('cash')} /><b>Cash</b><small>{booking ? 'Pay at the entrance' : 'Pay your waiter'}</small></label>
+                <label className={method === 'cash' ? 'chosen' : ''}><input type="radio" name="method" checked={method === 'cash'} onChange={() => setMethod('cash')} /><b>Cash</b><small>{booking ? 'Pay at the entrance' : cashierConfirm ? 'Pay at the cashier' : 'Pay your waiter'}</small></label>
               </div>
             </fieldset>
           )}

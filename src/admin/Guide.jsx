@@ -31,10 +31,11 @@ const FLOWS = [
   {
     icon: 'table', title: 'Table ordering',
     steps: [
-      'Guests scan the QR code on their table (or type the 6-letter code under it).',
-      'They see the menu for that concert only, add items, choose a tip and their waiter’s number.',
-      'They pay with a wallet, or choose Cash and pay the waiter.',
-      'The order appears in Orders. Move it Placed → Preparing → Ready → Delivered; the guest is notified at each step.',
+      'Guests scan the menu QR (Tables → Menu QR) on a table or wall and sign in with their phone. No table scan is needed unless you turn it on.',
+      'They add items, choose a tip and enter their waiter’s number from the badge.',
+      'They pay with a wallet, or choose Cash and pay at the cashier.',
+      'The order waits in Orders → Cashier. A cashier claims it, records the payment, then taps Confirm & print and hands the receipt to the waiter.',
+      'The kitchen moves it Placed → Preparing → Ready → Delivered; the guest is notified at each step.',
     ],
   },
   {
@@ -75,7 +76,7 @@ const FLOWS = [
 const NIGHT = [
   ['Before doors open', 'Check Stock for red “Reorder” items. Open Orders on the tablet. Make sure gate staff are signed in.'],
   ['At the door', 'Scan each ticket once. Take payment for unpaid bookings, then check the guest in.'],
-  ['During the show', 'Watch Orders: Placed → Preparing → Ready → Delivered. Print kitchen tickets if your kitchen needs paper.'],
+  ['During the show', 'Cashiers work the Cashier queue: claim, take payment, confirm and print the waiter’s receipt. The kitchen works Active orders: Placed → Preparing → Ready → Delivered.'],
   ['After the show', 'Record any outstanding payments, then open Reports for the night’s sales, tips by waiter and best sellers.'],
 ];
 

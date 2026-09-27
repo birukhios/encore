@@ -14,6 +14,8 @@ public static partial class Actions
 {
     public static readonly string[] SettlementMethods = ["Cash", "Card at venue"]; // bank transfers are not accepted
     public static readonly string[] StaffPaymentMethods = ["Cash", "Card at venue"];
+    /// <summary>A guest's food and drink order before a cashier has confirmed it; the kitchen cannot start it yet.</summary>
+    public const string AwaitingCashier = "Awaiting cashier";
     private static readonly Dictionary<string, string> OrderFlow = new() { ["Placed"] = "Preparing", ["Preparing"] = "Ready", ["Ready"] = "Delivered" };
     private const int StockLogLimit = 500;
 
@@ -86,6 +88,40 @@ public static partial class Actions
                     "The organizer cancelled this reservation. Contact support if you have questions."));
                 break;
             }
+            case "claim":
+            {
+                var o = AwaitingOrder(s, v);
+                var holder = Str(o["claimedById"]);
+                if (holder is { Length: > 0 } && holder != Str(v["_uid"]))
+                    throw new DomainException($"{Values.Show(o["claimedBy"])} is already handling this order.");
+                o["claimedBy"] = by ?? "";
+                o["claimedById"] = Str(v["_uid"]) ?? "";
+                o["claimedAt"] = Ids.Now();
+                v["result"] = new JsonObject { ["claimedBy"] = by ?? "" };
+                break;
+            }
+            case "confirm_order":
+            {
+                var o = AwaitingOrder(s, v);
+                var holder = Str(o["claimedById"]);
+                if (holder is { Length: > 0 } && holder != Str(v["_uid"]) && !Values.Truthy(v["_manager"]))
+                    throw new DomainException($"{Values.Show(o["claimedBy"])} is handling this order. Ask them, or a manager, to confirm it.");
+                // Nothing reaches the kitchen unpaid: cash is recorded by the cashier, wallet orders arrive paid.
+                if (!Values.Truthy(o["paid"]))
+                    throw new DomainException("Take the payment first: record the cash, or wait until the wallet payment shows as paid.");
+                if (holder is not { Length: > 0 })
+                {
+                    o["claimedBy"] = by ?? "";
+                    o["claimedById"] = Str(v["_uid"]) ?? "";
+                    o["claimedAt"] = Ids.Now();
+                }
+                o["status"] = "Placed";
+                o["confirmedBy"] = by ?? "";
+                o["confirmedAt"] = Ids.Now();
+                notices.Add(new Notice(o, "order_confirmed", $"Order {Values.Show(o["ref"])}: Confirmed",
+                    "A cashier confirmed your order. It goes to the kitchen now."));
+                break;
+            }
             case "checkin":
             {
                 var b = s.Bookings.FirstOrDefault(b => Str(b["id"]) == Str(v["id"]));
@@ -115,6 +151,13 @@ public static partial class Actions
                 throw new DomainException("Unknown action.");
         }
         return s;
+    }
+
+    private static JsonObject AwaitingOrder(Workspace s, JsonObject v)
+    {
+        var o = s.Orders.FirstOrDefault(o => Str(o["id"]) == Str(v["id"])) ?? throw new DomainException("That order no longer exists in your workspace.");
+        if (Str(o["status"]) != AwaitingCashier) throw new DomainException("This order is no longer waiting for a cashier.");
+        return o;
     }
 
     private static void SaveCatalogItem(Workspace s, string op, JsonObject v, string? by)
@@ -453,7 +496,8 @@ public static partial class Actions
             rec["tip"] = q["tip"]!.DeepClone();
             rec["tableName"] = q["tableName"]?.DeepClone();
             rec["event"] = q["tableEvent"]?.DeepClone();
-            rec["status"] = "Placed";
+            // With cashier confirmation on, a cashier checks and confirms the order before the kitchen sees it.
+            rec["status"] = Values.Truthy(s.Settings["ordering"]?["cashierConfirm"]) ? AwaitingCashier : "Placed";
             rec["service"] = q["service"]?.DeepClone();
             rec["items"] = Items(q);
             AttachWaiter(s, rec, q);

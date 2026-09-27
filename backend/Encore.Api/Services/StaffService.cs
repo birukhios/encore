@@ -18,14 +18,15 @@ public sealed class StaffService(
     /// <summary>Which staff actions each role may take (POST /admin/api/action, field "op").</summary>
     public static readonly Dictionary<string, string[]> RoleActions = new()
     {
-        ["Owner"] = ["settings", "config", "event", "menu", "table", "delete", "order_status", "checkin", "checkin_ticket", "settle", "cancel", "waiter", "stock", "staff_order", "inventory", "inventory_adjust"],
-        ["Admin"] = ["settings", "config", "event", "menu", "table", "delete", "order_status", "checkin", "checkin_ticket", "settle", "cancel", "waiter", "stock", "staff_order", "inventory", "inventory_adjust"],
-        ["Service"] = ["order_status", "settle", "cancel", "staff_order"],
+        ["Owner"] = ["settings", "config", "event", "menu", "table", "delete", "order_status", "claim", "confirm_order", "checkin", "checkin_ticket", "settle", "cancel", "waiter", "stock", "staff_order", "inventory", "inventory_adjust"],
+        ["Admin"] = ["settings", "config", "event", "menu", "table", "delete", "order_status", "claim", "confirm_order", "checkin", "checkin_ticket", "settle", "cancel", "waiter", "stock", "staff_order", "inventory", "inventory_adjust"],
+        // Service is the cashier and floor role: the cashier queue, payments, and moving orders along.
+        ["Service"] = ["order_status", "claim", "confirm_order", "settle", "cancel", "staff_order"],
         ["Gate"] = ["checkin", "checkin_ticket"],
     };
 
     // Actions whose records say which staff member did them (check-ins, stock moves, orders taken).
-    private static readonly string[] SignedActions = ["checkin", "checkin_ticket", "stock", "staff_order", "menu", "cancel", "inventory", "inventory_adjust"];
+    private static readonly string[] SignedActions = ["checkin", "checkin_ticket", "stock", "staff_order", "menu", "cancel", "inventory", "inventory_adjust", "claim", "confirm_order"];
 
     public string Cookie(string value, int? maxAge = null) =>
         Http.Cookie(options, SessionCookie, value, maxAge ?? EncoreOptions.AdminSessionDays * 86400, "Strict");
@@ -221,8 +222,16 @@ public sealed class StaffService(
         var data = v.ContainsKey("data") ? v["data"] : new JsonObject();
         if (data is JsonObject d)
         {
+            // Who is acting is decided here from the session, never taken from the request.
             d.Remove("_by");
+            d.Remove("_uid");
+            d.Remove("_manager");
             if (SignedActions.Contains(op)) d["_by"] = u.Name;
+            if (op is "claim" or "confirm_order")
+            {
+                d["_uid"] = u.Id;
+                d["_manager"] = u.Role is "Owner" or "Admin";
+            }
         }
         var notices = new List<Notice>();
         Actions.Mutate(s, op, data, notices);

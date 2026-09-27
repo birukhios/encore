@@ -17,7 +17,7 @@ public static class WorkspaceRules
     {
       "theme": {"accent": "#E61E32", "mode": "light", "adminMode": "light", "logo": "", "cover": ""},
       "ticketing": {"enabled": true, "maxPerOrder": 6, "showRemaining": false},
-      "ordering": {"enabled": true, "requireScan": true, "ticketHoldersOnly": true, "eventMenus": true},
+      "ordering": {"enabled": true, "requireScan": false, "ticketHoldersOnly": false, "eventMenus": true, "cashierConfirm": true},
       "tips": {"enabled": true, "unit": "amount", "presets": [20, 50, 100], "custom": true},
       "service": {"enabled": false, "rate": 10},
       "payments": {"venue": true, "cash": true, "ticketCash": false},
@@ -166,7 +166,7 @@ public static class WorkspaceRules
     {
         string[] keep = ["ref", "token", "name", "phone", "email", "currency", "total", "subtotal", "lines", "paid", "settlement", "created",
             "status", "tip", "tableName", "items", "event", "eventName", "venue", "date", "qty", "tickets", "settledBy", "settledAt",
-            "tax", "tin", "vatNumber", "service", "waiterName", "waiterNumber"];
+            "tax", "tin", "vatNumber", "service", "waiterName", "waiterNumber", "confirmedAt"];
         var output = new JsonObject();
         foreach (var k in keep) if (rec.ContainsKey(k)) output[k] = rec[k]?.DeepClone();
         if (output["tickets"] is JsonArray tickets)

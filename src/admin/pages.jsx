@@ -686,12 +686,13 @@ export function Tables({ ctx }) {
   const { state, matches } = ctx;
   const [editing, setEditing] = useState(null);
   const [qr, setQr] = useState(null);
+  const [menuQr, setMenuQr] = useState(false);
   const [eventFilter, setEventFilter] = useState('All');
   const tables = state.tables.filter(t => eventFilter === 'All' || t.event === eventFilter).filter(t => matches(t.name, t.code));
   const eventName = id => state.events.find(e => e.id === id)?.name || 'Concert removed';
   return (
     <>
-      <PageActions><button className="primary" onClick={() => setEditing({})} disabled={!state.events.length}><Icon name="add" />Add table</button></PageActions>
+      <PageActions><button onClick={() => setMenuQr(true)}>Menu QR</button><button className="primary" onClick={() => setEditing({})} disabled={!state.events.length}><Icon name="add" />Add table</button></PageActions>
       <section className="card">
         <div className="card-head">
           <div className="chips">
@@ -723,6 +724,17 @@ export function Tables({ ctx }) {
         ) : <Empty icon="table" title="A seat at your next show" body="Add tables to a concert. Each table gets a permanent QR code and a short code guests can type." action="Add table" onAction={() => setEditing({})} />}
       </section>
       {editing && <TableForm ctx={ctx} item={editing} onClose={() => setEditing(null)} />}
+      {menuQr && (
+        <Modal title={state.name} eyebrow="Scan to see the menu and order" onClose={() => setMenuQr(false)}
+          footer={<><button onClick={() => window.print()}>Print</button><button className="primary" onClick={() => setMenuQr(false)}>Done</button></>}>
+          <div className="printable stack center" style={{ justifyItems: 'center' }}>
+            <p><b>Menu</b></p>
+            <QR value={ctx.guestLink('&view=menu')} name={state.name + ' menu QR code'} />
+            <p className="small">Scan, sign in with your phone, and enter your waiter's number</p>
+          </div>
+          <p className="footnote noprint">One code for the whole venue: put it on every table and wall. {state.settings.ordering.requireScan ? 'Table scanning is still switched on in Settings → Table ordering, so guests will also be asked to scan their table.' : 'Guests order without scanning a table and say which waiter serves them.'}</p>
+        </Modal>
+      )}
       {qr && (
         <Modal title={qr.name} eyebrow="Scan. Order. Enjoy." onClose={() => setQr(null)}
           footer={<><button onClick={() => window.print()}>Print</button><button className="primary" onClick={() => setQr(null)}>Done</button></>}>
@@ -880,13 +892,15 @@ function MenuForm({ ctx, item, onClose }) {
 
 export function Orders({ ctx }) {
   const { state, money, matches } = ctx;
-  const [filter, setFilter] = useState('Active');
+  const [filter, setFilter] = useState(() => ctx.role === 'Service' && ctx.state.settings.ordering.cashierConfirm ? 'Cashier' : 'Active');
   const [settling, setSettling] = useState(null);
   const [printing, setPrinting] = useState(null);
   const [taking, setTaking] = useState(false);
   const [rowError, setRowError] = useState('');
   const canTakeOrders = ['Owner', 'Admin', 'Service'].includes(ctx.role);
+  const cashierQueue = state.settings.ordering.cashierConfirm || state.orders.some(o => o.status === 'Awaiting cashier');
   const filters = {
+    ...(cashierQueue ? { Cashier: o => o.status === 'Awaiting cashier' } : {}),
     Active: o => ['Placed', 'Preparing', 'Ready'].includes(o.status),
     Unpaid: o => !o.paid && o.status !== 'Cancelled',
     Delivered: o => o.status === 'Delivered',
@@ -897,8 +911,14 @@ export function Orders({ ctx }) {
   const rows = [...state.orders].reverse().filter(filters[filter]).filter(o => matches(o.ref, o.name, o.tableName, o.items));
   const act = async (op, data) => {
     setRowError('');
-    try { await ctx.action(op, data); } catch (e) { setRowError(e.message); }
+    try { return await ctx.action(op, data); } catch (e) { setRowError(e.message); return null; }
   };
+  // Confirming sends the order to the kitchen; the receipt printed now is the one handed to the waiter.
+  const confirmAndPrint = async o => {
+    const result = await act('confirm_order', { id: o.id });
+    if (result) setPrinting(result.state.orders.find(x => x.id === o.id) || o);
+  };
+  const mine = o => o.claimedById === ctx.session.user.id;
   return (
     <section className="card">
       {canTakeOrders && <PageActions><button className="primary" onClick={() => setTaking(true)}><Icon name="add" />New order</button></PageActions>}
@@ -920,20 +940,22 @@ export function Orders({ ctx }) {
               <h3>{o.tableName || 'Counter pickup'} <span className="muted small">· {o.ref}</span></h3>
               <div className="meta"><span>{o.name}</span>{o.phone && <span>{o.phone}</span>}<span>{dateTime(o.created * 1000)}</span>{o.waiterName && <span>Waiter #{o.waiterNumber} {o.waiterName}</span>}{o.takenBy && <span>Taken by {o.takenBy}</span>}</div>
             </div>
-            <div className="row wrap">{paidBadge(o)}<span className="badge dark">{o.status}</span></div>
+            <div className="row wrap">{o.status === 'Awaiting cashier' && o.claimedBy && <span className="badge neutral">{mine(o) ? 'You are handling this' : `Handled by ${o.claimedBy}`}</span>}{paidBadge(o)}<span className="badge dark">{o.status === 'Awaiting cashier' ? 'Waiting for cashier' : o.status}</span></div>
           </div>
           <p style={{ color: 'var(--ink)' }}>{o.items}</p>
           <div className="row spread wrap">
             <div className="meta"><span>Items {money(o.subtotal)}</span>{o.tax && <span>{o.tax.label} {o.tax.included ? 'incl.' : '+'} {money(o.tax.amount)}</span>}<span>Tip {money(o.tip || 0)}</span><b style={{ color: 'var(--ink)' }}>Total {money(o.total)}</b></div>
             <div className="actions">
-              <button onClick={() => setPrinting(o)} aria-label={`Print order ${o.ref}`}><Icon name="download" />Print</button>
-              {['Placed', 'Preparing'].includes(o.status) && !o.paid && <button onClick={() => confirm(`Cancel order ${o.ref}?`) && act('cancel', { id: o.id })}>Cancel</button>}
+              {o.status !== 'Awaiting cashier' && <button onClick={() => setPrinting(o)} aria-label={`Print order ${o.ref}`}><Icon name="download" />Print</button>}
+              {['Awaiting cashier', 'Placed', 'Preparing'].includes(o.status) && !o.paid && <button onClick={() => confirm(`Cancel order ${o.ref}?`) && act('cancel', { id: o.id })}>Cancel</button>}
+              {o.status === 'Awaiting cashier' && !o.claimedBy && <button onClick={() => act('claim', { id: o.id })}>Claim</button>}
               {o.status !== 'Cancelled' && !o.paid && <button onClick={() => setSettling(o)}>Record payment</button>}
+              {o.status === 'Awaiting cashier' && <button className="primary" disabled={!o.paid} title={o.paid ? '' : 'Record the payment first'} onClick={() => confirmAndPrint(o)}>Confirm & print</button>}
               {next[o.status] && <button className="primary" onClick={() => act('order_status', { id: o.id, status: next[o.status] })}>Mark {next[o.status].toLowerCase()}</button>}
             </div>
           </div>
         </div>
-      )) : <Empty icon="menu" title={filter === 'Active' ? 'All caught up' : 'Nothing here'} body="Table and counter orders appear here with items, tip, payment and preparation status. Guests are notified as you update them." />}
+      )) : <Empty icon="menu" title={filter === 'Active' ? 'All caught up' : 'Nothing here'} body={filter === 'Cashier' ? 'New guest orders wait here for a cashier. Claim one, take the payment, then confirm and print the receipt for the waiter.' : 'Table and counter orders appear here with items, tip, payment and preparation status. Guests are notified as you update them.'} />}
       {settling && <SettleModal ctx={ctx} record={settling} onClose={() => setSettling(null)} />}
       {printing && <PrintOrder ctx={ctx} order={state.orders.find(o => o.id === printing.id) || printing} onClose={() => setPrinting(null)} />}
       {taking && <NewOrder ctx={ctx} onClose={() => setTaking(false)} onCreated={order => { setTaking(false); setFilter('Active'); if (order) setPrinting(order); }} />}
@@ -974,7 +996,7 @@ export function Team({ ctx }) {
       <section className="card">
         <h3>Roles</h3>
         <div className="list" style={{ marginTop: 8 }}>
-          {[['Owner & Admin', 'Everything: events, menu, tables, orders, bookings, team and settings.'], ['Service', 'Order queue: prepare, deliver, record payment and cancel orders.'], ['Gate', 'Bookings: check guests in and scan tickets.']].map(([r, d]) => (
+          {[['Owner & Admin', 'Everything: events, menu, tables, orders, bookings, team and settings.'], ['Service', 'Cashiers and floor staff: the cashier queue (claim, take payment, confirm and print), then preparing, delivering and cancelling orders.'], ['Gate', 'Facilitators at the entrance: scan tickets, take cash for unpaid tickets, check guests in.']].map(([r, d]) => (
             <div className="listrow" key={r}><b style={{ width: 130 }}>{r}</b><p className="small grow">{d}</p></div>
           ))}
         </div>

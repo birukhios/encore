@@ -99,8 +99,15 @@ public sealed class ParityTests
     {
         var c = Fixture["upgrades"]![i]!;
         using var _ = Ids.UseScript(new Ids.Script());
-        var upgraded = WorkspaceRules.Upgrade(Workspace.Parse(c["input"]!.ToJsonString()));
-        Assert.Equal(Canonical(c["expect"]), Canonical(JsonNode.Parse(upgraded.Serialize())));
+        var upgraded = JsonNode.Parse(WorkspaceRules.Upgrade(Workspace.Parse(c["input"]!.ToJsonString())).Serialize())!;
+        // Ordering defaults changed on purpose after the Python era (no table scan; cashier confirms orders).
+        var expected = c["expect"]!.DeepClone();
+        foreach (var key in new[] { "requireScan", "ticketHoldersOnly", "cashierConfirm" })
+        {
+            upgraded["settings"]!["ordering"]!.AsObject().Remove(key);
+            expected["settings"]!["ordering"]!.AsObject().Remove(key);
+        }
+        Assert.Equal(Canonical(expected), Canonical(upgraded));
     }
 
     [Theory, MemberData(nameof(Quotes))]

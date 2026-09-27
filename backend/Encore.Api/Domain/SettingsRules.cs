@@ -54,6 +54,8 @@ public static partial class SettingsRules
                 cfg["requireScan"] = Values.Flag(v["requireScan"]);
                 cfg["ticketHoldersOnly"] = Values.Flag(v["ticketHoldersOnly"]);
                 cfg["eventMenus"] = Values.Flag(v["eventMenus"]);
+                // Older screens do not send this; leaving it out keeps the current choice.
+                if (v.ContainsKey("cashierConfirm")) cfg["cashierConfirm"] = Values.Flag(v["cashierConfirm"]);
                 if (Values.Truthy(cfg["ticketHoldersOnly"]) && !Values.Truthy(cfg["requireScan"]))
                     throw new DomainException("Ticket-holder ordering needs table scanning, so Encore knows which concert the guest is at.");
                 break;

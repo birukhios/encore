@@ -443,6 +443,7 @@ function Ordering({ ctx, setDirty }) {
         <Toggle label="Accept food & drink orders" checked={d.enabled} onChange={v => form.set('enabled', v)} disabled={!ctx.canManage} />
         <Toggle label="Require a table scan before ordering" description="Guests scan the QR code on their table (or type its code) so orders arrive at the right seat." checked={d.requireScan} onChange={v => form.setDraft({ ...d, requireScan: v, ticketHoldersOnly: v ? d.ticketHoldersOnly : false })} disabled={!ctx.canManage || !d.enabled} />
         <Toggle label="Only ticket holders can order" description="The guest must hold a ticket for the concert their table belongs to." checked={d.ticketHoldersOnly} onChange={v => form.set('ticketHoldersOnly', v)} disabled={!ctx.canManage || !d.enabled || !d.requireScan} />
+        <Toggle label="A cashier confirms every guest order" description="Guest orders wait in the cashier queue. A cashier takes the payment and confirms; only then does the kitchen see the order." checked={!!d.cashierConfirm} onChange={v => form.set('cashierConfirm', v)} disabled={!ctx.canManage || !d.enabled} />
         <Toggle label="Show each concert's own menu" description="Guests see only items served at their concert. Items set to 'all concerts' always appear." checked={d.eventMenus} onChange={v => form.set('eventMenus', v)} disabled={!ctx.canManage || !d.enabled} />
       </div>
       <ErrorText>{form.error}</ErrorText>

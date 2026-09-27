@@ -14,6 +14,7 @@ public sealed class DomainRuleTests
         s = WorkspaceRules.Upgrade(WorkspaceRules.Blank("Concert Team"));
         s.Settings["ordering"]!["requireScan"] = false;
         s.Settings["ordering"]!["ticketHoldersOnly"] = false;
+        s.Settings["ordering"]!["cashierConfirm"] = false; // the cashier queue has its own tests below
         s.Settings["payments"]!["ticketCash"] = true;
         s.Menu.Add(Obj("""{"id":"food","name":"Meal","price":10000,"available":true,"events":[]}"""));
         s.Events.Add(Obj("""{"id":"event","name":"Concert","price":50000,"published":true,"capacity":2,"date":"2026-11-02T18:00"}"""));
@@ -149,6 +150,67 @@ public sealed class DomainRuleTests
         SettingsRules.Configure(s, "payments", Obj("""{"cash":false,"ticketCash":false}"""));
         Assert.Contains("only accepts online payment", Refused(() => Actions.GuestRecord(s, Obj("""{"kind":"menu","items":{"food":1}}"""), Guest, cash: true)));
         Assert.Contains("paid online only", Refused(() => Actions.GuestRecord(s, Obj("""{"kind":"menu","items":{"food":1}}"""), Guest, cash: false)));
+    }
+
+    [Fact]
+    public void Cashier_queue_claim_payment_and_confirmation()
+    {
+        s.Settings["ordering"]!["cashierConfirm"] = true;
+        var rec = Actions.GuestRecord(s, Obj("""{"kind":"menu","items":{"food":1}}"""), Guest, cash: true);
+        var id = (string)rec["id"]!;
+        Assert.Equal(Actions.AwaitingCashier, (string)rec["status"]!);
+        JsonObject As(string who, string uid, bool manager = false) =>
+            Obj($$"""{"id":"{{id}}","_by":"{{who}}","_uid":"{{uid}}","_manager":{{(manager ? "true" : "false")}}}""");
+        Assert.Contains("cannot move", Refused(() => Do("order_status", $$"""{"id":"{{id}}","status":"Preparing"}""")));
+
+        Actions.Mutate(s, "claim", As("Hana", "u1"), []);
+        Assert.Contains("Hana is already handling", Refused(() => Actions.Mutate(s, "claim", As("Sami", "u2"), [])));
+        Actions.Mutate(s, "claim", As("Hana", "u1"), []); // claiming your own order again is fine
+        Assert.Contains("Take the payment first", Refused(() => Actions.Mutate(s, "confirm_order", As("Hana", "u1"), [])));
+        Do("settle", $$"""{"id":"{{id}}","method":"Cash"}""");
+        Assert.Contains("Hana is handling", Refused(() => Actions.Mutate(s, "confirm_order", As("Sami", "u2"), [])));
+
+        var notices = new List<Notice>();
+        Actions.Mutate(s, "confirm_order", As("Hana", "u1"), notices);
+        Assert.Equal(("Placed", "Hana"), ((string)rec["status"]!, (string)rec["confirmedBy"]!));
+        Assert.Equal("order_confirmed", Assert.Single(notices).Kind);
+        Assert.Contains("no longer waiting", Refused(() => Actions.Mutate(s, "claim", As("Hana", "u1"), [])));
+        Do("order_status", $$"""{"id":"{{id}}","status":"Preparing"}""");
+    }
+
+    [Fact]
+    public void A_manager_can_confirm_an_order_another_cashier_claimed_and_staff_orders_skip_the_queue()
+    {
+        s.Settings["ordering"]!["cashierConfirm"] = true;
+        var rec = Actions.GuestRecord(s, Obj("""{"kind":"menu","items":{"food":1}}"""), Guest, cash: true);
+        var id = (string)rec["id"]!;
+        Actions.Mutate(s, "claim", Obj($$"""{"id":"{{id}}","_by":"Hana","_uid":"u1"}"""), []);
+        Do("settle", $$"""{"id":"{{id}}","method":"Cash"}""");
+        Actions.Mutate(s, "confirm_order", Obj($$"""{"id":"{{id}}","_by":"Owner","_uid":"u9","_manager":true}"""), []);
+        Assert.Equal(("Placed", "Owner", "Hana"), ((string)rec["status"]!, (string)rec["confirmedBy"]!, (string)rec["claimedBy"]!));
+
+        Do("staff_order", """{"items":{"food":1},"tableId":"t","method":"Cash","_by":"Sara"}""");
+        Assert.Equal("Placed", (string)s.Orders[^1]["status"]!);
+    }
+
+    [Fact]
+    public void Cancelling_a_queued_order_returns_its_stock()
+    {
+        s.Settings["ordering"]!["cashierConfirm"] = true;
+        Do("menu", """{"id":"food","name":"Meal","description":"Hot","price":"100","category":"Food","available":true,"trackStock":true,"stock":3,"lowStock":1}""");
+        var rec = Actions.GuestRecord(s, Obj("""{"kind":"menu","items":{"food":2}}"""), Guest, cash: true);
+        Assert.Equal(1, Values.Long(s.Menu[0]["stock"]));
+        Do("cancel", $$"""{"id":"{{rec["id"]}}"}""");
+        Assert.Equal((3L, "Cancelled"), (Values.Long(s.Menu[0]["stock"]), (string)rec["status"]!));
+    }
+
+    [Fact]
+    public void Older_settings_screens_keep_the_cashier_choice()
+    {
+        SettingsRules.Configure(s, "ordering", Obj("""{"enabled":true,"requireScan":false,"ticketHoldersOnly":false,"eventMenus":true,"cashierConfirm":true}"""));
+        SettingsRules.Configure(s, "ordering", Obj("""{"enabled":true,"requireScan":false,"ticketHoldersOnly":false,"eventMenus":true}"""));
+        Assert.True((bool)s.Settings["ordering"]!["cashierConfirm"]!);
+        Assert.False((bool)WorkspaceRules.Blank("New").Settings["ordering"]!["requireScan"]!);
     }
 
     [Fact]
