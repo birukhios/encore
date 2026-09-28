@@ -101,6 +101,7 @@ public sealed class GuestJourneyTests(EncoreApp app) : ServerTest(app)
         var menu = (await State(c))["menu"]!.AsArray();
         await Act(c, "table", new { name = "Table 3", @event = (string)e["id"]!, seats = 4 });
         var tok = (string)(await State(c))["tables"]![0]!["token"]!;
+        var number = await AddWaiter(c);
         var (g, guest) = await GuestClient();
         var tea = new JsonObject { [(string)menu[0]!["id"]!] = 2 };
         Assert.Equal("Orders are paid online only.", (string)(await g.Call("order", new JsonObject { ["tenant"] = t, ["kind"] = "menu", ["items"] = tea.DeepClone() })).Body["error"]!);
@@ -109,6 +110,7 @@ public sealed class GuestJourneyTests(EncoreApp app) : ServerTest(app)
         {
             data["tenant"] = t;
             data["payment"] = "cash";
+            if (!data.ContainsKey("waiter")) data["waiter"] = number;
             return g.Call("order", data);
         }
         Assert.Contains("Scan", (string)(await Cash(new JsonObject { ["kind"] = "menu", ["items"] = tea.DeepClone() })).Body["error"]!);
@@ -160,7 +162,7 @@ public sealed class GuestJourneyTests(EncoreApp app) : ServerTest(app)
         Assert.Equal("Traditional", (string)(await State(c))["menu"]![0]!["category"]!);
         Assert.Equal(400, (await Act(c, "config", new { group = "tax", values = new { regime = "tot", pricesIncludeTax = false, tin = "0012345678", tickets = true, menu = true } })).Status);
         var item = (string)(await State(c))["menu"]![0]!["id"]!;
-        var menuOrder = (await g.Call("order", new JsonObject { ["tenant"] = t, ["kind"] = "menu", ["items"] = new JsonObject { [item] = 3 }, ["tipAmount"] = "25.50", ["table"] = tok, ["payment"] = "cash" })).Body;
+        var menuOrder = (await g.Call("order", new JsonObject { ["tenant"] = t, ["kind"] = "menu", ["items"] = new JsonObject { [item] = 3 }, ["tipAmount"] = "25.50", ["table"] = tok, ["payment"] = "cash", ["waiter"] = await AddWaiter(c) })).Body;
         Assert.Equal((30000L, "VAT 15%", 4500L, 2550L, 37050L),
             ((long)menuOrder["subtotal"]!, (string)menuOrder["tax"]!["label"]!, (long)menuOrder["tax"]!["amount"]!, (long)menuOrder["tip"]!, (long)menuOrder["total"]!));
         // Inclusive VAT with awkward amounts rounds to the cent and never changes the total.
@@ -251,7 +253,9 @@ public sealed class GuestJourneyTests(EncoreApp app) : ServerTest(app)
         var (one, _) = await Member("Cashier");
         var (two, _) = await Member("Cashier");
         var (g, _) = await GuestClient("Queue Guest");
-        await g.Call("order", new JsonObject { ["tenant"] = t, ["kind"] = "menu", ["items"] = new JsonObject { [item] = 1 }, ["payment"] = "cash" });
+        var waiter = await AddWaiter(owner);
+        Assert.Contains("waiter's number", (string)(await g.Call("order", new JsonObject { ["tenant"] = t, ["kind"] = "menu", ["items"] = new JsonObject { [item] = 1 }, ["payment"] = "cash" })).Body["error"]!);
+        await g.Call("order", new JsonObject { ["tenant"] = t, ["kind"] = "menu", ["items"] = new JsonObject { [item] = 1 }, ["payment"] = "cash", ["waiter"] = waiter });
         var id = (string)(await State(owner))["orders"]![0]!["id"]!;
 
         Assert.Single((await State(two))["orders"]!.AsArray());
@@ -337,7 +341,8 @@ public sealed class GuestJourneyTests(EncoreApp app) : ServerTest(app)
         await Concert(c);
         await Act(c, "menu", new { name = "Tea", description = "Hot", price = "20", category = "Food", available = true });
         var item = (string)(await State(c))["menu"]![0]!["id"]!;
-        JsonObject Order(string method, string? phone = null) => new() { ["items"] = new JsonObject { [item] = 1 }, ["method"] = method, ["phone"] = phone, ["name"] = "Table guest" };
+        var waiter = await AddWaiter(c);
+        JsonObject Order(string method, string? phone = null) => new() { ["items"] = new JsonObject { [item] = 1 }, ["method"] = method, ["phone"] = phone, ["name"] = "Table guest", ["waiter"] = waiter };
 
         Assert.Contains("Choose cash, Afropay", (string)(await Act(c, "staff_order", Order("Card at venue"))).Body["error"]!);
         // Afropay is not connected yet, so nothing is recorded and no payment is pretended.

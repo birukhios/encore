@@ -178,6 +178,13 @@ public abstract class ServerTest(EncoreApp app)
         return await c.Call("action", new JsonObject { ["op"] = op, ["version"] = me["version"]!.DeepClone(), ["data"] = (data as JsonNode)?.DeepClone() ?? JsonSerializer.SerializeToNode(data) });
     }
 
+    /// <summary>Adds a waiter and returns their number; every food and drink order names one.</summary>
+    protected static async Task<string> AddWaiter(Client c)
+    {
+        await Act(c, "waiter", new { name = "Abel Tesfaye" });
+        return (string)(await State(c))["waiters"]!.AsArray()[^1]!["number"]!;
+    }
+
     protected static string NewPhone() => "09" + string.Concat(Enumerable.Range(0, 8).Select(_ => RandomNumberGenerator.GetInt32(10)));
 
     /// <summary>Invites a member by phone and joins with the code texted to that phone.</summary>

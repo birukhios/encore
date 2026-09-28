@@ -630,7 +630,8 @@ export function Bag({ ctx }) {
   const shownService = quote ? quote.service : service;
   const shownTip = quote ? quote.tip : tipAmount;
   const shownTotal = quote ? quote.total : subtotal + (service?.amount || 0) + (tax && !tax.included ? tax.amount : 0) + tipAmount;
-  const askWaiter = data.waiters && (tips.enabled || serviceCfg.enabled);
+  const needWaiter = !!data.settings.ordering.requireWaiter;
+  const askWaiter = needWaiter || (data.waiters && (tips.enabled || serviceCfg.enabled));
   const change = (id, delta) => {
     const next = { ...cart, [id]: Math.max(0, Math.min(50, (cart[id] || 0) + delta)) };
     if (!next[id]) delete next[id];
@@ -686,11 +687,12 @@ export function Bag({ ctx }) {
       )}
       {askWaiter && (
         <section className="card stack">
-          <div><h3>Who is serving you?</h3><p className="small">Optional. Enter the number on your waiter's badge{tips.enabled ? ' so your tip goes to them' : ''}.</p></div>
+          <div><h3>Who is serving you?</h3><p className="small">{needWaiter ? 'Required. ' : 'Optional. '}Enter the number on your waiter's badge{needWaiter ? ' so your order reaches them' : ''}{tips.enabled ? `${needWaiter ? ' and' : ' so'} your tip goes to them` : ''}.</p></div>
           <label className="field">Waiter number
             <input type="text" inputMode="numeric" placeholder="e.g. 4821" maxLength={6} value={waiter} onChange={e => setWaiter(e.target.value.replace(/\D/g, '').slice(0, 4))} />
           </label>
           {waiter.length === 4 && quote?.waiter && <p className="notice success small">Served by {quote.waiter.name} · #{quote.waiter.number}</p>}
+          {needWaiter && !quote?.waiter && <p className="small muted">Ask your waiter for their number, then continue to checkout.</p>}
         </section>
       )}
       </div>
@@ -707,7 +709,7 @@ export function Bag({ ctx }) {
         ) : needsTicket ? (
           <p className="notice warning">This table is for ticket holders. <button className="linklike" onClick={() => go('menu')}>See options</button></p>
         ) : (
-          <button className="primary lg-btn block" disabled={busy || !canOrder || notServed.length > 0 || (waiter.length > 0 && !quote?.waiter)} onClick={checkout}>
+          <button className="primary lg-btn block" disabled={busy || !canOrder || notServed.length > 0 || ((needWaiter || waiter.length > 0) && !quote?.waiter)} onClick={checkout}>
             {busy ? 'Checking your order…' : 'Continue to checkout'}<Icon name="next" />
           </button>
         )}

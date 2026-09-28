@@ -454,6 +454,7 @@ public static partial class Actions
         var request = v.DeepClone().AsObject();
         request["kind"] = "menu";
         var q = Pricing.QuoteOrder(s, request, staff: true);
+        RequireWaiter(s, q, "Choose the waiter for this order.");
         var method = Values.Truthy(v["method"]) ? Values.Show(v["method"]) : "";
         if (method.Length > 0 && !StaffPaymentMethods.Contains(method)) throw new DomainException("Choose cash, Afropay, or not paid yet.");
         var phone = Values.Truthy(v["phone"]) ? Values.NormalizePhone(v["phone"]) : "";
@@ -533,6 +534,7 @@ public static partial class Actions
         if (booking && !Values.Truthy(pay["ticketCash"])) throw new DomainException("This organizer only accepts online payment for tickets.");
         if (!booking && !Values.Truthy(pay["cash"])) throw new DomainException("This organizer only accepts online payment for orders.");
         var q = Pricing.QuoteOrder(s, v, Str(guest["id"]));
+        if (!booking) RequireWaiter(s, q, "Enter your waiter's number. It is on their badge.");
         var rec = new JsonObject
         {
             ["id"] = Ids.Uid(), ["ref"] = Ids.Reference(), ["token"] = Ids.Uid(), ["guest"] = guest["id"]!.DeepClone(),
@@ -571,6 +573,13 @@ public static partial class Actions
             s.Orders.Add(rec);
         }
         return rec;
+    }
+
+    // Every food and drink order names its waiter, so the cashier knows whose hands the printed receipt goes into.
+    // Checked when an order is placed, not in price previews, which guests see before choosing a waiter.
+    private static void RequireWaiter(Workspace s, JsonObject q, string message)
+    {
+        if (q["waiter"] is null && Values.Truthy(s.Settings["ordering"]?["requireWaiter"])) throw new DomainException(message);
     }
 
     private static string Items(JsonObject q) =>

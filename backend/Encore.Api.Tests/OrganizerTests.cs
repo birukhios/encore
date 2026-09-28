@@ -183,7 +183,7 @@ public sealed class OrganizerTests(EncoreApp app) : ServerTest(app)
 
         // The gate never takes payment for food and drink orders.
         await Act(c, "menu", new { name = "Tea", description = "Hot", price = "20", category = "Food", available = true });
-        await Act(c, "staff_order", new JsonObject { ["items"] = new JsonObject { [(string)(await State(c))["menu"]![0]!["id"]!] = 1 } });
+        await Act(c, "staff_order", new JsonObject { ["items"] = new JsonObject { [(string)(await State(c))["menu"]![0]!["id"]!] = 1 }, ["waiter"] = await AddWaiter(c) });
         Assert.Equal(401, (await Act(gate, "settle", new { id = (string)(await State(c))["orders"]![0]!["id"]!, method = "Cash" })).Status);
         Assert.Equal(401, (await Act(gate, "staff_order", new JsonObject { ["items"] = new JsonObject() })).Status);
     }

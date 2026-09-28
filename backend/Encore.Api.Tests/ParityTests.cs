@@ -104,7 +104,7 @@ public sealed class ParityTests
         var upgraded = JsonNode.Parse(WorkspaceRules.Upgrade(Workspace.Parse(c["input"]!.ToJsonString())).Serialize())!;
         // Ordering defaults changed on purpose after the Python era (no table scan; cashier confirms orders).
         var expected = c["expect"]!.DeepClone();
-        foreach (var key in new[] { "requireScan", "ticketHoldersOnly", "cashierConfirm" })
+        foreach (var key in new[] { "requireScan", "ticketHoldersOnly", "cashierConfirm", "requireWaiter" })
         {
             upgraded["settings"]!["ordering"]!.AsObject().Remove(key);
             expected["settings"]!["ordering"]!.AsObject().Remove(key);

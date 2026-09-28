@@ -579,7 +579,7 @@ export function NewOrder({ ctx, onClose, onCreated }) {
   });
   return (
     <Modal wide title="New order" eyebrow="Taken by staff" onClose={onClose}
-      footer={<><button onClick={onClose}>Cancel</button><button className="primary" disabled={busy || !lines.length} onClick={submit}>{busy ? 'Placing…' : `Place order · ${money(price.total)}`}</button></>}>
+      footer={<><button onClick={onClose}>Cancel</button><button className="primary" disabled={busy || !lines.length || (state.settings.ordering.requireWaiter && !waiter)} onClick={submit}>{busy ? 'Placing…' : `Place order · ${money(price.total)}`}</button></>}>
       <div className="pos">
         <div className="pos-menu">
           <div className="chips" role="tablist" aria-label="Categories">
@@ -613,7 +613,7 @@ export function NewOrder({ ctx, onClose, onCreated }) {
           </Field>
           <Field label="Waiter">
             <select value={waiter} onChange={e => setWaiter(e.target.value)}>
-              <option value="">No waiter</option>
+              <option value="">{state.settings.ordering.requireWaiter ? 'Choose the waiter' : 'No waiter'}</option>
               {(state.waiters || []).filter(w => w.active).map(w => <option key={w.id} value={w.number}>#{w.number} · {w.name}</option>)}
             </select>
           </Field>

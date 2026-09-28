@@ -15,6 +15,7 @@ public sealed class DomainRuleTests
         s.Settings["ordering"]!["requireScan"] = false;
         s.Settings["ordering"]!["ticketHoldersOnly"] = false;
         s.Settings["ordering"]!["cashierConfirm"] = false; // the cashier queue has its own tests below
+        s.Settings["ordering"]!["requireWaiter"] = false; // and so does the waiter rule
         s.Settings["payments"]!["ticketCash"] = true;
         s.Menu.Add(Obj("""{"id":"food","name":"Meal","price":10000,"available":true,"events":[]}"""));
         s.Events.Add(Obj("""{"id":"event","name":"Concert","price":50000,"published":true,"capacity":2,"date":"2026-11-02T18:00"}"""));
@@ -150,6 +151,22 @@ public sealed class DomainRuleTests
         SettingsRules.Configure(s, "payments", Obj("""{"cash":false,"ticketCash":false}"""));
         Assert.Contains("only accepts online payment", Refused(() => Actions.GuestRecord(s, Obj("""{"kind":"menu","items":{"food":1}}"""), Guest, cash: true)));
         Assert.Contains("paid online only", Refused(() => Actions.GuestRecord(s, Obj("""{"kind":"menu","items":{"food":1}}"""), Guest, cash: false)));
+    }
+
+    [Fact]
+    public void Every_order_needs_a_waiter()
+    {
+        s.Settings["ordering"]!["requireWaiter"] = true;
+        Assert.True((bool)WorkspaceRules.Blank("New").Settings["ordering"]!["requireWaiter"]!);
+        Assert.Contains("waiter's number", Refused(() => Actions.GuestRecord(s, Obj("""{"kind":"menu","items":{"food":1}}"""), Guest, cash: true)));
+        Assert.Contains("Choose the waiter", Refused(() => Actions.Mutate(s, "staff_order", Obj("""{"items":{"food":1}}"""), [])));
+        Assert.Contains("could not find a waiter", Refused(() => Actions.GuestRecord(s, Obj("""{"kind":"menu","items":{"food":1},"waiter":"999"}"""), Guest, cash: true)));
+        Do("waiter", """{"name":"Abel Tesfaye"}""");
+        var number = (string)s.Waiters[0]["number"]!;
+        var rec = Actions.GuestRecord(s, Obj($$"""{"kind":"menu","items":{"food":1},"waiter":"{{number}}"}"""), Guest, cash: true);
+        Assert.Equal(number, (string)rec["waiterNumber"]!);
+        Assert.Empty(s.Bookings); // tickets never need a waiter
+        Actions.GuestRecord(s, Obj("""{"kind":"booking","event":"event","qty":1}"""), Guest, cash: true);
     }
 
     [Fact]
