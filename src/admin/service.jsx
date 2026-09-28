@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { dateTime, shortDate } from '../shared/api';
 import { Empty, ErrorText, Field, Icon, Modal, Toggle } from '../shared/ui';
 import { DataTable, Kpi, pct } from './charts';
-import { PageActions } from './pages/common';
+import { PageActions, PayChoice } from './pages/common';
 import { downloadText, isoDay, isSale, slug, toCsv } from './reportData';
 
 /*
@@ -621,12 +621,7 @@ export function NewOrder({ ctx, onClose, onCreated }) {
           <Field label={method === 'Afropay' ? 'Guest phone' : 'Guest phone (optional)'} type="tel" inputMode="tel" value={phone} maxLength={20} onChange={e => setPhone(e.target.value)} placeholder="0911 234 567"
             hint={method === 'Afropay' ? 'Afropay sends the payment request to this number (Telebirr, CBE Birr, M-PESA, Awash Birr).' : undefined} />
           {tipsOn && <Field label={`Tip (${state.currency})`} inputMode="decimal" value={tip} placeholder="0" onChange={e => { const v = e.target.value.replace(/[^\d.]/g, ''); if (/^\d{0,5}(\.\d{0,2})?$/.test(v)) setTip(v); }} />}
-          <fieldset className="pay-methods">
-            <legend>Payment</legend>
-            {[['Cash', 'Cash'], ...(ctx.session.paymentReady ? [['Afropay', 'Afropay (to guest phone)']] : []), ['', 'Not paid yet']].map(([id, label]) => (
-              <label key={label} className={'choice compact' + (method === id ? ' active' : '')}><input type="radio" name="pos-method" checked={method === id} onChange={() => setMethod(id)} /><span><b>{label}</b></span></label>
-            ))}
-          </fieldset>
+          <PayChoice ctx={ctx} value={method} onChange={setMethod} allowUnpaid />
           <div className="totals">
             {lines.map(i => <div className="line" key={i.id}><span>{cart[i.id]} × {i.name}</span><b>{money(i.price * cart[i.id])}</b></div>)}
             {!lines.length && <p className="small muted">Tap items to add them.</p>}

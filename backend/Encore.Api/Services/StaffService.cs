@@ -18,11 +18,12 @@ public sealed class StaffService(
     /// <summary>Which staff actions each role may take (POST /admin/api/action, field "op").</summary>
     public static readonly Dictionary<string, string[]> RoleActions = new()
     {
-        ["Owner"] = ["settings", "config", "event", "menu", "table", "delete", "order_status", "order_back", "claim", "confirm_order", "checkin", "checkin_ticket", "settle", "cancel", "waiter", "stock", "staff_order", "inventory", "inventory_adjust"],
-        ["Admin"] = ["settings", "config", "event", "menu", "table", "delete", "order_status", "order_back", "claim", "confirm_order", "checkin", "checkin_ticket", "settle", "cancel", "waiter", "stock", "staff_order", "inventory", "inventory_adjust"],
+        ["Owner"] = ["settings", "config", "event", "menu", "table", "delete", "order_status", "order_back", "claim", "confirm_order", "checkin", "checkin_ticket", "settle", "cancel", "waiter", "stock", "staff_order", "staff_booking", "inventory", "inventory_adjust"],
+        ["Admin"] = ["settings", "config", "event", "menu", "table", "delete", "order_status", "order_back", "claim", "confirm_order", "checkin", "checkin_ticket", "settle", "cancel", "waiter", "stock", "staff_order", "staff_booking", "inventory", "inventory_adjust"],
         // Service is the cashier and floor role: the cashier queue, payments, and moving orders along.
         ["Service"] = ["order_status", "order_back", "claim", "confirm_order", "settle", "cancel", "staff_order"],
-        ["Gate"] = ["checkin", "checkin_ticket"],
+        // Gate staff check guests in, sell tickets at the entrance, and take payment for reservations.
+        ["Gate"] = ["checkin", "checkin_ticket", "staff_booking", "settle"],
         // A cashier works only the queue: take an order, take the money, confirm it, or cancel an unpaid one.
         ["Cashier"] = ["claim", "confirm_order", "settle", "cancel"],
     };
@@ -42,7 +43,7 @@ public sealed class StaffService(
     {
         ["settings"] = ["Settings"], ["config"] = ["Settings"], ["event"] = ["Events"], ["menu"] = ["Menu"], ["table"] = ["Tables"],
         ["delete"] = ["Events", "Menu", "Tables", "Waiters", "Stock"], ["waiter"] = ["Waiters"],
-        ["order_status"] = ["Orders"], ["order_back"] = ["Orders"], ["claim"] = ["Orders"], ["confirm_order"] = ["Orders"], ["staff_order"] = ["Orders"],
+        ["order_status"] = ["Orders"], ["order_back"] = ["Orders"], ["claim"] = ["Orders"], ["confirm_order"] = ["Orders"], ["staff_order"] = ["Orders"], ["staff_booking"] = ["Bookings", "Check-ins"],
         ["checkin"] = ["Bookings", "Check-ins"], ["checkin_ticket"] = ["Bookings", "Check-ins"],
         ["settle"] = ["Orders", "Bookings"], ["cancel"] = ["Orders", "Bookings"],
         ["stock"] = ["Stock", "Menu"], ["inventory"] = ["Stock"], ["inventory_adjust"] = ["Stock"],
@@ -69,7 +70,7 @@ public sealed class StaffService(
     }
 
     // Actions whose records say which staff member did them (check-ins, stock moves, orders taken).
-    private static readonly string[] SignedActions = ["checkin", "checkin_ticket", "stock", "staff_order", "menu", "cancel", "inventory", "inventory_adjust", "claim", "confirm_order"];
+    private static readonly string[] SignedActions = ["checkin", "checkin_ticket", "stock", "staff_order", "menu", "cancel", "inventory", "inventory_adjust", "claim", "confirm_order", "staff_booking"];
 
     public string Cookie(string value, int? maxAge = null) =>
         Http.Cookie(options, SessionCookie, value, maxAge ?? EncoreOptions.AdminSessionDays * 86400, "Strict");
@@ -315,9 +316,16 @@ public sealed class StaffService(
         var needs = group switch { "menu" => ["Settings", "Menu"], "store" => ["Settings", "Stock"], _ => ActionPages.GetValueOrDefault(op) };
         if (needs is not null && !needs.Any(PagesFor(u).Contains))
             throw new NotAllowed("Your access does not include this. Ask an administrator.");
-        if (op == "staff_order" && v["data"] is JsonObject taken && WorkspaceRules.Str(taken["method"]) == "Afropay" && !options.PaymentsReady)
-            throw new DomainException("Afropay is not connected for this workspace yet, so no payment request can be sent. Take cash, or save the order as not paid yet.");
+        // Afropay is refused until the real checkout is connected, so no payment is ever pretended.
+        if (op is "staff_order" or "staff_booking" or "settle" && v["data"] is JsonObject taken && WorkspaceRules.Str(taken["method"]) == "Afropay" && !options.PaymentsReady)
+            throw new DomainException("Afropay is not connected for this workspace yet, so no payment request can be sent. Take cash, or leave it as not paid yet.");
         var (row, s) = await WorkspaceAsync(u.TenantId);
+        if (u.Role == "Gate" && op == "settle")
+        {
+            var id = v["data"] is JsonObject target ? WorkspaceRules.Str(target["id"]) : null;
+            if (!s.Bookings.Any(b => WorkspaceRules.Str(b["id"]) == id))
+                throw new NotAllowed("Gate staff take payment for tickets only.");
+        }
         if (u.Role == "Cashier" && op is "settle" or "cancel")
         {
             // Cashiers handle payments only for orders still in the queue that nobody else has taken.

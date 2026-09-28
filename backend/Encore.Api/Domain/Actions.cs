@@ -160,6 +160,9 @@ public static partial class Actions
             case "staff_order":
                 v["result"] = StaffOrder(s, v);
                 break;
+            case "staff_booking":
+                v["result"] = StaffBooking(s, v);
+                break;
             default:
                 throw new DomainException("Unknown action.");
         }
@@ -480,6 +483,41 @@ public static partial class Actions
             rec["settledAt"] = rec["created"]!.DeepClone();
         }
         s.Orders.Add(rec);
+        return new JsonObject { ["ref"] = rec["ref"]!.DeepClone(), ["id"] = rec["id"]!.DeepClone(), ["total"] = rec["total"]!.DeepClone() };
+    }
+
+    /// <summary>Tickets sold by staff at the gate. Cash is recorded as paid on the spot; Afropay stays unpaid until Afropay confirms it.</summary>
+    public static JsonObject StaffBooking(Workspace s, JsonObject v)
+    {
+        var request = v.DeepClone().AsObject();
+        request["kind"] = "booking";
+        var q = Pricing.QuoteOrder(s, request, staff: true);
+        var method = Values.Truthy(v["method"]) ? Values.Show(v["method"]) : "";
+        if (method.Length > 0 && !StaffPaymentMethods.Contains(method)) throw new DomainException("Choose cash, Afropay, or not paid yet.");
+        var phone = Values.Truthy(v["phone"]) ? Values.NormalizePhone(v["phone"]) : "";
+        if (method == "Afropay" && phone.Length == 0) throw new DomainException("Enter the guest's phone number so Afropay can send them the payment request.");
+        var e = s.Events.First(e => Str(e["id"]) == Str(v["event"]));
+        var qty = (int)Values.Long(q["lines"]![0]!["qty"]);
+        var name = Values.Text(v["name"], 80, false);
+        var rec = new JsonObject
+        {
+            ["id"] = Ids.Uid(), ["ref"] = Ids.Reference(), ["token"] = Ids.Uid(), ["guest"] = null,
+            ["name"] = name.Length > 0 ? name : "Walk-in guest", ["phone"] = phone, ["email"] = "", ["currency"] = s.Currency,
+            ["total"] = q["total"]!.DeepClone(), ["subtotal"] = q["subtotal"]!.DeepClone(), ["lines"] = q["lines"]!.DeepClone(),
+            ["tax"] = q["tax"]?.DeepClone(), ["tin"] = q["tin"]?.DeepClone(), ["vatNumber"] = q["vatNumber"]?.DeepClone(),
+            ["paid"] = false, ["settlement"] = "staff", ["takenBy"] = Str(v["_by"]) ?? "", ["created"] = Ids.Now(),
+            ["event"] = e["id"]!.DeepClone(), ["eventName"] = e["name"]?.DeepClone(), ["venue"] = e["venue"]?.DeepClone() ?? "",
+            ["date"] = e["date"]?.DeepClone() ?? "", ["qty"] = qty, ["status"] = "Reserved",
+            ["tickets"] = new JsonArray([.. Enumerable.Range(1, qty).Select(i => (JsonNode?)new JsonObject { ["serial"] = i, ["token"] = Ids.Uid(), ["used"] = false })]),
+        };
+        if (method == "Afropay") rec["payment"] = "afropay";
+        else if (method.Length > 0)
+        {
+            rec["paid"] = true;
+            rec["settledBy"] = method;
+            rec["settledAt"] = rec["created"]!.DeepClone();
+        }
+        s.Bookings.Add(rec);
         return new JsonObject { ["ref"] = rec["ref"]!.DeepClone(), ["id"] = rec["id"]!.DeepClone(), ["total"] = rec["total"]!.DeepClone() };
     }
 

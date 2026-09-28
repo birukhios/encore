@@ -1346,3 +1346,4 @@ button.danger:hover:not(:disabled) { background: #a51524; }
 
 .dash-filters { margin-bottom: 0; }
 .dash-filters select { width: auto; min-width: 200px; }
+.choice.disabled { opacity: .55; cursor: not-allowed; }

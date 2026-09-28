@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
 import { dateTime } from '../../shared/api';
 import { Empty, ErrorText, Icon } from '../../shared/ui';
-import { PageActions, paidBadge, SettleModal, TicketScan } from './common';
+import { PageActions, paidBadge, SellTickets, SettleModal, TicketScan } from './common';
 
 export function Bookings({ ctx }) {
   const { state, money, canManage, role, matches } = ctx;
   const [filter, setFilter] = useState('Ready for entry');
   const [settling, setSettling] = useState(null);
   const [scanning, setScanning] = useState(false);
+  const [selling, setSelling] = useState(false);
   const [rowError, setRowError] = useState('');
   const filters = {
     'Ready for entry': b => b.status === 'Reserved' && b.paid,
@@ -23,7 +24,10 @@ export function Bookings({ ctx }) {
   };
   return (
     <>
-      <PageActions><button className="primary" onClick={() => setScanning(true)}><Icon name="ticket" />Scan ticket</button></PageActions>
+      <PageActions>
+        <button onClick={() => setSelling(true)}><Icon name="add" />Sell tickets</button>
+        <button className="primary" onClick={() => setScanning(true)}><Icon name="ticket" />Scan ticket</button>
+      </PageActions>
       <section className="card">
         <div className="card-head">
           <div className="segmented" role="tablist" aria-label="Filter bookings">
@@ -53,6 +57,7 @@ export function Bookings({ ctx }) {
               </div>
               <div className="actions">
                 {b.status === 'Reserved' && !b.paid && ['Owner', 'Admin'].includes(role) && <button onClick={() => confirm(`Cancel booking ${b.ref}?`) && act('cancel', { id: b.id })}>Cancel</button>}
+                {b.status === 'Reserved' && !b.paid && <button className="primary" onClick={() => setSettling(b)}>Take payment</button>}
                 {b.status === 'Reserved' && b.paid && <button className="primary" onClick={() => act('checkin', { id: b.id })}>Check in {b.tickets.filter(t => !t.used).length > 1 ? 'all' : ''}</button>}
               </div>
             </div>
@@ -61,6 +66,7 @@ export function Bookings({ ctx }) {
       </section>
       {settling && <SettleModal ctx={ctx} record={settling} onClose={() => setSettling(null)} />}
       {scanning && <TicketScan ctx={ctx} onClose={() => setScanning(false)} />}
+      {selling && <SellTickets ctx={ctx} onClose={() => setSelling(false)} />}
     </>
   );
 }

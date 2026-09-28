@@ -155,6 +155,40 @@ public sealed class OrganizerTests(EncoreApp app) : ServerTest(app)
     }
 
     [Fact]
+    public async Task Gate_sells_tickets_and_takes_cash_for_reservations()
+    {
+        var (c, b, _, _) = await Staff();
+        var e = await Concert(c, capacity: 3);
+        var id = (string)e["id"]!;
+        var (gate, _, _, _) = await Join(c, "Gate");
+
+        var (status, sold) = await Act(gate, "staff_booking", new { @event = id, qty = 2, method = "Cash", name = "Door guest" });
+        Assert.Equal(200, status);
+        var booking = (await State(c))["bookings"]![0]!;
+        Assert.Equal((true, "Cash", 2, "Gate Staff"), ((bool)booking["paid"]!, (string)booking["settledBy"]!, (int)booking["qty"]!, (string)booking["takenBy"]!));
+        Assert.Contains("not enough tickets", (string)(await Act(gate, "staff_booking", new { @event = id, qty = 2, method = "Cash" })).Body["error"]!);
+        // Afropay is refused until it is connected, and nothing is recorded.
+        Assert.Contains("Afropay is not connected", (string)(await Act(gate, "staff_booking", new { @event = id, qty = 1, method = "Afropay", phone = "0911223344" })).Body["error"]!);
+        Assert.Contains("Choose cash, Afropay", (string)(await Act(gate, "staff_booking", new { @event = id, qty = 1, method = "Card at venue" })).Body["error"]!);
+        Assert.Single((await State(c))["bookings"]!.AsArray());
+
+        // A guest's cash reservation: the gate takes the cash, then scans it in.
+        await Act(c, "config", new { group = "payments", values = new { cash = true, ticketCash = true } });
+        var (g, _) = await GuestClient();
+        var (_, rec) = await g.Call("order", new { tenant = Tenant(b), kind = "booking", @event = id, qty = 1, payment = "cash" });
+        var reserved = (await State(c))["bookings"]!.AsArray().First(x => (string)x!["ref"]! == (string)rec["ref"]!)!;
+        Assert.Contains("Afropay is not connected", (string)(await Act(gate, "settle", new { id = (string)reserved["id"]!, method = "Afropay" })).Body["error"]!);
+        Assert.Equal(200, (await Act(gate, "settle", new { id = (string)reserved["id"]!, method = "Cash" })).Status);
+        Assert.NotEqual(401, (await Act(gate, "checkin_ticket", new { code = $"{rec["ref"]}:1:{rec["tickets"]![0]!["token"]}" })).Status);
+
+        // The gate never takes payment for food and drink orders.
+        await Act(c, "menu", new { name = "Tea", description = "Hot", price = "20", category = "Food", available = true });
+        await Act(c, "staff_order", new JsonObject { ["items"] = new JsonObject { [(string)(await State(c))["menu"]![0]!["id"]!] = 1 } });
+        Assert.Equal(401, (await Act(gate, "settle", new { id = (string)(await State(c))["orders"]![0]!["id"]!, method = "Cash" })).Status);
+        Assert.Equal(401, (await Act(gate, "staff_order", new JsonObject { ["items"] = new JsonObject() })).Status);
+    }
+
+    [Fact]
     public async Task Payment_cannot_be_forged()
     {
         var (c, b, _, _) = await Staff();
