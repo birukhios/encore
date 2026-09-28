@@ -15,7 +15,7 @@ const SETUP = [
   ['Build the menu', 'Menu → Add item: photo, price, category, and which concerts it is served at. Turn on “Track stock” for anything you count.', 'Menu'],
   ['Print table QR codes', 'Tables → Add table: pick the concert and seats. Print the QR code; guests scan it to order to that table.', 'Tables'],
   ['Add your waiters', 'Waiters → Add waiter: each gets a 4-digit number. Print the badge — guests type that number so their tip reaches the right person.', 'Waiters'],
-  ['Invite your team', 'Team → Invite: Admin (everything), Service (orders and payments), Gate (check-in only).', 'Team'],
+  ['Invite your team', 'Team → Invite: Admin (everything), Service (orders and payments), Cashier (the cashier queue only), Gate (check-in only). Tick the pages each member can open; change it later with Access.', 'Team'],
 ];
 
 const FLOWS = [

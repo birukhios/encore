@@ -52,6 +52,7 @@ public sealed class EncoreDbContext(DbContextOptions<EncoreDbContext> options) :
             e.Property(x => x.Recovery).HasColumnName("recovery");
             e.Property(x => x.Role).HasColumnName("role");
             e.Property(x => x.Avatar).HasColumnName("avatar").HasDefaultValue("");
+            e.Property(x => x.Pages).HasColumnName("pages").HasDefaultValue("");
             e.HasIndex(x => x.Email).IsUnique().HasDatabaseName("users_email_key");
             e.HasIndex(x => x.TenantId).HasDatabaseName("users_tenant");
             e.HasOne<Tenant>().WithMany().HasForeignKey(x => x.TenantId).OnDelete(DeleteBehavior.NoAction);
@@ -72,6 +73,7 @@ public sealed class EncoreDbContext(DbContextOptions<EncoreDbContext> options) :
             e.Property(x => x.TenantId).HasColumnName("tenant");
             e.Property(x => x.Email).HasColumnName("email");
             e.Property(x => x.Role).HasColumnName("role");
+            e.Property(x => x.Pages).HasColumnName("pages").HasDefaultValue("");
             e.Property(x => x.Expires).HasColumnName("expires");
             e.HasIndex(x => x.Expires).HasDatabaseName("invites_expires");
             e.HasOne<Tenant>().WithMany().HasForeignKey(x => x.TenantId).OnDelete(DeleteBehavior.NoAction);

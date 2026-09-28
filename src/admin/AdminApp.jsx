@@ -8,6 +8,7 @@ import { Bookings, CheckIns, Events, Menu, Orders, Overview, Profile, Tables, Te
 import Reports from './Reports';
 import Settings from './Settings';
 import Guide from './Guide';
+import { ROLE_LABELS, ROLE_PAGES } from './roles';
 import { Stock, Waiters } from './service';
 
 const PAGES = {
@@ -35,12 +36,6 @@ const NAV_GROUPS = [
   ['Help', ['Guide']],
 ];
 
-export const ROLE_PAGES = {
-  Owner: ['Overview', 'Events', 'Bookings', 'Check-ins', 'Reports', 'Tables', 'Menu', 'Stock', 'Waiters', 'Orders', 'Team', 'Settings', 'Guide'],
-  Admin: ['Overview', 'Events', 'Bookings', 'Check-ins', 'Reports', 'Tables', 'Menu', 'Stock', 'Waiters', 'Orders', 'Team', 'Settings', 'Guide'],
-  Service: ['Overview', 'Orders', 'Guide'],
-  Gate: ['Overview', 'Bookings', 'Check-ins', 'Guide'],
-};
 
 export default function AdminApp() {
   const [session, setSession] = useState(null);
@@ -77,8 +72,9 @@ export default function AdminApp() {
   usePolling(() => session && refresh(), 20000, [!!session]);
 
   const role = session?.user.role;
-  const pages = ROLE_PAGES[role] || [];
-  const current = page === 'Profile' || pages.includes(page) ? page : 'Overview';
+  // The server sends the pages this member was granted; the role list is the fallback for older sessions.
+  const pages = session?.user.pages || ROLE_PAGES[role] || [];
+  const current = page === 'Profile' || pages.includes(page) ? page : pages[0] || 'Guide';
 
   function go(next, nextIntent = null) {
     setIntent(nextIntent);
@@ -140,7 +136,7 @@ export default function AdminApp() {
           {state.settings.theme.logo ? <img className="side-logo" src={state.settings.theme.logo} alt="" /> : <LogoMark size={36} />}
           <span className="grow" style={{ minWidth: 0 }}>
             <b className="side-org">{state.name}</b>
-            <small className="side-role">{role === 'Service' ? 'Cashier & service' : role}</small>
+            <small className="side-role">{ROLE_LABELS[role] || role}</small>
           </span>
           <button className="icon-btn menu-toggle ghost" aria-label="Close navigation" onClick={() => setNavOpen(false)}><Glyph name="x" /></button>
         </div>

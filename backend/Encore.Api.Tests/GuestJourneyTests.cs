@@ -242,6 +242,57 @@ public sealed class GuestJourneyTests(EncoreApp app) : ServerTest(app)
     }
 
     [Fact]
+    public async Task Cashiers_see_only_their_own_orders_and_members_only_their_granted_pages()
+    {
+        var (owner, b, _, _) = await Staff();
+        var t = Tenant(b);
+        await Concert(owner);
+        await Act(owner, "menu", new { name = "Tibs", description = "Hot", price = "100", category = "Food", available = true });
+        var item = (string)(await State(owner))["menu"]![0]!["id"]!;
+
+        async Task<(Client Client, string Id)> Member(string role, string[]? pages = null)
+        {
+            var mail = Guid.NewGuid().ToString("N")[..8] + "@example.com";
+            var token = ((string)(await owner.Call("invite", new { email = mail, role, pages })).Body["url"]!).Split("invite=")[1];
+            var m = App.Admin();
+            var (status, body) = await m.Call("signup", new { name = role + " " + mail[..4], email = mail, password = Password(), invite = token });
+            Assert.Equal(201, status);
+            return (m, (string)body["user"]!["id"]!);
+        }
+        var (one, _) = await Member("Cashier");
+        var (two, _) = await Member("Cashier");
+        var (g, _) = await GuestClient("Queue Guest");
+        await g.Call("order", new JsonObject { ["tenant"] = t, ["kind"] = "menu", ["items"] = new JsonObject { [item] = 1 }, ["payment"] = "cash" });
+        var id = (string)(await State(owner))["orders"]![0]!["id"]!;
+
+        Assert.Single((await State(two))["orders"]!.AsArray());
+        Assert.Empty((await State(two))["bookings"]!.AsArray());
+        Assert.Equal(200, (await Act(one, "claim", new { id })).Status);
+        // Cashier 1 took it: cashier 2 no longer sees it and cannot take its payment or cancel it.
+        Assert.Empty((await State(two))["orders"]!.AsArray());
+        Assert.Equal(401, (await Act(two, "settle", new { id, method = "Cash" })).Status);
+        Assert.Equal(401, (await Act(two, "cancel", new { id })).Status);
+        Assert.Equal(401, (await Act(one, "order_status", new { id, status = "Preparing" })).Status);
+        Assert.Equal(200, (await Act(one, "settle", new { id, method = "Cash" })).Status);
+        Assert.Equal(200, (await Act(one, "confirm_order", new { id })).Status);
+        Assert.Equal("Placed", (string)(await State(one))["orders"]![0]!["status"]!);
+        Assert.Empty((await State(two))["orders"]!.AsArray());
+
+        // Page access: an admin limited to Menu and Orders cannot touch events or payment settings.
+        var (limited, limitedId) = await Member("Admin", ["Menu", "Orders"]);
+        var pages = (await limited.Call("me")).Body["user"]!["pages"]!.AsArray().Select(p => (string)p!).Order();
+        Assert.Equal(["Guide", "Menu", "Orders"], pages);
+        var concert = new { name = "Late", date = "2030-01-01T20:00", venue = "Hall", price = "1", capacity = 1 };
+        Assert.Equal(401, (await Act(limited, "event", concert)).Status);
+        Assert.Equal(401, (await Act(limited, "config", new { group = "payments", values = new { cash = true } })).Status);
+        Assert.Equal(200, (await Act(limited, "config", new { group = "menu", values = new { categories = new[] { "Food", "Drinks" } } })).Status);
+        Assert.Equal(401, (await one.Call("team/access", new { id = limitedId, pages = new[] { "Events" } })).Status);
+        Assert.Equal(200, (await owner.Call("team/access", new { id = limitedId, pages = new[] { "Events" } })).Status);
+        Assert.NotEqual(401, (await Act(limited, "event", concert)).Status);
+        Assert.Equal(401, (await Act(limited, "menu", new { name = "Tea", price = "10", category = "Drinks", available = true })).Status);
+    }
+
+    [Fact]
     public async Task Booking_capacity_and_receipt_links()
     {
         var (c, b, _, _) = await Staff();

@@ -7,7 +7,7 @@ namespace Encore.Api.Controllers;
 
 /// <summary>
 /// The organizer admin API (/admin/api). Sign-up, sign-in and recovery are open (rate limited); everything else needs an
-/// organizer session, and what a member may change is decided by their role (Owner, Admin, Service, Gate).
+/// organizer session, and what a member may change is decided by their role (Owner, Admin, Service, Cashier, Gate).
 /// </summary>
 [ApiController]
 [Route("admin/api")]
@@ -62,6 +62,10 @@ public sealed class AdminController(StaffService staff, ActivityRepository activ
     /// <summary>Owner, Admin.</summary>
     [HttpPost("invite")]
     public async Task<IActionResult> Invite() => Reply(await staff.InviteAsync(await staff.CurrentUserAsync(Session), Body));
+
+    /// <summary>Owner, Admin.</summary>
+    [HttpPost("team/access")]
+    public async Task<IActionResult> MemberAccess() => Reply(await staff.MemberAccessAsync(await staff.CurrentUserAsync(Session), Body));
 
     /// <summary>Owner only.</summary>
     [HttpPost("team/remove")]

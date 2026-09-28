@@ -9,7 +9,8 @@ import { exportPdf } from './pdf';
 import { Bars, DataTable, Kpi, TrendChart } from './charts';
 import { compact, Suggestions } from './Reports';
 import { NewOrder, PrintOrder } from './service';
-import { buildReport, change, downloadText, guestHistory, paymentLabel, slug, toCsv, vatOf } from './reportData';
+import { ROLE_PAGES } from './roles';
+import { buildReport, change, downloadText, guestHistory, paymentLabel, slug, toCsv, vatOf, WALLET_NAMES } from './reportData';
 import Scanner from '../shared/Scanner';
 import { Avatar, copyText, Empty, ErrorText, Field, Icon, Modal, StarIcon, Toggle } from '../shared/ui';
 
@@ -351,12 +352,15 @@ function EventForm({ ctx, item, onClose }) {
 // Money actually collected (paid, not cancelled), split by payment method and by event, with what is still pending.
 function PaymentsPanel({ ctx }) {
   const { state, money, go } = ctx;
-  const all = [...state.bookings, ...state.orders].filter(r => r.status !== 'Cancelled');
+  const [eventId, setEventId] = useState('');
+  const inScope = r => !eventId || r.event === eventId;
+  const everything = [...state.bookings, ...state.orders].filter(inScope);
+  const all = everything.filter(r => r.status !== 'Cancelled');
   const paid = all.filter(r => r.paid);
   const atVenue = r => ['Cash', 'Card at venue'].includes(r.settledBy);
   const sum = rows => rows.reduce((n, r) => n + (r.total || 0), 0);
   const methods = Object.entries(paid.reduce((m, r) => {
-    const key = atVenue(r) ? r.settledBy : 'Online (Afropay)';
+    const key = atVenue(r) ? r.settledBy : r.wallet ? `${WALLET_NAMES[r.wallet] || r.wallet} (Afropay)` : 'Online (Afropay)';
     m[key] = (m[key] || 0) + r.total;
     return m;
   }, {})).sort((a, b) => b[1] - a[1]);
@@ -368,20 +372,27 @@ function PaymentsPanel({ ctx }) {
     ['Paid online', paid.filter(r => !atVenue(r)).length, 'success'],
     ['Paid at the venue', paid.filter(atVenue).length, 'success'],
     ['Pending payment', pending.length, 'warning'],
-    ['Cancelled', state.bookings.concat(state.orders).filter(r => r.status === 'Cancelled').length, 'neutral'],
+    ['Cancelled', everything.filter(r => r.status === 'Cancelled').length, 'neutral'],
   ];
   return (
     <section className="card">
       <div className="card-head">
-        <div><h2>Payments collected</h2><p>All time · {paid.length} paid bookings and orders</p></div>
-        <button onClick={() => go('Orders')}>Orders</button>
+        <div><h2>Payments collected</h2><p>{eventId ? 'This event' : 'All events, all time'} · {paid.length} paid bookings and orders</p></div>
+        <select aria-label="Show payments for" value={eventId} onChange={e => setEventId(e.target.value)} style={{ maxWidth: 220 }}>
+          <option value="">All events</option>
+          {[...state.events].sort((a, b) => b.date.localeCompare(a.date)).map(e => <option key={e.id} value={e.id}>{e.name} · {shortDate(e.date)}</option>)}
+        </select>
       </div>
       <strong style={{ fontSize: 28, display: 'block', margin: '4px 0 12px' }}>{money(sum(paid))}</strong>
       <div className="list">
         {methods.map(([m, v]) => <div className="listrow" key={m}><span className="grow">{m}</span><b>{money(v)}</b></div>)}
         {!methods.length && <p className="small">No payments recorded yet.</p>}
       </div>
-      {events.length > 0 && <>
+      <div className="row wrap" style={{ gap: 8, marginTop: 10 }}>
+        <span className="badge neutral">Cash & card at venue · {money(sum(paid.filter(atVenue)))}</span>
+        <span className="badge neutral">Afropay wallets · {money(sum(paid.filter(r => !atVenue(r))))}</span>
+      </div>
+      {!eventId && events.length > 0 && <>
         <h3 style={{ marginTop: 14 }}>By event</h3>
         <div className="list">{events.map(([id, v]) => <div className="listrow" key={id || 'none'}><span className="grow">{eventName(id)}</span><b>{money(v)}</b></div>)}</div>
       </>}
@@ -885,6 +896,17 @@ function MenuForm({ ctx, item, onClose }) {
   const [trackStock, setTrackStock] = useState(!!item.trackStock);
   const { busy, error, run } = useRunner();
   const categories = state.settings.menu.categories;
+  const [category, setCategory] = useState(item.category || categories[0]);
+  const [newCategory, setNewCategory] = useState(null); // text while adding one
+  // Saved straight into Settings, so the half-filled item form stays open.
+  const addCategory = () => run(async () => {
+    const name = newCategory.trim();
+    if (!name) throw new Error('Type a category name.');
+    const existing = categories.find(c => c.toLowerCase() === name.toLowerCase());
+    if (!existing) await ctx.action('config', { group: 'menu', values: { categories: [...categories, name] } });
+    setCategory(existing || name);
+    setNewCategory(null);
+  });
   const submit = e => {
     e.preventDefault();
     const v = Object.fromEntries(new FormData(e.currentTarget));
@@ -903,9 +925,20 @@ function MenuForm({ ctx, item, onClose }) {
         <ImageUpload label="Photo" value={image} onChange={setImage} />
         <div className="formrow">
           <Field label="Item name" name="name" defaultValue={item.name} maxLength={120} required />
-          <Field label="Category" hint={<button type="button" className="linklike small" onClick={() => { onClose(); ctx.go('Settings'); history.replaceState(null, '', '/admin?page=Settings&section=categories'); }}>Manage categories</button>}>
-            <select name="category" defaultValue={item.category || categories[0]} required>{categories.map(c => <option key={c}>{c}</option>)}</select>
-          </Field>
+          {newCategory === null ? (
+            <Field label="Category" hint={<button type="button" className="linklike small" onClick={() => setNewCategory('')}>+ New category</button>}>
+              <select name="category" value={category} onChange={e => setCategory(e.target.value)} required>{categories.map(c => <option key={c}>{c}</option>)}</select>
+            </Field>
+          ) : (
+            <Field label="New category" hint={<span className="row" style={{ gap: 8 }}>
+              <button type="button" className="linklike small" onClick={addCategory} disabled={busy}>Add</button>
+              <button type="button" className="linklike small" onClick={() => setNewCategory(null)}>Cancel</button>
+            </span>}>
+              <input type="hidden" name="category" value={category} />
+              <input aria-label="New category name" value={newCategory} maxLength={40} autoFocus onChange={e => setNewCategory(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addCategory(); } }} />
+            </Field>
+          )}
         </div>
         <Field label="Description"><textarea name="description" defaultValue={item.description} maxLength={500} required /></Field>
         <Field label={`Price (${state.currency})`} name="price" type="number" step="0.01" min="0" defaultValue={(item.price || 0) / 100} required />
@@ -944,7 +977,8 @@ function MenuForm({ ctx, item, onClose }) {
 
 export function Orders({ ctx }) {
   const { state, money, matches } = ctx;
-  const [filter, setFilter] = useState(() => ctx.role === 'Service' && ctx.state.settings.ordering.cashierConfirm ? 'Cashier' : 'Active');
+  const cashier = ctx.role === 'Cashier';
+  const [filter, setFilter] = useState(() => cashier || (ctx.role === 'Service' && ctx.state.settings.ordering.cashierConfirm) ? 'Cashier' : 'Active');
   const [settling, setSettling] = useState(null);
   const [printing, setPrinting] = useState(null);
   const [taking, setTaking] = useState(false);
@@ -952,7 +986,12 @@ export function Orders({ ctx }) {
   const [moving, setMoving] = useState(null); // { order, to, back } awaiting confirmation
   const canTakeOrders = ['Owner', 'Admin', 'Service'].includes(ctx.role);
   const cashierQueue = state.settings.ordering.cashierConfirm || state.orders.some(o => o.status === 'Awaiting cashier');
-  const filters = {
+  // A cashier's list comes from the server already narrowed to the open queue and the orders they handled.
+  const filters = cashier ? {
+    Cashier: o => o.status === 'Awaiting cashier',
+    'Sent to kitchen': o => o.status !== 'Awaiting cashier' && o.status !== 'Cancelled',
+    Cancelled: o => o.status === 'Cancelled',
+  } : {
     ...(cashierQueue ? { Cashier: o => o.status === 'Awaiting cashier' } : {}),
     Active: o => ['Placed', 'Preparing', 'Ready'].includes(o.status),
     Unpaid: o => !o.paid && o.status !== 'Cancelled',
@@ -1001,12 +1040,12 @@ export function Orders({ ctx }) {
             <div className="meta"><span>Items {money(o.subtotal)}</span>{o.tax && <span>{o.tax.label} {o.tax.included ? 'incl.' : '+'} {money(o.tax.amount)}</span>}<span>Tip {money(o.tip || 0)}</span><b style={{ color: 'var(--ink)' }}>Total {money(o.total)}</b></div>
             <div className="actions">
               {o.status !== 'Awaiting cashier' && <button onClick={() => setPrinting(o)} aria-label={`Print order ${o.ref}`}><Icon name="download" />Print</button>}
-              {['Awaiting cashier', 'Placed', 'Preparing'].includes(o.status) && !o.paid && <button onClick={() => confirm(`Cancel order ${o.ref}?`) && act('cancel', { id: o.id })}>Cancel</button>}
+              {(cashier ? ['Awaiting cashier'] : ['Awaiting cashier', 'Placed', 'Preparing']).includes(o.status) && !o.paid && <button onClick={() => confirm(`Cancel order ${o.ref}?`) && act('cancel', { id: o.id })}>Cancel</button>}
               {o.status === 'Awaiting cashier' && !o.claimedBy && <button onClick={() => act('claim', { id: o.id })}>Claim</button>}
-              {o.status !== 'Cancelled' && !o.paid && <button onClick={() => setSettling(o)}>Record payment</button>}
+              {o.status !== 'Cancelled' && !o.paid && (!cashier || o.status === 'Awaiting cashier') && <button onClick={() => setSettling(o)}>Record payment</button>}
               {o.status === 'Awaiting cashier' && <button className="primary" disabled={!o.paid} title={o.paid ? '' : 'Record the payment first'} onClick={() => confirmAndPrint(o)}>Confirm & print</button>}
               {canTakeOrders && back[o.status] && <button onClick={() => setMoving({ order: o, to: back[o.status], back: true })}>Back to {back[o.status].toLowerCase()}</button>}
-              {next[o.status] && <button className="primary" onClick={() => setMoving({ order: o, to: next[o.status], back: false })}>Mark {next[o.status].toLowerCase()}</button>}
+              {!cashier && next[o.status] && <button className="primary" onClick={() => setMoving({ order: o, to: next[o.status], back: false })}>Mark {next[o.status].toLowerCase()}</button>}
             </div>
           </div>
         </div>
@@ -1033,16 +1072,50 @@ export function Orders({ ctx }) {
 
 // ---------------------------------------------------------------- Team
 
+const ROLE_INFO = [
+  ['Admin', 'Everything: events, menu, tables, orders, bookings, team and settings.'],
+  ['Service', 'Floor staff: the cashier queue, then preparing, delivering and cancelling orders.'],
+  ['Cashier', 'The cashier queue only. Once a cashier claims an order, other cashiers no longer see it.'],
+  ['Gate', 'Facilitators at the entrance: scan tickets, take cash for unpaid tickets, check guests in.'],
+];
+
+// Tick the pages a member may open; Guide is always available.
+function PageChooser({ role, value, onChange }) {
+  const options = ROLE_PAGES[role].filter(p => p !== 'Guide');
+  return (
+    <fieldset className="stack">
+      <legend className="small">What they can see and use</legend>
+      <div className="row wrap">
+        {options.map(p => (
+          <label key={p} className="row" style={{ gap: 6 }}>
+            <input type="checkbox" checked={value.includes(p)} onChange={e => onChange(e.target.checked ? [...value, p] : value.filter(x => x !== p))} />{p}
+          </label>
+        ))}
+      </div>
+    </fieldset>
+  );
+}
+
 export function Team({ ctx }) {
   const { session, state, role } = ctx;
   const [inviting, setInviting] = useState(false);
   const [link, setLink] = useState('');
+  const [newRole, setNewRole] = useState('Service');
+  const [newPages, setNewPages] = useState(ROLE_PAGES.Service);
+  const [editing, setEditing] = useState(null); // { member, pages }
   const { busy, error, run } = useRunner();
+  const chosen = (r, list) => list.filter(p => ROLE_PAGES[r].includes(p) && p !== 'Guide');
+  const saveAccess = () => run(async () => {
+    ctx.setSession(await api('team/access', { id: editing.member.id, pages: chosen(editing.member.role, editing.pages) }));
+    ctx.toast(`${editing.member.name} can now open ${chosen(editing.member.role, editing.pages).join(', ')}`);
+    setEditing(null);
+  });
   const remove = m => confirm(`Remove ${m.name} from ${state.name}? They will be signed out immediately.`) &&
     run(async () => { ctx.setSession(await api('team/remove', { id: m.id })); ctx.toast(m.name + ' was removed'); });
   const invite = e => {
     e.preventDefault();
-    run(async () => { setLink((await api('invite', Object.fromEntries(new FormData(e.currentTarget)))).url); });
+    const email = new FormData(e.currentTarget).get('email');
+    run(async () => { setLink((await api('invite', { email, role: newRole, pages: chosen(newRole, newPages) })).url); });
   };
   return (
     <>
@@ -1056,15 +1129,24 @@ export function Team({ ctx }) {
               <Avatar name={m.name} src={m.avatar} />
               <div className="grow"><b>{m.name}{m.id === session.user.id && <span className="muted"> (you)</span>}</b><small>{m.email}</small></div>
               <span className="badge neutral">{m.role}</span>
+              {ctx.canManage && m.role !== 'Owner' && m.id !== session.user.id && <button className="ghost" onClick={() => setEditing({ member: m, pages: m.pages || ROLE_PAGES[m.role] })} disabled={busy}>Access</button>}
               {role === 'Owner' && m.role !== 'Owner' && <button className="ghost danger-text" onClick={() => remove(m)} disabled={busy}>Remove</button>}
             </div>
           ))}
         </div>
       </section>
+      {editing && (
+        <Modal title={`What ${editing.member.name} can open`} eyebrow={editing.member.role} onClose={() => setEditing(null)}
+          footer={<><button onClick={() => setEditing(null)}>Cancel</button><button className="primary" onClick={saveAccess} disabled={busy || !chosen(editing.member.role, editing.pages).length}>Save access</button></>}>
+          <PageChooser role={editing.member.role} value={editing.pages} onChange={pages => setEditing({ ...editing, pages })} />
+          <p className="small">They see the change the next time their screen refreshes.</p>
+          <ErrorText>{error}</ErrorText>
+        </Modal>
+      )}
       <section className="card">
         <h3>Roles</h3>
         <div className="list" style={{ marginTop: 8 }}>
-          {[['Owner & Admin', 'Everything: events, menu, tables, orders, bookings, team and settings.'], ['Service', 'Cashiers and floor staff: the cashier queue (claim, take payment, confirm and print), then preparing, delivering and cancelling orders.'], ['Gate', 'Facilitators at the entrance: scan tickets, take cash for unpaid tickets, check guests in.']].map(([r, d]) => (
+          {[['Owner', 'Everything, always. Only the owner can remove members.'], ...ROLE_INFO].map(([r, d]) => (
             <div className="listrow" key={r}><b style={{ width: 130 }}>{r}</b><p className="small grow">{d}</p></div>
           ))}
         </div>
@@ -1073,7 +1155,7 @@ export function Team({ ctx }) {
         <Modal title={link ? 'Your invitation is ready' : 'Invite a teammate'} eyebrow={state.name} onClose={() => setInviting(false)}
           footer={link
             ? <><button onClick={async () => ctx.toast(await copyText(link) ? 'Invitation link copied' : 'Select and copy the link')}>Copy link</button><button className="primary" onClick={() => setInviting(false)}>Done</button></>
-            : <><button onClick={() => setInviting(false)}>Cancel</button><button className="primary" form="invite-form" disabled={busy}>{busy ? 'Creating…' : 'Create invitation'}</button></>}>
+            : <><button onClick={() => setInviting(false)}>Cancel</button><button className="primary" form="invite-form" disabled={busy || !chosen(newRole, newPages).length}>{busy ? 'Creating…' : 'Create invitation'}</button></>}>
           {link ? (
             <>
               <p>Send this private link to your teammate. It works once, for the invited email address, for seven days.</p>
@@ -1082,7 +1164,12 @@ export function Team({ ctx }) {
           ) : (
             <form id="invite-form" className="form" onSubmit={invite}>
               <Field label="Email address" name="email" type="email" autoComplete="off" required />
-              <Field label="Role"><select name="role"><option>Admin</option><option>Service</option><option>Gate</option></select></Field>
+              <Field label="Role" hint={ROLE_INFO.find(([r]) => r === newRole)[1]}>
+                <select value={newRole} onChange={e => { setNewRole(e.target.value); setNewPages(ROLE_PAGES[e.target.value]); }}>
+                  {ROLE_INFO.map(([r]) => <option key={r} value={r}>{r === 'Service' ? 'Service (cashier & floor)' : r}</option>)}
+                </select>
+              </Field>
+              <PageChooser role={newRole} value={newPages} onChange={setNewPages} />
               <ErrorText>{error}</ErrorText>
             </form>
           )}

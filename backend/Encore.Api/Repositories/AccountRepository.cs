@@ -43,6 +43,9 @@ public sealed class AccountRepository(EncoreDbContext db)
     public Task SetProfileAsync(string userId, string name, string avatar) =>
         db.Users.Where(u => u.Id == userId).ExecuteUpdateAsync(s => s.SetProperty(u => u.Name, name).SetProperty(u => u.Avatar, avatar));
 
+    public Task SetPagesAsync(string userId, string pages) =>
+        db.Users.Where(u => u.Id == userId).ExecuteUpdateAsync(s => s.SetProperty(u => u.Pages, pages));
+
     public Task DeleteUserAsync(string userId) => db.Users.Where(u => u.Id == userId).ExecuteDeleteAsync();
 
     public async Task AddSessionAsync(string tokenDigest, string userId, long expires)

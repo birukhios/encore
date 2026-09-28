@@ -23,7 +23,50 @@ public sealed class StaffService(
         // Service is the cashier and floor role: the cashier queue, payments, and moving orders along.
         ["Service"] = ["order_status", "order_back", "claim", "confirm_order", "settle", "cancel", "staff_order"],
         ["Gate"] = ["checkin", "checkin_ticket"],
+        // A cashier works only the queue: take an order, take the money, confirm it, or cancel an unpaid one.
+        ["Cashier"] = ["claim", "confirm_order", "settle", "cancel"],
     };
+
+    /// <summary>The admin pages each role can open. A member can be limited further to some of these.</summary>
+    public static readonly Dictionary<string, string[]> RolePages = new()
+    {
+        ["Owner"] = ["Overview", "Events", "Bookings", "Check-ins", "Reports", "Tables", "Menu", "Stock", "Waiters", "Orders", "Team", "Settings", "Guide"],
+        ["Admin"] = ["Overview", "Events", "Bookings", "Check-ins", "Reports", "Tables", "Menu", "Stock", "Waiters", "Orders", "Team", "Settings", "Guide"],
+        ["Service"] = ["Overview", "Orders", "Guide"],
+        ["Gate"] = ["Overview", "Bookings", "Check-ins", "Guide"],
+        ["Cashier"] = ["Orders", "Guide"],
+    };
+
+    // The pages that make an action available; a member needs at least one of them.
+    private static readonly Dictionary<string, string[]> ActionPages = new()
+    {
+        ["settings"] = ["Settings"], ["config"] = ["Settings"], ["event"] = ["Events"], ["menu"] = ["Menu"], ["table"] = ["Tables"],
+        ["delete"] = ["Events", "Menu", "Tables", "Waiters", "Stock"], ["waiter"] = ["Waiters"],
+        ["order_status"] = ["Orders"], ["order_back"] = ["Orders"], ["claim"] = ["Orders"], ["confirm_order"] = ["Orders"], ["staff_order"] = ["Orders"],
+        ["checkin"] = ["Bookings", "Check-ins"], ["checkin_ticket"] = ["Bookings", "Check-ins"],
+        ["settle"] = ["Orders", "Bookings"], ["cancel"] = ["Orders", "Bookings"],
+        ["stock"] = ["Stock", "Menu"], ["inventory"] = ["Stock"], ["inventory_adjust"] = ["Stock"],
+    };
+
+    /// <summary>The pages this member can open: their role's pages, narrowed by what an administrator granted. Owners always get all.</summary>
+    public static string[] PagesFor(User u)
+    {
+        var all = RolePages.GetValueOrDefault(u.Role, []);
+        if (u.Role == "Owner" || string.IsNullOrWhiteSpace(u.Pages)) return all;
+        var granted = u.Pages.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        return [.. all.Where(p => p == "Guide" || granted.Contains(p))];
+    }
+
+    private static string CleanPages(JsonNode? pages, string role)
+    {
+        if (pages is null) return "";
+        if (pages is not JsonArray list) throw new DomainException("Choose which pages this member can open.");
+        var allowed = RolePages.GetValueOrDefault(role, []);
+        var chosen = list.Select(p => WorkspaceRules.Str(p)).Where(p => p is not null && allowed.Contains(p)).Distinct().ToList();
+        if (chosen.Count == 0) throw new DomainException("Give this member at least one page.");
+        // Every page chosen means no narrowing, so later pages added to the role reach them too.
+        return chosen.Count == allowed.Length ? "" : string.Join(",", chosen);
+    }
 
     // Actions whose records say which staff member did them (check-ins, stock moves, orders taken).
     private static readonly string[] SignedActions = ["checkin", "checkin_ticket", "stock", "staff_order", "menu", "cancel", "inventory", "inventory_adjust", "claim", "confirm_order"];
@@ -51,14 +94,30 @@ public sealed class StaffService(
     {
         var (row, s) = await WorkspaceAsync(u.TenantId);
         var team = await accounts.TeamAsync(u.TenantId);
+        var state = JsonNode.Parse(s.Serialize())!.AsObject();
+        if (u.Role == "Cashier")
+        {
+            // Once a cashier takes an order, the other cashiers stop seeing it; they never see ticket sales.
+            var visible = s.Orders.Where(o => WorkspaceRules.Str(o["claimedById"]) is not { Length: > 0 } holder
+                    ? WorkspaceRules.Str(o["status"]) == Actions.AwaitingCashier
+                    : holder == u.Id)
+                .Select(o => WorkspaceRules.Str(o["id"])).ToHashSet();
+            state["orders"] = new JsonArray([.. state["orders"]!.AsArray().Where(o => visible.Contains(WorkspaceRules.Str(o!["id"]))).Select(o => o!.DeepClone())]);
+            state["bookings"] = new JsonArray();
+        }
         return new JsonObject
         {
-            ["user"] = new JsonObject { ["id"] = u.Id, ["name"] = u.Name, ["email"] = u.Email, ["role"] = u.Role, ["tenant"] = u.TenantId, ["avatar"] = u.Avatar },
-            ["state"] = JsonNode.Parse(s.Serialize()),
+            ["user"] = new JsonObject
+            {
+                ["id"] = u.Id, ["name"] = u.Name, ["email"] = u.Email, ["role"] = u.Role, ["tenant"] = u.TenantId, ["avatar"] = u.Avatar,
+                ["pages"] = new JsonArray([.. PagesFor(u).Select(p => (JsonNode?)p)]),
+            },
+            ["state"] = state,
             ["version"] = row.Version,
             ["team"] = new JsonArray([.. team.Select(m => (JsonNode?)new JsonObject
             {
                 ["id"] = m.Id, ["name"] = m.Name, ["email"] = m.Email, ["role"] = m.Role, ["avatar"] = m.Avatar,
+                ["pages"] = new JsonArray([.. PagesFor(m).Select(p => (JsonNode?)p)]),
             })]),
             ["paymentReady"] = options.PaymentsReady,
             ["sms"] = sms.StatusJson(),
@@ -95,13 +154,13 @@ public sealed class StaffService(
         var password = Values.Text(v["password"], 200);
         if (password.Length < 12) throw new DomainException("Use a password with at least 12 characters.");
         var name = Values.Text(v["name"], 100);
-        string tenantId, role = "Owner";
+        string tenantId, role = "Owner", pages = "";
         if (Values.Truthy(v["invite"]))
         {
             var digest = Ids.Digest(Values.Show(v["invite"]));
             var invite = await accounts.InviteAsync(digest, Ids.Now());
             if (invite is null || invite.Email != mail) throw new DomainException("Invitation is invalid or expired.");
-            (tenantId, role) = (invite.TenantId, invite.Role);
+            (tenantId, role, pages) = (invite.TenantId, invite.Role, invite.Pages);
             await accounts.DeleteInviteAsync(digest);
         }
         else
@@ -114,7 +173,7 @@ public sealed class StaffService(
         var u = new User
         {
             Id = Ids.Uid(), TenantId = tenantId, Name = name, Email = mail, Password = passwords.Hash(password),
-            Recovery = Ids.Digest(recovery), Role = role,
+            Recovery = Ids.Digest(recovery), Role = role, Pages = pages,
         };
         await accounts.AddUserAsync(u);
         var token = Sessions.NewToken();
@@ -168,13 +227,24 @@ public sealed class StaffService(
     {
         if (u.Role is not ("Owner" or "Admin")) throw new NotAllowed("Only administrators can invite members.");
         var role = WorkspaceRules.Str(v["role"]);
-        if (role is not ("Admin" or "Service" or "Gate")) throw new DomainException("Select a role.");
+        if (role is not ("Admin" or "Service" or "Cashier" or "Gate")) throw new DomainException("Select a role.");
+        var pages = CleanPages(v["pages"], role);
         var token = Ids.Uid();
         await accounts.AddInviteAsync(new Invite
         {
-            Token = Ids.Digest(token), TenantId = u.TenantId, Email = Values.Email(v["email"]), Role = role, Expires = (int)(Ids.Now() + 604800),
+            Token = Ids.Digest(token), TenantId = u.TenantId, Email = Values.Email(v["email"]), Role = role, Pages = pages, Expires = (int)(Ids.Now() + 604800),
         });
         return new JsonObject { ["url"] = options.AdminOrigin + "/admin/signup?invite=" + token };
+    }
+
+    /// <summary>Owner and Admin only: choose which of their role's pages a member can open. The owner cannot be limited.</summary>
+    public async Task<JsonObject> MemberAccessAsync(User u, JsonObject v)
+    {
+        if (u.Role is not ("Owner" or "Admin")) throw new NotAllowed("Only administrators can change what members can open.");
+        var member = WorkspaceRules.Str(v["id"]) is { } id ? await accounts.MemberAsync(id, u.TenantId) : null;
+        if (member is null || member.Role == "Owner" || member.Id == u.Id) throw new DomainException("This member's access cannot be changed here.");
+        await accounts.SetPagesAsync(member.Id, CleanPages(v["pages"] ?? new JsonArray(), member.Role));
+        return await BundleAsync(u);
     }
 
     /// <summary>Owner only; the owner account itself cannot be removed.</summary>
@@ -215,7 +285,21 @@ public sealed class StaffService(
         var op = WorkspaceRules.Str(v["op"]);
         if (op is null || !RoleActions.TryGetValue(u.Role, out var allowed) || !allowed.Contains(op))
             throw new NotAllowed("Your role does not allow this action.");
+        // Categories can be edited from the Menu and Stock pages too; every other setting needs the Settings page.
+        var group = op == "config" && v["data"] is JsonObject cfg ? WorkspaceRules.Str(cfg["group"]) : null;
+        var needs = group switch { "menu" => ["Settings", "Menu"], "store" => ["Settings", "Stock"], _ => ActionPages.GetValueOrDefault(op) };
+        if (needs is not null && !needs.Any(PagesFor(u).Contains))
+            throw new NotAllowed("Your access does not include this. Ask an administrator.");
         var (row, s) = await WorkspaceAsync(u.TenantId);
+        if (u.Role == "Cashier" && op is "settle" or "cancel")
+        {
+            // Cashiers handle payments only for orders still in the queue that nobody else has taken.
+            var id = v["data"] is JsonObject target ? WorkspaceRules.Str(target["id"]) : null;
+            var order = s.Orders.FirstOrDefault(o => WorkspaceRules.Str(o["id"]) == id);
+            if (order is null || WorkspaceRules.Str(order["status"]) != Actions.AwaitingCashier
+                || WorkspaceRules.Str(order["claimedById"]) is { Length: > 0 } holder && holder != u.Id)
+                throw new NotAllowed("Cashiers can only take payment for orders waiting in their queue.");
+        }
         var sent = v["version"];
         if (!(sent is JsonValue && sent.GetValueKind() == System.Text.Json.JsonValueKind.Number && Values.Decimal(sent) == (row.Version ?? 0)))
             throw new ApiException(409, "This workspace changed. Refresh before saving.");
