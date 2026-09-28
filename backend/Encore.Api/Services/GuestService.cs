@@ -274,7 +274,9 @@ public sealed partial class GuestService(
             title = "Tickets reserved";
             body = $"{qty} ticket{(qty > 1 ? "s" : "")} for {eventName}. Pay {currency} {amount} at the entrance. Ref {reference}.";
             await notifier.NotifyAsync(row.Id, "staff", $"New booking · {reference}", $"{g.Name} reserved {qty} for {eventName}.", kind: "booking", reference: reference);
-            if (Values.Truthy(prefs["smsBookings"])) await notifier.TextGuestAsync(g.Phone, $"{s.Name}: {body}");
+            // One SMS, with a private link that opens every ticket's QR code (one QR per ticket).
+            var link = $"{options.GuestOrigin}/?tenant={Uri.EscapeDataString(row.Id)}&view=tickets&ref={Uri.EscapeDataString(reference ?? "")}&token={Uri.EscapeDataString(WorkspaceRules.Str(rec["token"]) ?? "")}";
+            if (Values.Truthy(prefs["smsBookings"])) await notifier.TextGuestAsync(g.Phone, $"{s.Name}: {body} Your ticket{(qty > 1 ? "s" : "")}: {link}");
         }
         else
         {

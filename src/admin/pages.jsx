@@ -4,6 +4,7 @@ import { api, dateTime, readFileAsBase64, shortDate } from '../shared/api';
 import ImageUpload from '../shared/ImageUpload';
 import { LogoMark } from '../shared/Logo';
 import QR from '../shared/QR';
+import { eventStatus } from '../shared/eventStatus';
 import { exportPdf } from './pdf';
 import { Bars, DataTable, Kpi, TrendChart } from './charts';
 import { compact, Suggestions } from './Reports';
@@ -92,7 +93,7 @@ export function Overview({ ctx }) {
             ['Tips', money(m.tips), `${Math.round(m.tipParticipation * 100)}% of orders tipped`], ['Paying guests', m.guests, `${money(m.spendPerGuest)} per guest`],
             ['Guest rating', session.ratings.count ? `${session.ratings.average.toFixed(1)} / 5` : 'No ratings', session.ratings.count ? `${session.ratings.count} ratings` : ''],
           ] },
-          { title: 'Upcoming performances', table: { head: ['Date', 'Event', 'Venue', 'Sold', 'Sell-through', 'Status'], body: upcoming.map(e => [shortDate(e.date), e.name, e.venue, `${soldFor(e.id)}/${e.capacity}`, `${Math.round((soldFor(e.id) / (e.capacity || 1)) * 100)}%`, e.published ? 'Published' : 'Draft']), align: { 3: 'right', 4: 'right' } } },
+          { title: 'Upcoming performances', table: { head: ['Date', 'Event', 'Venue', 'Sold', 'Sell-through', 'Status'], body: upcoming.map(e => [shortDate(e.date), e.name, e.venue, `${soldFor(e.id)}/${e.capacity}`, `${Math.round((soldFor(e.id) / (e.capacity || 1)) * 100)}%`, eventStatus(e, { soldOut: soldFor(e.id) >= e.capacity }).label]), align: { 3: 'right', 4: 'right' } } },
           ...(month.suggestions.length ? [{ title: 'Suggestions to grow sales', table: { head: ['#', 'Suggestion', 'Why'], body: month.suggestions.slice(0, 5).map((x, n) => [n + 1, x.title, x.body]) } }] : []),
           { title: 'Best sellers', table: { head: ['#', 'Item', 'Category', 'Qty', 'Revenue'], body: month.bestSellers.slice(0, 8).map((i, n) => [n + 1, i.name, i.category, i.qty, money(i.revenue)]), align: { 3: 'right', 4: 'right' } } },
           { title: 'Top tipped tables', table: { head: ['#', 'Table', 'Event', 'Tips', 'Tipped orders', 'Avg tip'], body: month.topTipped.slice(0, 8).map((t, n) => [n + 1, t.name, t.event, money(t.tips), `${t.tippedOrders}/${t.orders}`, money(t.avgTip)]), align: { 3: 'right', 4: 'right', 5: 'right' } } },
@@ -153,6 +154,8 @@ export function Overview({ ctx }) {
           </section>
         )}
 
+        {canManage && <PaymentsPanel ctx={ctx} />}
+
         {role !== 'Gate' && (
           <section className="card dash-live">
             <div className="card-head"><div><h2>Live service</h2><p>{activeOrders ? `${activeOrders} order${activeOrders > 1 ? 's' : ''} in progress` : 'No orders in progress'}</p></div><button onClick={() => go('Orders')}>Orders</button></div>
@@ -190,7 +193,7 @@ export function Overview({ ctx }) {
                       <small>{e.venue} · {sold}/{e.capacity} sold</small>
                       <div className="meter slim"><span style={{ width: Math.min(100, (sold / (e.capacity || 1)) * 100) + '%' }} /></div>
                     </div>
-                    <span className={'badge ' + (e.published ? 'success' : 'neutral')}>{e.published ? 'Published' : 'Draft'}</span>
+                    {(st => <span className={'badge ' + st.tone}>{st.label}</span>)(eventStatus(e, { soldOut: sold >= e.capacity }))}
                   </div>
                 );
               })}
@@ -277,11 +280,11 @@ export function Events({ ctx }) {
                 {e.image ? <img className="cover" src={e.image} alt="" /> : <div className="cover placeholder"><LogoMark size={44} /></div>}
                 <div className="eventbody">
                   <div className="row spread">
-                    <span className={'badge ' + (e.published ? 'success' : 'neutral')}>{e.published ? 'Published' : 'Draft'}</span>
+                    {(st => <span className={'badge ' + st.tone}>{st.label}</span>)(eventStatus(e, { soldOut: sold >= e.capacity }))}
                     <small className="muted">{dateTime(e.date)}</small>
                   </div>
                   <h2>{e.name}</h2>
-                  <p className="small">{e.venue}</p>
+                  <p className="small">{e.venue}{e.salesEnd ? ` · Sales close ${dateTime(e.salesEnd)}` : ''}</p>
                   <p className="description">{e.description}</p>
                   <div className="meter" aria-label={`${sold} of ${e.capacity} reserved`}><span style={{ width: Math.min(100, (sold / e.capacity) * 100) + '%' }} /></div>
                   <div className="eventfoot">
@@ -306,11 +309,12 @@ export function Events({ ctx }) {
 function EventForm({ ctx, item, onClose }) {
   const [image, setImage] = useState(item.image || '');
   const [published, setPublished] = useState(!!item.published);
+  const [cancelled, setCancelled] = useState(!!item.cancelled);
   const { busy, error, run } = useRunner();
   const submit = e => {
     e.preventDefault();
     const v = Object.fromEntries(new FormData(e.currentTarget));
-    run(async () => { await ctx.action('event', { ...v, id: item.id, image, published }); onClose(); });
+    run(async () => { await ctx.action('event', { ...v, id: item.id, image, published, cancelled }); onClose(); });
   };
   const remove = () => {
     if (!confirm(`Delete ${item.name}? This cannot be undone.`)) return;
@@ -335,10 +339,58 @@ function EventForm({ ctx, item, onClose }) {
           <Field label={`Ticket price (${ctx.state.currency})`} name="price" type="number" step="0.01" min="0" defaultValue={(item.price || 0) / 100} required hint="Use 0 for free entry." />
           <Field label="Capacity" name="capacity" type="number" min="1" max="100000" defaultValue={item.capacity || 200} required />
         </div>
+        <Field label="Ticket sales close (optional)" type="datetime-local" name="salesEnd" defaultValue={item.salesEnd || ''} hint="After this time guests can no longer book. Leave empty to sell until the event starts." />
         <Toggle label="Publish to guest app" description="Guests can see and reserve this event." checked={published} onChange={setPublished} />
+        {item.id && <Toggle label="Event cancelled" description="Guests see it as cancelled and can no longer book. Existing bookings stay so you can contact guests." checked={cancelled} onChange={setCancelled} />}
         <ErrorText>{error}</ErrorText>
       </form>
     </Modal>
+  );
+}
+
+// Money actually collected (paid, not cancelled), split by payment method and by event, with what is still pending.
+function PaymentsPanel({ ctx }) {
+  const { state, money, go } = ctx;
+  const all = [...state.bookings, ...state.orders].filter(r => r.status !== 'Cancelled');
+  const paid = all.filter(r => r.paid);
+  const atVenue = r => ['Cash', 'Card at venue'].includes(r.settledBy);
+  const sum = rows => rows.reduce((n, r) => n + (r.total || 0), 0);
+  const methods = Object.entries(paid.reduce((m, r) => {
+    const key = atVenue(r) ? r.settledBy : 'Online (Afropay)';
+    m[key] = (m[key] || 0) + r.total;
+    return m;
+  }, {})).sort((a, b) => b[1] - a[1]);
+  const eventName = id => state.events.find(e => e.id === id)?.name || 'Other orders';
+  const events = Object.entries(paid.reduce((m, r) => { const k = r.event || ''; m[k] = (m[k] || 0) + r.total; return m; }, {}))
+    .sort((a, b) => b[1] - a[1]).slice(0, 5);
+  const pending = all.filter(r => !r.paid);
+  const status = [
+    ['Paid online', paid.filter(r => !atVenue(r)).length, 'success'],
+    ['Paid at the venue', paid.filter(atVenue).length, 'success'],
+    ['Pending payment', pending.length, 'warning'],
+    ['Cancelled', state.bookings.concat(state.orders).filter(r => r.status === 'Cancelled').length, 'neutral'],
+  ];
+  return (
+    <section className="card">
+      <div className="card-head">
+        <div><h2>Payments collected</h2><p>All time · {paid.length} paid bookings and orders</p></div>
+        <button onClick={() => go('Orders')}>Orders</button>
+      </div>
+      <strong style={{ fontSize: 28, display: 'block', margin: '4px 0 12px' }}>{money(sum(paid))}</strong>
+      <div className="list">
+        {methods.map(([m, v]) => <div className="listrow" key={m}><span className="grow">{m}</span><b>{money(v)}</b></div>)}
+        {!methods.length && <p className="small">No payments recorded yet.</p>}
+      </div>
+      {events.length > 0 && <>
+        <h3 style={{ marginTop: 14 }}>By event</h3>
+        <div className="list">{events.map(([id, v]) => <div className="listrow" key={id || 'none'}><span className="grow">{eventName(id)}</span><b>{money(v)}</b></div>)}</div>
+      </>}
+      <h3 style={{ marginTop: 14 }}>Payment status</h3>
+      <div className="row wrap" style={{ gap: 8, marginTop: 6 }}>
+        {status.map(([label, n, tone]) => <span key={label} className={'badge ' + tone}>{label} · {n}</span>)}
+      </div>
+      {pending.length > 0 && <p className="small" style={{ marginTop: 8 }}>{money(sum(pending))} not yet paid.</p>}
+    </section>
   );
 }
 
@@ -897,6 +949,7 @@ export function Orders({ ctx }) {
   const [printing, setPrinting] = useState(null);
   const [taking, setTaking] = useState(false);
   const [rowError, setRowError] = useState('');
+  const [moving, setMoving] = useState(null); // { order, to, back } awaiting confirmation
   const canTakeOrders = ['Owner', 'Admin', 'Service'].includes(ctx.role);
   const cashierQueue = state.settings.ordering.cashierConfirm || state.orders.some(o => o.status === 'Awaiting cashier');
   const filters = {
@@ -908,6 +961,7 @@ export function Orders({ ctx }) {
     All: () => true,
   };
   const next = { Placed: 'Preparing', Preparing: 'Ready', Ready: 'Delivered' };
+  const back = { Preparing: 'Placed', Ready: 'Preparing', Delivered: 'Ready' };
   const rows = [...state.orders].reverse().filter(filters[filter]).filter(o => matches(o.ref, o.name, o.tableName, o.items));
   const act = async (op, data) => {
     setRowError('');
@@ -951,11 +1005,25 @@ export function Orders({ ctx }) {
               {o.status === 'Awaiting cashier' && !o.claimedBy && <button onClick={() => act('claim', { id: o.id })}>Claim</button>}
               {o.status !== 'Cancelled' && !o.paid && <button onClick={() => setSettling(o)}>Record payment</button>}
               {o.status === 'Awaiting cashier' && <button className="primary" disabled={!o.paid} title={o.paid ? '' : 'Record the payment first'} onClick={() => confirmAndPrint(o)}>Confirm & print</button>}
-              {next[o.status] && <button className="primary" onClick={() => act('order_status', { id: o.id, status: next[o.status] })}>Mark {next[o.status].toLowerCase()}</button>}
+              {canTakeOrders && back[o.status] && <button onClick={() => setMoving({ order: o, to: back[o.status], back: true })}>Back to {back[o.status].toLowerCase()}</button>}
+              {next[o.status] && <button className="primary" onClick={() => setMoving({ order: o, to: next[o.status], back: false })}>Mark {next[o.status].toLowerCase()}</button>}
             </div>
           </div>
         </div>
       )) : <Empty icon="menu" title={filter === 'Active' ? 'All caught up' : 'Nothing here'} body={filter === 'Cashier' ? 'New guest orders wait here for a cashier. Claim one, take the payment, then confirm and print the receipt for the waiter.' : 'Table and counter orders appear here with items, tip, payment and preparation status. Guests are notified as you update them.'} />}
+      {moving && (
+        <Modal title={moving.back ? `Move ${moving.order.ref} back to ${moving.to}?` : `Mark ${moving.order.ref} as ${moving.to}?`} eyebrow={moving.order.tableName || 'Counter pickup'} onClose={() => setMoving(null)}
+          footer={<><button onClick={() => setMoving(null)}>Cancel</button><button className="primary" onClick={async () => {
+            const { order, to, back: undo } = moving;
+            setMoving(null);
+            await act(undo ? 'order_back' : 'order_status', undo ? { id: order.id } : { id: order.id, status: to });
+          }}>{moving.back ? 'Move back' : `Mark ${moving.to.toLowerCase()}`}</button></>}>
+          <p>{moving.order.items}</p>
+          <p className="small">{moving.back
+            ? `The order goes back from ${moving.order.status} to ${moving.to}. ${moving.order.name} is told it was corrected.`
+            : `${moving.order.name} is notified that the order is ${moving.to.toLowerCase()}.`}</p>
+        </Modal>
+      )}
       {settling && <SettleModal ctx={ctx} record={settling} onClose={() => setSettling(null)} />}
       {printing && <PrintOrder ctx={ctx} order={state.orders.find(o => o.id === printing.id) || printing} onClose={() => setPrinting(null)} />}
       {taking && <NewOrder ctx={ctx} onClose={() => setTaking(false)} onCreated={order => { setTaking(false); setFilter('Active'); if (order) setPrinting(order); }} />}

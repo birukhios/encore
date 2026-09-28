@@ -5,6 +5,8 @@ import Logo, { LogoMark } from '../shared/Logo';
 import Scanner from '../shared/Scanner';
 import { copyText, Empty, ErrorText, Glyph, Icon, Modal, Spinner, StarIcon } from '../shared/ui';
 import { PLATFORM_FAQ, PLATFORM_PRIVACY, PLATFORM_TERMS } from './content';
+import { eventStatus, onSale } from '../shared/eventStatus';
+import { downloadReceipt } from './receiptPdf';
 
 const ORDER_STEPS = ['Placed', 'Preparing', 'Ready', 'Delivered'];
 const OPEN_ORDER = ['Awaiting cashier', 'Placed', 'Preparing', 'Ready'];
@@ -140,6 +142,7 @@ export function EventsScreen({ ctx }) {
   const events = [...data.events].sort((a, b) => a.date.localeCompare(b.date));
   const ticketing = data.settings.ticketing;
   const [photo, setPhoto] = useState(null);
+  const [expanded, setExpanded] = useState({});
   const where = [profile.address, profile.city].filter(Boolean).join(', ');
   return (
     <>
@@ -164,6 +167,8 @@ export function EventsScreen({ ctx }) {
           <div className="row spread"><h2>Upcoming events</h2><span className="muted small">{events.length}</span></div>
           {events.length ? <div className="event-list">{events.map(e => {
             const d = new Date(e.date);
+            const st = eventStatus(e);
+            const open = ticketing.enabled && onSale(st);
             return (
               <article className="eventcard" key={e.id}>
                 <div className="eventmedia">
@@ -173,15 +178,17 @@ export function EventsScreen({ ctx }) {
                 <div className="eventbody">
                   <div className="row spread wrap">
                     <span className="small muted">{dateTime(e.date)}</span>
-                    {myEvents.includes(e.id) ? <span className="badge success">You're going</span> : e.soldOut ? <span className="badge neutral">Sold out</span> : e.remaining !== undefined ? <span className="badge">{e.remaining} left</span> : null}
+                    {myEvents.includes(e.id) ? <span className="badge success">You're going</span> : st.label !== 'Upcoming' ? <span className={'badge ' + st.tone}>{st.label}</span> : e.remaining !== undefined ? <span className="badge">{e.remaining} left</span> : null}
                   </div>
                   <h3 className="eventtitle">{e.name}</h3>
                   <p className="small"><Icon name="venue" size="sm" /> {e.venue}</p>
-                  <p className="description">{e.description}</p>
+                  {e.salesEnd && st.label === 'Upcoming' && <p className="small">Ticket sales close {dateTime(e.salesEnd)}</p>}
+                  <p className={'description' + (expanded[e.id] ? ' expanded' : '')}>{e.description}</p>
+                  {e.description?.length > 90 && <button className="linklike small" style={{ justifySelf: 'start', textAlign: 'left' }} onClick={() => setExpanded(x => ({ ...x, [e.id]: !x[e.id] }))}>{expanded[e.id] ? 'Show less' : 'Read more'}</button>}
                   <div className="eventfoot">
                     <div className="price"><small>Admission</small><b>{e.price ? money(e.price) : 'Free'}</b></div>
-                    <button className="primary" disabled={!ticketing.enabled || e.soldOut} onClick={() => setSheet({ type: 'booking', event: e })}>
-                      {e.soldOut ? 'Sold out' : 'Get tickets'}<Icon name="next" />
+                    <button className="primary" disabled={!open} onClick={() => setSheet({ type: 'booking', event: e })}>
+                      {open ? 'Get tickets' : st.label}<Icon name="next" />
                     </button>
                   </div>
                 </div>
@@ -311,6 +318,8 @@ export function BookingSheet({ ctx, event, onClose }) {
     <Modal sheet title={event.name} eyebrow="Your next live moment" onClose={onClose}
       footer={<button className="primary lg-btn block" disabled={busy} onClick={next}>{busy ? 'Checking availability…' : `Continue · ${money(event.price * qty + ((t => t && !t.included ? t.amount : 0)(taxFor(data.settings.tax, 'booking', event.price * qty))))}`}</button>}>
       <p>{event.venue} · {dateTime(event.date)}</p>
+      {event.description && <p className="small" style={{ whiteSpace: 'pre-line' }}>{event.description}</p>}
+      {event.salesEnd && <p className="small"><b>Ticket sales close</b> {dateTime(event.salesEnd)}</p>}
       <div className="row spread">
         <div><b>Tickets</b><small className="muted" style={{ display: 'block' }}>{event.price ? money(event.price) + ' each' : 'Free entry'} · up to {max}</small></div>
         <div className="stepper">
@@ -320,7 +329,9 @@ export function BookingSheet({ ctx, event, onClose }) {
         </div>
       </div>
       {(() => { const t = taxFor(data.settings.tax, 'booking', event.price * qty); return t && <p className="small">{t.included ? `Includes ${t.label}: ${money(t.amount)}` : `Plus ${t.label}: ${money(t.amount)}`}</p>; })()}
-      <p className="footnote">Tickets are paid online. Each ticket gets its own QR code and reference number for entry.</p>
+      <p className="footnote">{data.settings.payments?.ticketCash
+        ? (data.paymentReady ? 'Pay online now, or reserve and pay in cash at the entrance.' : 'Reserve now and pay in cash at the entrance.')
+        : 'Tickets are paid online.'} Each ticket gets its own QR code and reference number for entry.</p>
       <ErrorText>{error}</ErrorText>
     </Modal>
   );
@@ -417,14 +428,14 @@ export function ReceiptModal({ ctx, receipt: r, onClose }) {
     : `Pay ${money(r.total)} in cash to your waiter when your order arrives.`;
   return (
     <Modal sheet eyebrow={r.merchant} title={booking ? (r.status === 'Reserved' ? "You're on the list." : r.eventName) : r.status === 'Awaiting cashier' ? 'Waiting for the cashier.' : 'Order ' + r.status.toLowerCase() + '.'} label="Receipt" onClose={onClose}
-      footer={<button className="primary block" onClick={onClose}>Done</button>}>
+      footer={<div className="row" style={{ width: '100%' }}><button className="block" onClick={() => downloadReceipt(r, money).catch(() => toast('The download did not work. Please try again.'))}><Icon name="download" />{booking ? 'Download tickets (PDF)' : 'Download receipt (PDF)'}</button><button className="primary block" onClick={onClose}>Done</button></div>}>
       <p>Reference <b style={{ color: 'var(--ink)' }}>{r.ref}</b> · {r.name}</p>
       {booking && <p className="small">{r.venue} · {dateTime(r.date)}</p>}
       {!booking && <p className="small">{r.tableName ? 'Delivering to ' + r.tableName : 'Collect at the counter'}{r.waiterName ? ` · Served by ${r.waiterName.split(' ')[0]} (#${r.waiterNumber})` : ''}</p>}
       <p className={'notice' + (r.paid ? ' success' : r.status === 'Cancelled' ? '' : ' warning')}>{status}</p>
       {booking && r.status !== 'Cancelled' && r.tickets.map(t => (
         <div className={'ticket-qr' + (t.used ? ' used' : '')} key={t.token}>
-          <QR value={`${r.ref}:${t.serial}:${t.token}`} name={`Ticket ${t.serial} ${r.eventName}`} download={false} size={200} />
+          <QR value={`${r.ref}:${t.serial}:${t.token}`} name={`${r.ref} ticket ${t.serial} ${r.eventName}`} size={200} />
           <b>Ticket {t.serial} of {r.qty}</b>
           <small className="muted">{t.used ? 'Used for entry' : `Show this at the entrance · Ref ${r.ref}`}</small>
         </div>

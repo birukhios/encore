@@ -18,10 +18,10 @@ public sealed class StaffService(
     /// <summary>Which staff actions each role may take (POST /admin/api/action, field "op").</summary>
     public static readonly Dictionary<string, string[]> RoleActions = new()
     {
-        ["Owner"] = ["settings", "config", "event", "menu", "table", "delete", "order_status", "claim", "confirm_order", "checkin", "checkin_ticket", "settle", "cancel", "waiter", "stock", "staff_order", "inventory", "inventory_adjust"],
-        ["Admin"] = ["settings", "config", "event", "menu", "table", "delete", "order_status", "claim", "confirm_order", "checkin", "checkin_ticket", "settle", "cancel", "waiter", "stock", "staff_order", "inventory", "inventory_adjust"],
+        ["Owner"] = ["settings", "config", "event", "menu", "table", "delete", "order_status", "order_back", "claim", "confirm_order", "checkin", "checkin_ticket", "settle", "cancel", "waiter", "stock", "staff_order", "inventory", "inventory_adjust"],
+        ["Admin"] = ["settings", "config", "event", "menu", "table", "delete", "order_status", "order_back", "claim", "confirm_order", "checkin", "checkin_ticket", "settle", "cancel", "waiter", "stock", "staff_order", "inventory", "inventory_adjust"],
         // Service is the cashier and floor role: the cashier queue, payments, and moving orders along.
-        ["Service"] = ["order_status", "claim", "confirm_order", "settle", "cancel", "staff_order"],
+        ["Service"] = ["order_status", "order_back", "claim", "confirm_order", "settle", "cancel", "staff_order"],
         ["Gate"] = ["checkin", "checkin_ticket"],
     };
 

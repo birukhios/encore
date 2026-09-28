@@ -214,6 +214,52 @@ public sealed class DomainRuleTests
     }
 
     [Fact]
+    public void Ticket_sales_stop_at_the_deadline_and_for_cancelled_events()
+    {
+        using var _ = Ids.UseScript(new Ids.Script { Clock = DateTimeOffset.Parse("2026-11-01T09:00:00+03:00").ToUnixTimeSeconds() });
+        var e = s.Events[0];
+        var booking = Obj("""{"kind":"booking","event":"event","qty":1}""");
+        e["salesEnd"] = "2026-11-01T12:00";
+        Pricing.QuoteOrder(s, booking); // still open at 09:00 venue time
+        Assert.False((bool)WorkspaceRules.PublicState(s)["events"]![0]!["salesClosed"]!);
+        e["salesEnd"] = "2026-11-01T09:00";
+        Assert.Equal("Ticket sales for this event have closed.", Refused(() => Pricing.QuoteOrder(s, booking)));
+        Assert.True((bool)WorkspaceRules.PublicState(s)["events"]![0]!["salesClosed"]!);
+        e.Remove("salesEnd");
+        e["cancelled"] = true;
+        Assert.Equal("This event was cancelled.", Refused(() => Pricing.QuoteOrder(s, booking)));
+        Assert.True((bool)WorkspaceRules.PublicState(s)["events"]![0]!["cancelled"]!);
+    }
+
+    [Fact]
+    public void Event_form_saves_the_deadline_and_cancellation()
+    {
+        var id = (string)s.Events[0]["id"]!;
+        string Save(string extra) => $$"""{"id":"{{id}}","name":"Concert","description":"Live","date":"2026-11-02T18:00","venue":"Hall","price":"500","capacity":2,"published":true{{extra}}}""";
+        Do("event", Save(",\"salesEnd\":\"2026-11-02T12:00\",\"cancelled\":true"));
+        Assert.Equal(("2026-11-02T12:00", true), ((string)s.Events[0]["salesEnd"]!, (bool)s.Events[0]["cancelled"]!));
+        Assert.Contains("before the event starts", Refused(() => Do("event", Save(",\"salesEnd\":\"2026-11-03T10:00\""))));
+        Do("event", Save("")); // older screens leave both unchanged
+        Assert.Equal(("2026-11-02T12:00", true), ((string)s.Events[0]["salesEnd"]!, (bool)s.Events[0]["cancelled"]!));
+    }
+
+    [Fact]
+    public void An_order_status_can_move_back_one_step_and_the_guest_is_told()
+    {
+        var rec = Actions.GuestRecord(s, Obj("""{"kind":"menu","items":{"food":1}}"""), Guest, cash: true);
+        var id = (string)rec["id"]!;
+        Assert.Contains("cannot move back", Refused(() => Do("order_back", $$"""{"id":"{{id}}"}""")));
+        foreach (var next in new[] { "Preparing", "Ready", "Delivered" }) Do("order_status", $$"""{"id":"{{id}}","status":"{{next}}"}""");
+        var notices = new List<Notice>();
+        Actions.Mutate(s, "order_back", Obj($$"""{"id":"{{id}}"}"""), notices);
+        Assert.Equal(("Ready", "order_corrected"), ((string)rec["status"]!, Assert.Single(notices).Kind));
+        Do("order_back", $$"""{"id":"{{id}}"}""");
+        Do("order_back", $$"""{"id":"{{id}}"}""");
+        Assert.Equal("Placed", (string)rec["status"]!);
+        Assert.Contains("cannot move back", Refused(() => Do("order_back", $$"""{"id":"{{id}}"}""")));
+    }
+
+    [Fact]
     public void Moving_a_delivered_order_is_refused_clearly()
     {
         var rec = Actions.GuestRecord(s, Obj("""{"kind":"menu","items":{"food":1}}"""), Guest, cash: true);

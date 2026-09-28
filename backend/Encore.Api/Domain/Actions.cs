@@ -17,6 +17,7 @@ public static partial class Actions
     /// <summary>A guest's food and drink order before a cashier has confirmed it; the kitchen cannot start it yet.</summary>
     public const string AwaitingCashier = "Awaiting cashier";
     private static readonly Dictionary<string, string> OrderFlow = new() { ["Placed"] = "Preparing", ["Preparing"] = "Ready", ["Ready"] = "Delivered" };
+    private static readonly Dictionary<string, string> OrderBack = new() { ["Preparing"] = "Placed", ["Ready"] = "Preparing", ["Delivered"] = "Ready" };
     private const int StockLogLimit = 500;
 
     /// <summary>Apply a staff action. Anything a guest should be told about is added to <paramref name="notices"/>.</summary>
@@ -86,6 +87,17 @@ public static partial class Actions
                 if (rec.ContainsKey("lines") && !rec.ContainsKey("qty")) Restock(s, rec, $"Cancelled {Values.Show(rec["ref"])}", by);
                 notices.Add(new Notice(rec, "cancelled", $"{Values.Show(rec["ref"])} was cancelled",
                     "The organizer cancelled this reservation. Contact support if you have questions."));
+                break;
+            }
+            case "order_back":
+            {
+                // Undo a status step pressed by mistake; the guest is told about the correction.
+                var o = s.Orders.FirstOrDefault(o => Str(o["id"]) == Str(v["id"]));
+                if (o is null || !OrderBack.TryGetValue(Str(o["status"]) ?? "", out var previous))
+                    throw new DomainException("This order cannot move back a step.");
+                o["status"] = previous;
+                notices.Add(new Notice(o, "order_corrected", $"Order {Values.Show(o["ref"])}: back to {previous}",
+                    "Staff corrected the status of your order. We will update you again as it moves on."));
                 break;
             }
             case "claim":
@@ -186,6 +198,16 @@ public static partial class Actions
             item["published"] = published;
             item["image"] = image;
             if (!EventDate().IsMatch(date)) throw new DomainException("Choose the event date and time.");
+            // Optional ticket-sales deadline, in the same local form as the event date. Absent means "keep".
+            if (v.ContainsKey("salesEnd"))
+            {
+                var salesEnd = Values.Text(v["salesEnd"], 30, false);
+                if (salesEnd.Length > 0 && !EventDate().IsMatch(salesEnd)) throw new DomainException("Choose the sales deadline date and time.");
+                if (salesEnd.Length > 0 && string.CompareOrdinal(salesEnd, date) > 0)
+                    throw new DomainException("The ticket sales deadline must be before the event starts.");
+                item["salesEnd"] = salesEnd;
+            }
+            if (v.ContainsKey("cancelled")) item["cancelled"] = Values.Flag(v["cancelled"]);
             if (old is not null && capacity < Pricing.Sold(s, id)) throw new DomainException("Capacity cannot be lower than the tickets already reserved.");
         }
         else if (op == "menu")

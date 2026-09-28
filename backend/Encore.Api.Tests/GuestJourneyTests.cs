@@ -57,6 +57,9 @@ public sealed class GuestJourneyTests(EncoreApp app) : ServerTest(app)
         await CashOn(c);
         var (status, rec) = await g.Call("order", new { tenant = t, kind = "booking", @event = (string)e["id"]!, qty = 2, payment = "cash", total = 1, paid = true });
         Assert.Equal(201, status);
+        // One SMS carries a private link that opens both tickets' QR codes.
+        var sms = App.Sent().Last(m => m.Text.Contains((string)rec["ref"]!)).Text;
+        Assert.Contains($"view=tickets&ref={rec["ref"]}&token={rec["token"]}", sms);
         Assert.Equal((23000L, false, "Reserved", 2, "Guest One"), ((long)rec["total"]!, (bool)rec["paid"]!, (string)rec["status"]!, rec["tickets"]!.AsArray().Count, (string)rec["name"]!));
         var (g2, _) = await GuestClient();
         Assert.Equal(400, await g2.Status("order", new { tenant = t, kind = "booking", @event = (string)e["id"]!, qty = 2, payment = "cash" })); // capacity
@@ -229,9 +232,12 @@ public sealed class GuestJourneyTests(EncoreApp app) : ServerTest(app)
         Assert.Equal(("Placed", true, "Service Staff"), ((string)confirmed["status"]!, (bool)confirmed["paid"]!, (string)confirmed["confirmedBy"]!));
         Assert.Contains((await g.Call("guest/notifications")).Body.AsArray(), n => ((string)n!["title"]!).EndsWith("Confirmed"));
 
-        // From here the kitchen and waiter flow is unchanged.
+        // From here the kitchen and waiter flow is unchanged; a mistaken step can be undone by staff, not the gate.
         foreach (var next in new[] { "Preparing", "Ready", "Delivered" })
             Assert.Equal(200, (await Act(cashier, "order_status", new { id, status = next })).Status);
+        Assert.Equal(401, (await Act(gate, "order_back", new { id })).Status);
+        Assert.Equal(200, (await Act(cashier, "order_back", new { id })).Status);
+        Assert.Equal("Ready", (string)(await State(owner))["orders"]![0]!["status"]!);
         Assert.Equal(3L, (long)(await State(owner))["menu"]![0]!["stock"]!);
     }
 

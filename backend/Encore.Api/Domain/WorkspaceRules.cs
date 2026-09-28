@@ -136,6 +136,12 @@ public static class WorkspaceRules
             var item = Pick(e, "id", "name", "date", "venue", "description", "price", "image");
             var remaining = Math.Max(0, Values.Decimal(e["capacity"]) - Pricing.Sold(s, Str(e["id"])));
             item["soldOut"] = remaining == 0;
+            if (Values.Truthy(e["cancelled"])) item["cancelled"] = true;
+            if (Str(e["salesEnd"]) is { Length: > 0 } salesEnd)
+            {
+                item["salesEnd"] = salesEnd;
+                item["salesClosed"] = string.CompareOrdinal(Ids.VenueNow(), salesEnd) >= 0;
+            }
             if (showRemaining) item["remaining"] = remaining;
             events.Add(item);
         }

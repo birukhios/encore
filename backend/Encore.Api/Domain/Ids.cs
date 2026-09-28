@@ -50,4 +50,11 @@ public static class Ids
     public static string Digest(string value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant();
 
     public static long Now() => Scripted.Value?.Clock ?? DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
+    /// <summary>
+    /// The current time at the venue as "yyyy-MM-ddTHH:mm", the same wall-clock form event dates are saved in.
+    /// Encore's venues are in Ethiopia (UTC+3 all year, no daylight saving).
+    /// </summary>
+    public static string VenueNow() =>
+        DateTimeOffset.FromUnixTimeSeconds(Now()).ToOffset(TimeSpan.FromHours(3)).ToString("yyyy-MM-dd'T'HH:mm", System.Globalization.CultureInfo.InvariantCulture);
 }

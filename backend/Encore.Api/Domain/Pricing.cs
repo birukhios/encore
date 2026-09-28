@@ -93,6 +93,9 @@ public static partial class Pricing
                 throw new DomainException("Ticket reservations are closed for this organizer.");
             var e = s.Events.FirstOrDefault(e => Str(e["id"]) == Str(v["event"]) && Values.Truthy(e["published"]))
                 ?? throw new DomainException("This event is not available for booking.");
+            if (Values.Truthy(e["cancelled"])) throw new DomainException("This event was cancelled.");
+            if (Str(e["salesEnd"]) is { Length: > 0 } salesEnd && string.CompareOrdinal(Ids.VenueNow(), salesEnd) >= 0)
+                throw new DomainException("Ticket sales for this event have closed.");
             var limit = Group(s, "ticketing")["maxPerOrder"];
             var qty = Values.Whole(v["qty"], 1, 1000, "Ticket quantity must be a whole number.");
             if (qty > Values.Decimal(limit)) throw new DomainException($"You can reserve up to {Values.Show(limit)} tickets per order.");
