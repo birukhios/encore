@@ -12,8 +12,9 @@ public sealed record Notice(JsonObject Record, string Kind, string Title, string
 /// <summary>Staff actions on a workspace, and the records guests create. Ported from the original Python rules (domain.py).</summary>
 public static partial class Actions
 {
-    public static readonly string[] SettlementMethods = ["Cash", "Card at venue"]; // bank transfers are not accepted
-    public static readonly string[] StaffPaymentMethods = ["Cash", "Card at venue"];
+    // Money is taken in cash at the venue or online through Afropay; cards and bank transfers are not accepted.
+    public static readonly string[] SettlementMethods = ["Cash"];
+    public static readonly string[] StaffPaymentMethods = ["Cash", "Afropay"];
     /// <summary>A guest's food and drink order before a cashier has confirmed it; the kitchen cannot start it yet.</summary>
     public const string AwaitingCashier = "Awaiting cashier";
     private static readonly Dictionary<string, string> OrderFlow = new() { ["Placed"] = "Preparing", ["Preparing"] = "Ready", ["Ready"] = "Delivered" };
@@ -451,14 +452,16 @@ public static partial class Actions
         request["kind"] = "menu";
         var q = Pricing.QuoteOrder(s, request, staff: true);
         var method = Values.Truthy(v["method"]) ? Values.Show(v["method"]) : "";
-        if (method.Length > 0 && !StaffPaymentMethods.Contains(method)) throw new DomainException("Choose cash, card at the venue, or not paid yet.");
+        if (method.Length > 0 && !StaffPaymentMethods.Contains(method)) throw new DomainException("Choose cash, Afropay, or not paid yet.");
+        var phone = Values.Truthy(v["phone"]) ? Values.NormalizePhone(v["phone"]) : "";
+        if (method == "Afropay" && phone.Length == 0) throw new DomainException("Enter the guest's phone number so Afropay can send them the payment request.");
         var table = s.Tables.FirstOrDefault(t => Str(t["id"]) is { } tid && tid == Str(v["tableId"]));
         var name = Values.Text(v["name"], 80, false);
         var firstPublished = s.Events.Where(e => Values.Truthy(e["published"])).OrderBy(e => Str(e["date"]), StringComparer.Ordinal).FirstOrDefault();
         var rec = new JsonObject
         {
             ["id"] = Ids.Uid(), ["ref"] = Ids.Reference(), ["token"] = Ids.Uid(), ["guest"] = null,
-            ["name"] = name.Length > 0 ? name : "Walk-in guest", ["phone"] = "", ["email"] = "", ["currency"] = s.Currency,
+            ["name"] = name.Length > 0 ? name : "Walk-in guest", ["phone"] = phone, ["email"] = "", ["currency"] = s.Currency,
             ["total"] = q["total"]!.DeepClone(), ["subtotal"] = q["subtotal"]!.DeepClone(), ["lines"] = q["lines"]!.DeepClone(),
             ["tax"] = q["tax"]?.DeepClone(), ["tin"] = q["tin"]?.DeepClone(), ["vatNumber"] = q["vatNumber"]?.DeepClone(),
             ["tip"] = q["tip"]!.DeepClone(), ["service"] = q["service"]?.DeepClone(), ["tableName"] = q["tableName"]?.DeepClone(),
@@ -468,7 +471,9 @@ public static partial class Actions
         };
         TakeStock(s, (JsonArray)q["lines"]!, Str(rec["ref"])!, Str(v["_by"]));
         AttachWaiter(s, rec, q);
-        if (method.Length > 0)
+        // Afropay orders stay unpaid until Afropay confirms the payment; only cash is recorded as paid on the spot.
+        if (method == "Afropay") rec["payment"] = "afropay";
+        else if (method.Length > 0)
         {
             rec["paid"] = true;
             rec["settledBy"] = method;

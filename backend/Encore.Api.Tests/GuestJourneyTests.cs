@@ -340,4 +340,27 @@ public sealed class GuestJourneyTests(EncoreApp app) : ServerTest(app)
         Assert.Equal((true, "Cash", "Test Organizer", number, 0L), ((bool)order["paid"]!, (string)order["settledBy"]!, (string)order["takenBy"]!, (string)order["waiterNumber"]!, (long)(await State(c))["menu"]![0]!["stock"]!));
         Assert.True((bool)(await App.Guest().Call("public?tenant=" + Tenant(b))).Body["menu"]![0]!["soldOut"]!);
     }
+
+    [Fact]
+    public async Task Staff_orders_take_cash_or_afropay_but_never_card()
+    {
+        var (c, _, _, _) = await Staff();
+        await Concert(c);
+        await Act(c, "menu", new { name = "Tea", description = "Hot", price = "20", category = "Food", available = true });
+        var item = (string)(await State(c))["menu"]![0]!["id"]!;
+        JsonObject Order(string method, string? phone = null) => new() { ["items"] = new JsonObject { [item] = 1 }, ["method"] = method, ["phone"] = phone, ["name"] = "Table guest" };
+
+        Assert.Contains("Choose cash, Afropay", (string)(await Act(c, "staff_order", Order("Card at venue"))).Body["error"]!);
+        // Afropay is not connected yet, so nothing is recorded and no payment is pretended.
+        var (status, body) = await Act(c, "staff_order", Order("Afropay", "0911223344"));
+        Assert.Equal(400, status);
+        Assert.Contains("Afropay is not connected", (string)body["error"]!);
+        Assert.Empty((await State(c))["orders"]!.AsArray());
+
+        Assert.Equal(200, (await Act(c, "staff_order", Order("", "0911223344"))).Status);
+        var order = (await State(c))["orders"]![0]!;
+        Assert.Equal(("+251911223344", false), ((string)order["phone"]!, (bool)order["paid"]!));
+        Assert.Equal(400, (await Act(c, "settle", new { id = (string)order["id"]!, method = "Card at venue" })).Status);
+        Assert.Equal(200, (await Act(c, "settle", new { id = (string)order["id"]!, method = "Cash" })).Status);
+    }
 }

@@ -552,6 +552,7 @@ export function NewOrder({ ctx, onClose, onCreated }) {
   const [tableId, setTableId] = useState('');
   const [waiter, setWaiter] = useState('');
   const [name, setName] = useState('');
+  const [phone, setPhone] = useState('');
   const [tip, setTip] = useState('');
   const [method, setMethod] = useState('Cash');
   const [category, setCategory] = useState('All');
@@ -571,7 +572,7 @@ export function NewOrder({ ctx, onClose, onCreated }) {
     setCart(next);
   };
   const submit = () => run(async () => {
-    const res = await ctx.action('staff_order', { items: cart, tableId, waiter, name, tipAmount: tipsOn ? String(Number(tip || 0)) : '0', method }, { quiet: true });
+    const res = await ctx.action('staff_order', { items: cart, tableId, waiter, name, tipAmount: tipsOn ? String(Number(tip || 0)) : '0', method, phone }, { quiet: true });
     const order = res.state.orders.find(o => o.ref === res.result.ref);
     ctx.toast(`Order ${res.result.ref} placed${method ? ` · ${method}` : ''}`);
     onCreated(order);
@@ -617,10 +618,12 @@ export function NewOrder({ ctx, onClose, onCreated }) {
             </select>
           </Field>
           <Field label="Guest name (optional)" value={name} maxLength={80} onChange={e => setName(e.target.value)} placeholder="Walk-in guest" />
+          <Field label={method === 'Afropay' ? 'Guest phone' : 'Guest phone (optional)'} type="tel" inputMode="tel" value={phone} maxLength={20} onChange={e => setPhone(e.target.value)} placeholder="0911 234 567"
+            hint={method === 'Afropay' ? 'Afropay sends the payment request to this number (Telebirr, CBE Birr, M-PESA, Awash Birr).' : undefined} />
           {tipsOn && <Field label={`Tip (${state.currency})`} inputMode="decimal" value={tip} placeholder="0" onChange={e => { const v = e.target.value.replace(/[^\d.]/g, ''); if (/^\d{0,5}(\.\d{0,2})?$/.test(v)) setTip(v); }} />}
           <fieldset className="pay-methods">
             <legend>Payment</legend>
-            {[['Cash', 'Cash'], ['Card at venue', 'Card at venue'], ['', 'Not paid yet']].map(([id, label]) => (
+            {[['Cash', 'Cash'], ...(ctx.session.paymentReady ? [['Afropay', 'Afropay (to guest phone)']] : []), ['', 'Not paid yet']].map(([id, label]) => (
               <label key={label} className={'choice compact' + (method === id ? ' active' : '')}><input type="radio" name="pos-method" checked={method === id} onChange={() => setMethod(id)} /><span><b>{label}</b></span></label>
             ))}
           </fieldset>

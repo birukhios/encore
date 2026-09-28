@@ -357,7 +357,7 @@ function PaymentsPanel({ ctx }) {
   const everything = [...state.bookings, ...state.orders].filter(inScope);
   const all = everything.filter(r => r.status !== 'Cancelled');
   const paid = all.filter(r => r.paid);
-  const atVenue = r => ['Cash', 'Card at venue'].includes(r.settledBy);
+  const atVenue = r => r.settledBy === 'Cash';
   const sum = rows => rows.reduce((n, r) => n + (r.total || 0), 0);
   const methods = Object.entries(paid.reduce((m, r) => {
     const key = atVenue(r) ? r.settledBy : r.wallet ? `${WALLET_NAMES[r.wallet] || r.wallet} (Afropay)` : 'Online (Afropay)';
@@ -389,7 +389,7 @@ function PaymentsPanel({ ctx }) {
         {!methods.length && <p className="small">No payments recorded yet.</p>}
       </div>
       <div className="row wrap" style={{ gap: 8, marginTop: 10 }}>
-        <span className="badge neutral">Cash & card at venue · {money(sum(paid.filter(atVenue)))}</span>
+        <span className="badge neutral">Cash at venue · {money(sum(paid.filter(atVenue)))}</span>
         <span className="badge neutral">Afropay wallets · {money(sum(paid.filter(r => !atVenue(r))))}</span>
       </div>
       {!eventId && events.length > 0 && <>
@@ -694,11 +694,6 @@ function SettleModal({ ctx, record, onClose }) {
       footer={<><button onClick={onClose}>Cancel</button><button className="primary" disabled={busy} onClick={() => run(async () => { await ctx.action('settle', { id: record.id, method }); onClose(); })}>{busy ? 'Saving…' : `Confirm ${ctx.money(record.total)} received`}</button></>}>
       <p><b style={{ color: 'var(--ink)' }}>{record.name}</b> · {record.qty ? `${record.qty} ticket${record.qty > 1 ? 's' : ''} for ${record.eventName}` : record.items}</p>
       <p className="notice">Collect <b>{ctx.money(record.total)}</b> in person before confirming. This records the payment — it does not charge the guest.</p>
-      <Field label="Paid by">
-        <select value={method} onChange={e => setMethod(e.target.value)}>
-          <option>Cash</option><option>Card at venue</option>
-        </select>
-      </Field>
       <ErrorText>{error}</ErrorText>
     </Modal>
   );

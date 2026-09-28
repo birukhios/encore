@@ -290,6 +290,8 @@ public sealed class StaffService(
         var needs = group switch { "menu" => ["Settings", "Menu"], "store" => ["Settings", "Stock"], _ => ActionPages.GetValueOrDefault(op) };
         if (needs is not null && !needs.Any(PagesFor(u).Contains))
             throw new NotAllowed("Your access does not include this. Ask an administrator.");
+        if (op == "staff_order" && v["data"] is JsonObject taken && WorkspaceRules.Str(taken["method"]) == "Afropay" && !options.PaymentsReady)
+            throw new DomainException("Afropay is not connected for this workspace yet, so no payment request can be sent. Take cash, or save the order as not paid yet.");
         var (row, s) = await WorkspaceAsync(u.TenantId);
         if (u.Role == "Cashier" && op is "settle" or "cancel")
         {

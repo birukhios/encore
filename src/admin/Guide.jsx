@@ -43,7 +43,7 @@ const FLOWS = [
     steps: [
       'Orders → New order.',
       'Tap the items, choose the table, the waiter and any tip.',
-      'Choose Cash, Card at venue, or “Not paid yet”.',
+      'Type the guest’s phone, then choose Cash, Afropay (once connected) or “Not paid yet”.',
       'Place the order, then print the receipt or the kitchen ticket.',
     ],
   },
