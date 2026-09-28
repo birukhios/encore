@@ -199,14 +199,7 @@ public sealed class GuestJourneyTests(EncoreApp app) : ServerTest(app)
         var item = (string)state["menu"]![0]!["id"]!;
         var number = (string)state["waiters"]![0]!["number"]!;
 
-        async Task<Client> Member(string role)
-        {
-            var mail = Guid.NewGuid().ToString("N")[..8] + "@example.com";
-            var token = ((string)(await owner.Call("invite", new { email = mail, role })).Body["url"]!).Split("invite=")[1];
-            var m = App.Admin();
-            Assert.Equal(201, await m.Status("signup", new { name = role + " Staff", email = mail, password = Password(), invite = token }));
-            return m;
-        }
+        async Task<Client> Member(string role) => (await Join(owner, role)).Client;
         var cashier = await Member("Service");
         var gate = await Member("Gate");
 
@@ -252,11 +245,7 @@ public sealed class GuestJourneyTests(EncoreApp app) : ServerTest(app)
 
         async Task<(Client Client, string Id)> Member(string role, string[]? pages = null)
         {
-            var mail = Guid.NewGuid().ToString("N")[..8] + "@example.com";
-            var token = ((string)(await owner.Call("invite", new { email = mail, role, pages })).Body["url"]!).Split("invite=")[1];
-            var m = App.Admin();
-            var (status, body) = await m.Call("signup", new { name = role + " " + mail[..4], email = mail, password = Password(), invite = token });
-            Assert.Equal(201, status);
+            var (m, body, _, _) = await Join(owner, role, pages);
             return (m, (string)body["user"]!["id"]!);
         }
         var (one, _) = await Member("Cashier");

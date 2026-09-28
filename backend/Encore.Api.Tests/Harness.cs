@@ -178,10 +178,26 @@ public abstract class ServerTest(EncoreApp app)
         return await c.Call("action", new JsonObject { ["op"] = op, ["version"] = me["version"]!.DeepClone(), ["data"] = (data as JsonNode)?.DeepClone() ?? JsonSerializer.SerializeToNode(data) });
     }
 
+    protected static string NewPhone() => "09" + string.Concat(Enumerable.Range(0, 8).Select(_ => RandomNumberGenerator.GetInt32(10)));
+
+    /// <summary>Invites a member by phone and joins with the code texted to that phone.</summary>
+    protected async Task<(Client Client, JsonNode Body, string Phone, string Password)> Join(Client owner, string role, string[]? pages = null, string? name = null)
+    {
+        var phone = NewPhone();
+        var invited = (await owner.Call("invite", new { phone, role, pages })).Body;
+        var token = ((string)invited["url"]!).Split("invite=")[1];
+        var m = app.Admin();
+        Assert.Equal(200, (await m.Call("invite/code", new { invite = token })).Status);
+        var pw = Password();
+        var (status, body) = await m.Call("signup", new { name = name ?? role + " Staff", email = Guid.NewGuid().ToString("N")[..8] + "@example.com", password = pw, invite = token, code = app.CodeFor((string)invited["phone"]!) });
+        Assert.Equal(201, status);
+        return (m, body, phone, pw);
+    }
+
     protected async Task<(Client Client, JsonNode Guest)> GuestClient(string name = "Guest")
     {
         var g = app.Guest();
-        var phone = "09" + string.Concat(Enumerable.Range(0, 8).Select(_ => RandomNumberGenerator.GetInt32(10)));
+        var phone = NewPhone();
         var (status, reply) = await g.Call("guest/otp", new { phone });
         Assert.Equal(200, status);
         var code = app.CodeFor((string)reply["phone"]!);

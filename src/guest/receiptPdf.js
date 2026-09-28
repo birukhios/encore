@@ -1,9 +1,47 @@
-// A guest's receipt as a PDF, with one QR code per ticket so it can be shown at the entrance from the file.
-// jsPDF loads only when a guest asks for the download.
+// A guest's receipt as a PDF. Tickets print one per page on 80 mm paper, laid out like the venue's thermal ticket,
+// so they can be shown from the phone or printed. jsPDF loads only when a guest asks for the download.
 import QRCode from 'qrcode';
+import { slashPrice, stamp, ticketFacts } from './ticketStub';
 
-export async function downloadReceipt(r, money) {
+const qrImage = text => QRCode.toDataURL(text, { width: 300, margin: 1, errorCorrectionLevel: 'M' });
+
+async function downloadTickets(r, reservations, jsPDF) {
+  const f = ticketFacts(r, reservations);
+  const W = 80, H = 150, M = 6;
+  const doc = new jsPDF({ unit: 'mm', format: [W, H] });
+  const center = (text, y, size, bold = false) => {
+    doc.setFont('helvetica', bold ? 'bold' : 'normal');
+    doc.setFontSize(size);
+    doc.text(String(text), W / 2, y, { align: 'center', maxWidth: W - 2 * M });
+  };
+  for (const [n, t] of r.tickets.entries()) {
+    if (n) doc.addPage([W, H]);
+    doc.setTextColor(17, 17, 17);
+    // compressed: keeps the file small for phones
+    doc.addImage(await qrImage(`${r.ref}:${t.serial}:${t.token}`), 'PNG', (W - 52) / 2, M, 52, 52, undefined, 'FAST');
+    doc.setFont('courier', 'bold'); doc.setFontSize(12);
+    doc.text(`${r.ref}-${t.serial}`, W / 2, 64, { align: 'center' });
+    center(f.merchant, 74, 12, true);
+    center(stamp(f.issued), 80, 9);
+    center(f.eventLine, 86, 9);
+    doc.setLineWidth(0.3); doc.line(M, 91, W - M, 91);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(30);
+    doc.text(f.price, M, 105);
+    const priceWidth = doc.getTextWidth(f.price);
+    doc.setLineWidth(0.8); doc.line(M + priceWidth + 2, 95, M + priceWidth + 2, 108);
+    doc.setFontSize(9);
+    f.lines.forEach(([label, cents], i) => doc.text(`${label} - ${slashPrice(cents)}`, M + priceWidth + 5, 99 + i * 5));
+    doc.setLineWidth(0.3); doc.line(M, 112, W - M, 112);
+    center(`${t.used ? 'Used for entry' : f.note}`, 119, 9);
+    center(`Ticket ${t.serial} of ${r.qty}`, 125, 9);
+    if (f.reservations) center(`Reservations : ${f.reservations}`, 132, 9);
+  }
+  doc.save(`tickets-${r.ref}.pdf`);
+}
+
+export async function downloadReceipt(r, money, reservations = '') {
   const { jsPDF } = await import('jspdf');
+  if (r.kind === 'booking' && r.status !== 'Cancelled' && r.tickets?.length) return downloadTickets(r, reservations, jsPDF);
   const doc = new jsPDF({ unit: 'mm', format: 'a5' });
   const booking = r.kind === 'booking';
   const W = doc.internal.pageSize.getWidth(), H = doc.internal.pageSize.getHeight(), M = 14;
@@ -34,18 +72,5 @@ export async function downloadReceipt(r, money) {
   line(r.status === 'Cancelled' ? 'CANCELLED' : r.paid ? `PAID · ${r.settledBy || 'Online'}` : booking ? 'NOT PAID · pay at the entrance' : 'NOT PAID', { bold: true });
   if (r.tin) line(`TIN ${r.tin}${r.vatNumber ? ` · VAT reg. ${r.vatNumber}` : ''} · Not a fiscal receipt`, { size: 8, color: [91, 102, 112] });
 
-  if (booking && r.status !== 'Cancelled') {
-    for (const t of r.tickets) {
-      const size = 52;
-      if (y + size + 14 > H - 10) { doc.addPage(); y = 18; }
-      y += 4;
-      const png = await QRCode.toDataURL(`${r.ref}:${t.serial}:${t.token}`, { width: 300, margin: 1, errorCorrectionLevel: 'M' });
-      doc.addImage(png, 'PNG', (W - size) / 2, y, size, size, undefined, 'FAST'); // compressed: keeps the file small for phones
-      y += size + 5;
-      doc.setFontSize(10); doc.setFont('helvetica', 'bold'); doc.setTextColor(17, 17, 17);
-      doc.text(`Ticket ${t.serial} of ${r.qty}${t.used ? ' · used' : ''}`, W / 2, y, { align: 'center' });
-      y += 6;
-    }
-  }
   doc.save(`${(booking ? 'tickets' : 'receipt')}-${r.ref}.pdf`);
 }

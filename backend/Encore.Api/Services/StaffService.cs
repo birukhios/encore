@@ -10,7 +10,7 @@ namespace Encore.Api.Services;
 /// <summary>Organizer accounts and everything staff do in the admin app. Every query is scoped to the caller's workspace.</summary>
 public sealed class StaffService(
     EncoreOptions options, AccountRepository accounts, WorkspaceRepository workspaces, ActivityRepository activity,
-    Passwords passwords, SmsService sms, Notifier notifier, RateLimiter limiter)
+    Passwords passwords, SmsService sms, Notifier notifier, RateLimiter limiter, GuestService phoneCodes)
 {
     public const string SessionCookie = "encore_session";
     public const string SuspendedMessage = "This organization is suspended. Contact Encore support.";
@@ -109,14 +109,14 @@ public sealed class StaffService(
         {
             ["user"] = new JsonObject
             {
-                ["id"] = u.Id, ["name"] = u.Name, ["email"] = u.Email, ["role"] = u.Role, ["tenant"] = u.TenantId, ["avatar"] = u.Avatar,
+                ["id"] = u.Id, ["name"] = u.Name, ["email"] = u.Email, ["phone"] = u.Phone, ["role"] = u.Role, ["tenant"] = u.TenantId, ["avatar"] = u.Avatar,
                 ["pages"] = new JsonArray([.. PagesFor(u).Select(p => (JsonNode?)p)]),
             },
             ["state"] = state,
             ["version"] = row.Version,
             ["team"] = new JsonArray([.. team.Select(m => (JsonNode?)new JsonObject
             {
-                ["id"] = m.Id, ["name"] = m.Name, ["email"] = m.Email, ["role"] = m.Role, ["avatar"] = m.Avatar,
+                ["id"] = m.Id, ["name"] = m.Name, ["email"] = m.Email, ["phone"] = m.Phone, ["role"] = m.Role, ["avatar"] = m.Avatar,
                 ["pages"] = new JsonArray([.. PagesFor(m).Select(p => (JsonNode?)p)]),
             })]),
             ["paymentReady"] = options.PaymentsReady,
@@ -135,9 +135,11 @@ public sealed class StaffService(
     public async Task<(JsonObject Body, string Cookie)> SignInAsync(JsonObject v, string ip)
     {
         LimitSignIns(ip);
-        var mail = Values.Email(v["email"]);
+        // Members who joined by phone invitation can sign in with that phone number instead of their email.
+        var login = Values.Show(v["email"]).Trim();
         var password = Values.Text(v["password"], 200);
-        var u = await accounts.UserByEmailAsync(mail);
+        var u = login.Contains('@') ? await accounts.UserByEmailAsync(Values.Email(v["email"]))
+            : await accounts.UserByPhoneAsync(Values.NormalizePhone(JsonValue.Create(login)));
         var check = u is null ? PasswordCheck.Wrong : passwords.Verify(password, u.Password);
         if (u is null || check == PasswordCheck.Wrong) throw new NotAllowed("Email or password is incorrect.");
         await EnsureActiveAsync(u.TenantId);
@@ -154,13 +156,19 @@ public sealed class StaffService(
         var password = Values.Text(v["password"], 200);
         if (password.Length < 12) throw new DomainException("Use a password with at least 12 characters.");
         var name = Values.Text(v["name"], 100);
-        string tenantId, role = "Owner", pages = "";
+        string tenantId, role = "Owner", pages = "", phone = "";
         if (Values.Truthy(v["invite"]))
         {
             var digest = Ids.Digest(Values.Show(v["invite"]));
             var invite = await accounts.InviteAsync(digest, Ids.Now());
-            if (invite is null || invite.Email != mail) throw new DomainException("Invitation is invalid or expired.");
-            (tenantId, role, pages) = (invite.TenantId, invite.Role, invite.Pages);
+            if (invite is null || (invite.Phone.Length == 0 && invite.Email != mail)) throw new DomainException("Invitation is invalid or expired.");
+            // A phone invitation is proven by the code texted to that phone, so a forwarded link alone is not enough.
+            if (invite.Phone.Length > 0)
+            {
+                await phoneCodes.CheckCodeAsync(invite.Phone, Values.Show(v["code"]));
+                await phoneCodes.ForgetCodeAsync(invite.Phone);
+            }
+            (tenantId, role, pages, phone) = (invite.TenantId, invite.Role, invite.Pages, invite.Phone);
             await accounts.DeleteInviteAsync(digest);
         }
         else
@@ -173,7 +181,7 @@ public sealed class StaffService(
         var u = new User
         {
             Id = Ids.Uid(), TenantId = tenantId, Name = name, Email = mail, Password = passwords.Hash(password),
-            Recovery = Ids.Digest(recovery), Role = role, Pages = pages,
+            Recovery = Ids.Digest(recovery), Role = role, Pages = pages, Phone = phone,
         };
         await accounts.AddUserAsync(u);
         var token = Sessions.NewToken();
@@ -229,12 +237,29 @@ public sealed class StaffService(
         var role = WorkspaceRules.Str(v["role"]);
         if (role is not ("Admin" or "Service" or "Cashier" or "Gate")) throw new DomainException("Select a role.");
         var pages = CleanPages(v["pages"], role);
+        var phone = Values.NormalizePhone(v["phone"]);
+        if (await accounts.UserByPhoneAsync(phone) is not null) throw new DomainException("Someone on Encore already uses this phone number.");
         var token = Ids.Uid();
         await accounts.AddInviteAsync(new Invite
         {
-            Token = Ids.Digest(token), TenantId = u.TenantId, Email = Values.Email(v["email"]), Role = role, Pages = pages, Expires = (int)(Ids.Now() + 604800),
+            Token = Ids.Digest(token), TenantId = u.TenantId, Phone = phone, Role = role, Pages = pages, Expires = (int)(Ids.Now() + 604800),
         });
-        return new JsonObject { ["url"] = options.AdminOrigin + "/admin/signup?invite=" + token };
+        var url = options.AdminOrigin + "/admin/signup?via=phone&invite=" + token;
+        var (_, s) = await WorkspaceAsync(u.TenantId);
+        var texted = true;
+        try { await sms.SendAsync(phone, $"{s.Name} invited you to join their Encore team. Join here: {url}"); }
+        catch (Exception problem) when (problem is SmsNotConfigured or SmsDeliveryFailed) { texted = false; }
+        return new JsonObject { ["url"] = url, ["phone"] = phone, ["texted"] = texted };
+    }
+
+    /// <summary>Texts a code to the phone a pending invitation was sent to. Anyone with the link may ask; only the phone gets the code.</summary>
+    public async Task<JsonObject> InviteCodeAsync(JsonObject v, string ip)
+    {
+        var invite = await accounts.InviteAsync(Ids.Digest(Values.Show(v["invite"])), Ids.Now());
+        if (invite is null || invite.Phone.Length == 0) throw new DomainException("Invitation is invalid or expired.");
+        var sent = await phoneCodes.SendCodeAsync(new JsonObject { ["phone"] = invite.Phone }, ip);
+        sent["phone"] = SmsService.MaskPhone(invite.Phone);
+        return sent;
     }
 
     /// <summary>Owner and Admin only: choose which of their role's pages a member can open. The owner cannot be limited.</summary>

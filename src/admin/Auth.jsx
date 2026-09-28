@@ -5,16 +5,25 @@ import Logo from '../shared/Logo';
 
 export default function Auth({ onAuth }) {
   const path = location.pathname;
-  const invite = new URLSearchParams(location.search).get('invite');
+  const params = new URLSearchParams(location.search);
+  const invite = params.get('invite');
+  const byPhone = !!invite && params.get('via') === 'phone';
   const [view, setView] = useState(invite || path.includes('signup') ? 'signup' : path.includes('recover') ? 'recover' : 'signin');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [recovery, setRecovery] = useState('');
+  const [codeSent, setCodeSent] = useState(null); // { phone, resendIn } once a code was texted
+
+  async function sendCode() {
+    setBusy(true);
+    setError('');
+    try { setCodeSent(await api('invite/code', { invite })); } catch (err) { setError(err.message); } finally { setBusy(false); }
+  }
 
   function change(next) {
     setView(next);
     setError('');
-    history.replaceState(null, '', '/admin/' + next + (invite ? '?invite=' + encodeURIComponent(invite) : ''));
+    history.replaceState(null, '', '/admin/' + next + (invite ? `?${byPhone ? 'via=phone&' : ''}invite=` + encodeURIComponent(invite) : ''));
   }
 
   async function submit(e) {
@@ -77,7 +86,16 @@ export default function Auth({ onAuth }) {
                   {!invite && <Field label="Team or organization name" name="team" placeholder="Your organization" autoComplete="organization" required />}
                 </>
               )}
-              <Field label="Email address" name="email" type="email" autoComplete="email" placeholder="you@company.com" required />
+              {view === 'signup' && byPhone && (
+                <div className="stack">
+                  <p className="small">{codeSent ? `We texted a 6-digit code to ${codeSent.phone}.` : 'To join, confirm the phone number you were invited on. We will text it a code.'}</p>
+                  {codeSent && <Field label="Code from the SMS" name="code" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} required />}
+                  <button type="button" onClick={sendCode} disabled={busy} style={{ justifySelf: 'start' }}>{codeSent ? 'Send a new code' : 'Text me a code'}</button>
+                </div>
+              )}
+              {view === 'signin'
+                ? <Field label="Email or phone number" name="email" autoComplete="username" placeholder="you@company.com or 0911 234 567" required />
+                : <Field label="Email address" name="email" type="email" autoComplete="email" placeholder="you@company.com" required hint={byPhone ? 'You can sign in later with this email or your phone number.' : undefined} />}
               {view === 'recover' && <Field label="Recovery code" name="recovery" autoComplete="off" required />}
               <Field
                 label={view === 'recover' ? 'New password' : 'Password'} name="password" type="password"
@@ -86,7 +104,7 @@ export default function Auth({ onAuth }) {
               />
               {view === 'signin' && <button type="button" className="linklike" style={{ justifySelf: 'start' }} onClick={() => change('recover')}>Forgot password?</button>}
               <ErrorText>{error}</ErrorText>
-              <button className="primary lg-btn" disabled={busy}>
+              <button className="primary lg-btn" disabled={busy || (byPhone && view === 'signup' && !codeSent)}>
                 {busy ? 'Please wait…' : view === 'signup' ? 'Create account' : view === 'recover' ? 'Reset password' : 'Sign in'}
                 <Icon name="next" />
               </button>

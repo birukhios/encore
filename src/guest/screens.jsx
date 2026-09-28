@@ -7,6 +7,7 @@ import { copyText, Empty, ErrorText, Glyph, Icon, Modal, Spinner, StarIcon } fro
 import { PLATFORM_FAQ, PLATFORM_PRIVACY, PLATFORM_TERMS } from './content';
 import { eventStatus, onSale } from '../shared/eventStatus';
 import { downloadReceipt } from './receiptPdf';
+import { slashPrice, stamp, ticketFacts } from './ticketStub';
 
 const ORDER_STEPS = ['Placed', 'Preparing', 'Ready', 'Delivered'];
 const OPEN_ORDER = ['Awaiting cashier', 'Placed', 'Preparing', 'Ready'];
@@ -420,6 +421,8 @@ function RecordCard({ ctx, r }) {
 export function ReceiptModal({ ctx, receipt: r, onClose }) {
   const { money, tenant, toast } = ctx;
   const booking = r.kind === 'booking';
+  const reservations = ctx.data?.settings?.support?.phone || '';
+  const facts = booking ? ticketFacts(r, reservations) : null;
   const link = `${location.origin}/?tenant=${encodeURIComponent(tenant)}&view=tickets&ref=${encodeURIComponent(r.ref)}&token=${encodeURIComponent(r.token)}`;
   const status = r.status === 'Cancelled' ? 'This was cancelled by the organizer.'
     : r.paid ? `Paid (${r.settledBy}).`
@@ -428,17 +431,25 @@ export function ReceiptModal({ ctx, receipt: r, onClose }) {
     : `Pay ${money(r.total)} in cash to your waiter when your order arrives.`;
   return (
     <Modal sheet eyebrow={r.merchant} title={booking ? (r.status === 'Reserved' ? "You're on the list." : r.eventName) : r.status === 'Awaiting cashier' ? 'Waiting for the cashier.' : 'Order ' + r.status.toLowerCase() + '.'} label="Receipt" onClose={onClose}
-      footer={<div className="row" style={{ width: '100%' }}><button className="block" onClick={() => downloadReceipt(r, money).catch(() => toast('The download did not work. Please try again.'))}><Icon name="download" />{booking ? 'Download tickets (PDF)' : 'Download receipt (PDF)'}</button><button className="primary block" onClick={onClose}>Done</button></div>}>
+      footer={<div className="row" style={{ width: '100%' }}><button className="block" onClick={() => downloadReceipt(r, money, reservations).catch(() => toast('The download did not work. Please try again.'))}><Icon name="download" />{booking ? 'Download tickets (PDF)' : 'Download receipt (PDF)'}</button><button className="primary block" onClick={onClose}>Done</button></div>}>
       <p>Reference <b style={{ color: 'var(--ink)' }}>{r.ref}</b> · {r.name}</p>
       {booking && <p className="small">{r.venue} · {dateTime(r.date)}</p>}
       {!booking && <p className="small">{r.tableName ? 'Delivering to ' + r.tableName : 'Collect at the counter'}{r.waiterName ? ` · Served by ${r.waiterName.split(' ')[0]} (#${r.waiterNumber})` : ''}</p>}
       <p className={'notice' + (r.paid ? ' success' : r.status === 'Cancelled' ? '' : ' warning')}>{status}</p>
       {booking && r.status !== 'Cancelled' && r.tickets.map(t => (
-        <div className={'ticket-qr' + (t.used ? ' used' : '')} key={t.token}>
-          <QR value={`${r.ref}:${t.serial}:${t.token}`} name={`${r.ref} ticket ${t.serial} ${r.eventName}`} size={200} />
-          <b>Ticket {t.serial} of {r.qty}</b>
-          <small className="muted">{t.used ? 'Used for entry' : `Show this at the entrance · Ref ${r.ref}`}</small>
-        </div>
+        <article className={'stub' + (t.used ? ' used' : '')} key={t.token} aria-label={`Ticket ${t.serial} of ${r.qty}`}>
+          <div className="stub-qr">
+            <QR value={`${r.ref}:${t.serial}:${t.token}`} name={`${r.ref} ticket ${t.serial} ${r.eventName}`} size={180} />
+            <b className="stub-code">{r.ref}·{t.serial}</b>
+          </div>
+          <div className="stub-head"><b>{facts.merchant}</b><span>{stamp(facts.issued)}</span><span>{facts.eventLine}</span></div>
+          <div className="stub-price">
+            <strong>{facts.price}</strong>
+            <div>{facts.lines.map(([label, cents]) => <b key={label}>{label} - {slashPrice(cents)}</b>)}</div>
+          </div>
+          <p>{t.used ? 'Used for entry' : facts.note} · Ticket {t.serial} of {r.qty}</p>
+          {facts.reservations && <p>Reservations : {facts.reservations}</p>}
+        </article>
       ))}
       <div className="totals">
         {r.lines.map((l, i) => <div className="line" key={i}><span>{l.qty} × {l.name}</span><b>{money(l.total)}</b></div>)}

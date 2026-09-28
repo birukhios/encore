@@ -2,19 +2,20 @@ import React, { useMemo, useState } from 'react';
 import { dateTime, shortDate } from '../../shared/api';
 import { eventStatus } from '../../shared/eventStatus';
 import { exportPdf } from '../pdf';
-import { Bars, DataTable, Kpi, TrendChart } from '../charts';
-import { compact, Suggestions } from '../Reports';
-import { buildReport, change, paymentLabel, slug, WALLET_NAMES } from '../reportData';
-import { Empty, Icon, StarIcon } from '../../shared/ui';
+import { Bars, Donut, Kpi, TrendChart } from '../charts';
+import { compact } from '../Reports';
+import { buildReport, change, paymentLabel, slug } from '../reportData';
+import { Empty, Icon } from '../../shared/ui';
 import { PageActions, paidBadge } from './common';
 
 export function Overview({ ctx }) {
   const { state, money, go, canManage, role, session } = ctx;
   const [exporting, setExporting] = useState(false);
   const [range, setRange] = useState(7);
+  const [eventId, setEventId] = useState('');
   const today = new Date();
   const iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  const report = useMemo(() => buildReport(state, { from: iso(new Date(Date.now() - (range - 1) * 86400000)), to: iso(today) }), [state, range]);
+  const report = useMemo(() => buildReport(state, { from: iso(new Date(Date.now() - (range - 1) * 86400000)), to: iso(today), eventId: eventId || undefined }), [state, range, eventId]);
   const month = useMemo(() => buildReport(state, { from: iso(new Date(Date.now() - 29 * 86400000)), to: iso(today) }), [state]);
   const s = report.summary;
   const prev = report.previous?.summary;
@@ -36,7 +37,9 @@ export function Overview({ ctx }) {
   ];
   const done = steps.filter(x => x[1]).length;
   const next = upcoming[0];
-  const periodName = range === 7 ? 'last 7 days' : 'last 30 days';
+  const periodName = { 1: 'today', 7: 'last 7 days', 30: 'last 30 days' }[range];
+  const scope = eventId ? state.events.find(e => e.id === eventId)?.name : 'all events';
+  const busyHours = report.byHour.filter(h => h.orders + h.bookings > 0);
 
   async function exportDashboard() {
     setExporting(true);
@@ -90,124 +93,90 @@ export function Overview({ ctx }) {
 
       {canManage && (
         <>
-          <div className="section-bar">
-            <h2>Performance</h2>
+          <div className="section-bar dash-filters">
             <div className="segmented" role="group" aria-label="Dashboard period">
-              {[[7, '7 days'], [30, '30 days']].map(([n, label]) => <button key={n} aria-pressed={range === n} className={range === n ? 'active' : ''} onClick={() => setRange(n)}>{label}</button>)}
+              {[[1, 'Today'], [7, '7 days'], [30, '30 days']].map(([n, label]) => <button key={n} aria-pressed={range === n} className={range === n ? 'active' : ''} onClick={() => setRange(n)}>{label}</button>)}
             </div>
+            <select aria-label="Event" value={eventId} onChange={e => setEventId(e.target.value)}>
+              <option value="">All events</option>
+              {[...state.events].sort((a, b) => b.date.localeCompare(a.date)).map(e => <option key={e.id} value={e.id}>{e.name} · {shortDate(e.date)}</option>)}
+            </select>
           </div>
           <div className="kpis">
-            <Kpi label="Gross sales" icon="wallet" value={money(s.gross)} delta={delta('gross')} hint={`vs previous ${range} days`} spark={report.daily.map(d => d.gross)} />
+            <Kpi label="Sales" icon="wallet" value={money(s.gross)} delta={delta('gross')} hint={`${periodName} · ${scope}`} spark={report.daily.map(d => d.gross)} />
             <Kpi label="Tickets sold" icon="ticket" value={s.ticketsSold} delta={delta('ticketsSold')} hint={`${Math.round(s.checkinRate * 100)}% checked in`} spark={report.daily.map(d => d.ticketsSold)} />
             <Kpi label="Food & drink orders" icon="menu" value={s.orders} delta={delta('orders')} hint={`${money(s.avgOrder)} average`} spark={report.daily.map(d => d.orders)} />
-            <Kpi label="Tips" icon="money" value={money(s.tips)} delta={delta('tips')} hint={`${Math.round(s.tipParticipation * 100)}% of orders tipped`} spark={report.daily.map(d => d.tips)} />
+            <Kpi label="Orders in progress" icon="clock" value={activeOrders} hint={live.map(([st, n]) => `${n} ${st.toLowerCase()}`).join(' · ')} />
+          </div>
+
+          <div className="dash-grid">
+            <section className="card dash-trend">
+              <div className="card-head">
+                <div><h2>Sales, {periodName}</h2><p>{money(s.ticketSales)} tickets · {money(s.menuSales)} food & drinks</p></div>
+                <button onClick={() => go('Reports')}><Icon name="chart" />Full report</button>
+              </div>
+              {s.gross
+                ? <TrendChart rows={report.daily} series={[{ key: 'tickets', label: 'Tickets' }, { key: 'menu', label: 'Food & drinks' }]} format={compact(true)} height={200} label="Daily sales" />
+                : <Empty icon="chart" title="No sales in this period" body="Paid bookings and orders show here as a daily trend." />}
+            </section>
+
+            <section className="card">
+              <div className="card-head"><div><h2>How guests paid</h2><p>Cash at the venue and each Afropay wallet</p></div></div>
+              {report.payments.length
+                ? <Donut parts={report.payments.map(p => ({ label: p.method, value: p.amount }))} format={money} center={compact(true)(s.gross)} />
+                : <p className="small">No payments in this period.</p>}
+            </section>
+
+            <section className="card">
+              <div className="card-head"><div><h2>Tickets sold by event</h2><p>Sold of capacity</p></div><button onClick={() => go('Events')}>Events</button></div>
+              {upcoming.length
+                ? <Bars rows={upcoming.slice(0, 6)} value={e => soldFor(e.id)} max={Math.max(1, ...upcoming.slice(0, 6).map(e => e.capacity))} format={(v, e) => `${v}/${e.capacity}`} label={e => <><b>{e.name}</b><small>{shortDate(e.date)}</small></>} />
+                : <Empty title="No upcoming events" body="Create an event to start selling tickets." action="Create event" onAction={() => go('Events', 'create')} />}
+            </section>
+
+            <section className="card">
+              <div className="card-head"><div><h2>Best sellers</h2><p>Food & drinks, {periodName}</p></div><button onClick={() => go('Menu')}>Menu</button></div>
+              {report.bestSellers.length
+                ? <Bars rows={report.bestSellers.slice(0, 5)} value={r => r.qty} format={(v, r) => `${v} · ${money(r.revenue)}`} label={r => <><b>{r.name}</b><small>{r.category}</small></>} />
+                : <p className="small">No food or drink orders in this period.</p>}
+            </section>
+
+            <section className="card">
+              <div className="card-head"><div><h2>Busiest hours</h2><p>Orders and bookings by hour, {periodName}</p></div></div>
+              {busyHours.length
+                ? <Bars rows={busyHours} value={h => h.orders + h.bookings} format={v => String(v)} label={h => <b>{String(h.hour).padStart(2, '0')}:00</b>} />
+                : <p className="small">Nothing yet in this period.</p>}
+            </section>
           </div>
         </>
       )}
 
-      <div className="dash-grid">
-        {canManage && (
-          <section className="card dash-trend">
-            <div className="card-head">
-              <div><h2>Sales, {periodName}</h2><p>{money(s.ticketSales)} tickets · {money(s.menuSales)} food & drinks</p></div>
-              <button onClick={() => go('Reports')}><Icon name="chart" />Full report</button>
-            </div>
-            {s.gross
-              ? <TrendChart rows={report.daily} series={[{ key: 'tickets', label: 'Tickets' }, { key: 'menu', label: 'Food & drinks' }]} format={compact(true)} height={200} label="Daily sales" />
-              : <Empty icon="chart" title="No sales in this period" body="Paid bookings and orders will show here as a daily trend." />}
-          </section>
-        )}
-
-        {canManage && <PaymentsPanel ctx={ctx} />}
-
-        {role !== 'Gate' && (
-          <section className="card dash-live">
-            <div className="card-head"><div><h2>Live service</h2><p>{activeOrders ? `${activeOrders} order${activeOrders > 1 ? 's' : ''} in progress` : 'No orders in progress'}</p></div><button onClick={() => go('Orders')}>Orders</button></div>
-            <div className="pipeline">
-              {live.map(([status, count]) => (
-                <button key={status} className={'pipe ' + status.toLowerCase()} onClick={() => go('Orders')}>
-                  <strong>{count}</strong><span>{status}</span>
-                </button>
-              ))}
-            </div>
-            {next && (
-              <div className="next-event">
-                <span className="eyebrow accent">Next up</span>
-                <b>{next.name}</b>
-                <small>{dateTime(next.date)} · {next.venue}</small>
-                <div className="meter" aria-label={`${soldFor(next.id)} of ${next.capacity} sold`}><span style={{ width: Math.min(100, (soldFor(next.id) / (next.capacity || 1)) * 100) + '%' }} /></div>
-                <small>{soldFor(next.id)} of {next.capacity} sold · {state.bookings.filter(b => b.event === next.id).flatMap(b => b.tickets || []).filter(t => t.used).length} checked in</small>
-              </div>
-            )}
-          </section>
-        )}
-
-        <section className="card">
-          <div className="card-head"><h2>Upcoming performances</h2>{canManage && <button onClick={() => go('Events')}>View events</button>}</div>
-          {upcoming.length ? (
-            <div className="list">
-              {upcoming.slice(0, 5).map(e => {
-                const d = new Date(e.date);
-                const sold = soldFor(e.id);
-                return (
-                  <div className="listrow" key={e.id}>
-                    <div className="datebox"><b>{d.getDate()}</b><small>{d.toLocaleString('en', { month: 'short' })}</small></div>
-                    <div className="grow">
-                      <h3>{e.name}</h3>
-                      <small>{e.venue} · {sold}/{e.capacity} sold</small>
-                      <div className="meter slim"><span style={{ width: Math.min(100, (sold / (e.capacity || 1)) * 100) + '%' }} /></div>
-                    </div>
-                    {(st => <span className={'badge ' + st.tone}>{st.label}</span>)(eventStatus(e, { soldOut: sold >= e.capacity }))}
-                  </div>
-                );
-              })}
-            </div>
-          ) : <Empty title="Your first event awaits" body="Add the lineup, date, venue and a striking cover image." action={canManage ? 'Create event' : null} onAction={() => go('Events', 'create')} />}
+      {!canManage && role !== 'Gate' && (
+        <section className="card dash-live">
+          <div className="card-head"><div><h2>Live service</h2><p>{activeOrders ? `${activeOrders} order${activeOrders > 1 ? 's' : ''} in progress` : 'No orders in progress'}</p></div><button onClick={() => go('Orders')}>Orders</button></div>
+          <div className="pipeline">
+            {live.map(([status, count]) => (
+              <button key={status} className={'pipe ' + status.toLowerCase()} onClick={() => go('Orders')}><strong>{count}</strong><span>{status}</span></button>
+            ))}
+          </div>
         </section>
+      )}
 
-        {canManage && (
-          <section className="card">
-            <div className="card-head"><div><h2>Suggestions to grow sales</h2><p>From the last 30 days</p></div><button onClick={() => go('Reports')}>All suggestions</button></div>
-            <Suggestions items={month.suggestions} limit={3} />
-          </section>
-        )}
-
-        {canManage && (
-          <section className="card">
-            <div className="card-head"><div><h2>Top tipped tables</h2><p>Last 30 days</p></div><button onClick={() => go('Reports')}>Details</button></div>
-            <DataTable limit={5} rank sort={{ key: 'tips', dir: 'desc' }} rows={month.topTipped} empty="No tips in the last 30 days." columns={[
-              { key: 'name', label: 'Table', render: t => <><b>{t.name}</b><small>{t.event}</small></> },
-              { key: 'tips', label: 'Tips', num: true, render: t => <b>{money(t.tips)}</b> },
-              { key: 'tippedOrders', label: 'Tipped', num: true, render: t => `${t.tippedOrders}/${t.orders}` },
-              { key: 'avgTip', label: 'Avg tip', num: true, render: t => money(t.avgTip) },
-            ]} />
-          </section>
-        )}
-
-        {canManage && (
-          <section className="card">
-            <div className="card-head"><div><h2>Best sellers</h2><p>Last 30 days, by quantity</p></div></div>
-            {month.bestSellers.length
-              ? <Bars rows={month.bestSellers.slice(0, 5)} value={r => r.qty} format={(v, r) => `${v} · ${money(r.revenue)}`} label={r => <><b>{r.name}</b><small>{r.category}</small></>} />
-              : <p className="small">No food or drink orders in the last 30 days.</p>}
-          </section>
-        )}
-
-        <section className="card">
-          <div className="card-head"><h2>Guest ratings</h2>{session.ratings.count > 0 && <span className="row"><span className="stars" aria-hidden="true">{[1, 2, 3, 4, 5].map(i => <StarIcon key={i} filled={session.ratings.average >= i ? 1 : session.ratings.average >= i - 0.5 ? 0.5 : 0} />)}</span><b>{session.ratings.average.toFixed(1)}</b><span className="muted small">({session.ratings.count})</span></span>}</div>
-          {session.ratings.recent?.length ? (
-            <div className="list">{session.ratings.recent.slice(0, 4).map((r, i) => (
-              <div className="listrow" key={i}><span className="stars" role="img" aria-label={`${r.stars} of 5 stars`}>{[1, 2, 3, 4, 5].map(i => <StarIcon key={i} size={14} filled={r.stars >= i ? 1 : 0} />)}</span><div className="grow"><b>{r.name}</b><small>{r.comment}</small></div></div>
-            ))}</div>
-          ) : <p className="small">{session.ratings.count ? 'No written reviews yet.' : 'Guests who book or order with you can rate your organization.'}</p>}
+      {!canManage && next && (
+        <section className="card next-event">
+          <span className="eyebrow accent">Next up</span>
+          <b>{next.name}</b>
+          <small>{dateTime(next.date)} · {next.venue}</small>
+          <div className="meter" aria-label={`${soldFor(next.id)} of ${next.capacity} sold`}><span style={{ width: Math.min(100, (soldFor(next.id) / (next.capacity || 1)) * 100) + '%' }} /></div>
+          <small>{soldFor(next.id)} of {next.capacity} sold · {state.bookings.filter(b => b.event === next.id).flatMap(b => b.tickets || []).filter(t => t.used).length} checked in</small>
         </section>
-      </div>
+      )}
 
       <section className="card">
         <div className="card-head"><h2>Latest activity</h2>{role !== 'Gate' && <button onClick={() => go('Orders')}>View orders</button>}</div>
         {records.length ? (
           <div className="list">
-            {records.slice(0, 10).map(r => (
+            {records.slice(0, 6).map(r => (
               <div className="listrow" key={r.id}>
                 <span className="avatar">{r.name[0]}</span>
                 <div className="grow">
@@ -222,60 +191,5 @@ export function Overview({ ctx }) {
         ) : <Empty icon="bell" title="The best is yet to come" body="Bookings and table orders appear here as guests book." />}
       </section>
     </>
-  );
-}
-
-function PaymentsPanel({ ctx }) {
-  const { state, money, go } = ctx;
-  const [eventId, setEventId] = useState('');
-  const inScope = r => !eventId || r.event === eventId;
-  const everything = [...state.bookings, ...state.orders].filter(inScope);
-  const all = everything.filter(r => r.status !== 'Cancelled');
-  const paid = all.filter(r => r.paid);
-  const atVenue = r => r.settledBy === 'Cash';
-  const sum = rows => rows.reduce((n, r) => n + (r.total || 0), 0);
-  const methods = Object.entries(paid.reduce((m, r) => {
-    const key = atVenue(r) ? r.settledBy : r.wallet ? `${WALLET_NAMES[r.wallet] || r.wallet} (Afropay)` : 'Online (Afropay)';
-    m[key] = (m[key] || 0) + r.total;
-    return m;
-  }, {})).sort((a, b) => b[1] - a[1]);
-  const eventName = id => state.events.find(e => e.id === id)?.name || 'Other orders';
-  const events = Object.entries(paid.reduce((m, r) => { const k = r.event || ''; m[k] = (m[k] || 0) + r.total; return m; }, {}))
-    .sort((a, b) => b[1] - a[1]).slice(0, 5);
-  const pending = all.filter(r => !r.paid);
-  const status = [
-    ['Paid online', paid.filter(r => !atVenue(r)).length, 'success'],
-    ['Paid at the venue', paid.filter(atVenue).length, 'success'],
-    ['Pending payment', pending.length, 'warning'],
-    ['Cancelled', everything.filter(r => r.status === 'Cancelled').length, 'neutral'],
-  ];
-  return (
-    <section className="card">
-      <div className="card-head">
-        <div><h2>Payments collected</h2><p>{eventId ? 'This event' : 'All events, all time'} · {paid.length} paid bookings and orders</p></div>
-        <select aria-label="Show payments for" value={eventId} onChange={e => setEventId(e.target.value)} style={{ maxWidth: 220 }}>
-          <option value="">All events</option>
-          {[...state.events].sort((a, b) => b.date.localeCompare(a.date)).map(e => <option key={e.id} value={e.id}>{e.name} · {shortDate(e.date)}</option>)}
-        </select>
-      </div>
-      <strong style={{ fontSize: 28, display: 'block', margin: '4px 0 12px' }}>{money(sum(paid))}</strong>
-      <div className="list">
-        {methods.map(([m, v]) => <div className="listrow" key={m}><span className="grow">{m}</span><b>{money(v)}</b></div>)}
-        {!methods.length && <p className="small">No payments recorded yet.</p>}
-      </div>
-      <div className="row wrap" style={{ gap: 8, marginTop: 10 }}>
-        <span className="badge neutral">Cash at venue · {money(sum(paid.filter(atVenue)))}</span>
-        <span className="badge neutral">Afropay wallets · {money(sum(paid.filter(r => !atVenue(r))))}</span>
-      </div>
-      {!eventId && events.length > 0 && <>
-        <h3 style={{ marginTop: 14 }}>By event</h3>
-        <div className="list">{events.map(([id, v]) => <div className="listrow" key={id || 'none'}><span className="grow">{eventName(id)}</span><b>{money(v)}</b></div>)}</div>
-      </>}
-      <h3 style={{ marginTop: 14 }}>Payment status</h3>
-      <div className="row wrap" style={{ gap: 8, marginTop: 6 }}>
-        {status.map(([label, n, tone]) => <span key={label} className={'badge ' + tone}>{label} · {n}</span>)}
-      </div>
-      {pending.length > 0 && <p className="small" style={{ marginTop: 8 }}>{money(sum(pending))} not yet paid.</p>}
-    </section>
   );
 }

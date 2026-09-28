@@ -31,7 +31,7 @@ function PageChooser({ role, value, onChange }) {
 export function Team({ ctx }) {
   const { session, state, role } = ctx;
   const [inviting, setInviting] = useState(false);
-  const [link, setLink] = useState('');
+  const [link, setLink] = useState(null); // { url, phone, texted } after inviting
   const [newRole, setNewRole] = useState('Service');
   const [newPages, setNewPages] = useState(ROLE_PAGES.Service);
   const [editing, setEditing] = useState(null); // { member, pages }
@@ -46,12 +46,12 @@ export function Team({ ctx }) {
     run(async () => { ctx.setSession(await api('team/remove', { id: m.id })); ctx.toast(m.name + ' was removed'); });
   const invite = e => {
     e.preventDefault();
-    const email = new FormData(e.currentTarget).get('email');
-    run(async () => { setLink((await api('invite', { email, role: newRole, pages: chosen(newRole, newPages) })).url); });
+    const phone = new FormData(e.currentTarget).get('phone');
+    run(async () => { setLink(await api('invite', { phone, role: newRole, pages: chosen(newRole, newPages) })); });
   };
   return (
     <>
-      {ctx.canManage && <PageActions><button className="primary" onClick={() => { setInviting(true); setLink(''); }}><Icon name="add" />Invite member</button></PageActions>}
+      {ctx.canManage && <PageActions><button className="primary" onClick={() => { setInviting(true); setLink(null); }}><Icon name="add" />Invite member</button></PageActions>}
       <section className="card">
         <div className="card-head"><h2>{state.name} team</h2><span className="badge neutral">{session.team.length} members</span></div>
         <ErrorText>{!inviting && error}</ErrorText>
@@ -59,7 +59,7 @@ export function Team({ ctx }) {
           {session.team.map(m => (
             <div className="listrow" key={m.id}>
               <Avatar name={m.name} src={m.avatar} />
-              <div className="grow"><b>{m.name}{m.id === session.user.id && <span className="muted"> (you)</span>}</b><small>{m.email}</small></div>
+              <div className="grow"><b>{m.name}{m.id === session.user.id && <span className="muted"> (you)</span>}</b><small>{[m.phone, m.email].filter(Boolean).join(' · ')}</small></div>
               <span className="badge neutral">{m.role}</span>
               {ctx.canManage && m.role !== 'Owner' && m.id !== session.user.id && <button className="ghost" onClick={() => setEditing({ member: m, pages: m.pages || ROLE_PAGES[m.role] })} disabled={busy}>Access</button>}
               {role === 'Owner' && m.role !== 'Owner' && <button className="ghost danger-text" onClick={() => remove(m)} disabled={busy}>Remove</button>}
@@ -86,16 +86,19 @@ export function Team({ ctx }) {
       {inviting && (
         <Modal title={link ? 'Your invitation is ready' : 'Invite a teammate'} eyebrow={state.name} onClose={() => setInviting(false)}
           footer={link
-            ? <><button onClick={async () => ctx.toast(await copyText(link) ? 'Invitation link copied' : 'Select and copy the link')}>Copy link</button><button className="primary" onClick={() => setInviting(false)}>Done</button></>
+            ? <><button onClick={async () => ctx.toast(await copyText(link.url) ? 'Invitation link copied' : 'Select and copy the link')}>Copy link</button><button className="primary" onClick={() => setInviting(false)}>Done</button></>
             : <><button onClick={() => setInviting(false)}>Cancel</button><button className="primary" form="invite-form" disabled={busy || !chosen(newRole, newPages).length}>{busy ? 'Creating…' : 'Create invitation'}</button></>}>
           {link ? (
             <>
-              <p>Send this private link to your teammate. It works once, for the invited email address, for seven days.</p>
-              <input aria-label="Invitation link" readOnly value={link} onFocus={e => e.target.select()} />
+              <p className={link.texted ? 'notice success' : 'notice'}>{link.texted
+                ? `We texted the invitation to ${link.phone}. When they open it, a code is sent to that phone to confirm it is them.`
+                : `The SMS could not be sent right now. Copy the link below and send it to ${link.phone} yourself; they still confirm with a code texted to that phone.`}</p>
+              <p className="small">The link works once, for seven days.</p>
+              <input aria-label="Invitation link" readOnly value={link.url} onFocus={e => e.target.select()} />
             </>
           ) : (
             <form id="invite-form" className="form" onSubmit={invite}>
-              <Field label="Email address" name="email" type="email" autoComplete="off" required />
+              <Field label="Phone number" name="phone" type="tel" inputMode="tel" autoComplete="off" placeholder="0911 234 567" required hint="The invitation and a confirmation code are sent to this number by SMS." />
               <Field label="Role" hint={ROLE_INFO.find(([r]) => r === newRole)[1]}>
                 <select value={newRole} onChange={e => { setNewRole(e.target.value); setNewPages(ROLE_PAGES[e.target.value]); }}>
                   {ROLE_INFO.map(([r]) => <option key={r} value={r}>{r === 'Service' ? 'Service (cashier & floor)' : r}</option>)}

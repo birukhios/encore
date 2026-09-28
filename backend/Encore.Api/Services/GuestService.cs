@@ -161,7 +161,30 @@ public sealed partial class GuestService(
     public async Task<(JsonObject Body, string? Cookie)> VerifyCodeAsync(JsonObject v)
     {
         var phone = Values.NormalizePhone(v["phone"]);
-        var code = (v.ContainsKey("code") ? Values.Show(v["code"]) : "").Trim();
+        var now = Ids.Now();
+        await CheckCodeAsync(phone, v.ContainsKey("code") ? Values.Show(v["code"]) : "");
+        var g = await guests.GuestByPhoneAsync(phone);
+        if (g is null)
+        {
+            if (!Values.Truthy(v["name"])) return (new JsonObject { ["needsName"] = true }, null);
+            if (!(v["acceptTerms"] is JsonValue accepted && accepted.TryGetValue(out bool yes) && yes))
+                throw new DomainException("Please accept the terms to create your account.");
+            g = new Guest { Id = Ids.Uid(), Phone = phone, Name = Values.Text(v["name"], 80), Created = (int)now, Terms = (int)now };
+            await guests.AddGuestAsync(g);
+        }
+        await guests.DeleteOtpAsync(phone);
+        var token = Sessions.NewToken();
+        await guests.AddSessionAsync(Ids.Digest(token), g.Id, now + EncoreOptions.GuestSessionDays * 86400);
+        return (new JsonObject { ["guest"] = Describe(g) }, Cookie(token));
+    }
+
+    /// <summary>
+    /// Checks a code texted to this phone and keeps it for the follow-up step; <see cref="ForgetCodeAsync"/> retires it.
+    /// Also used when a team member joins through a phone invitation.
+    /// </summary>
+    public async Task CheckCodeAsync(string phone, string given)
+    {
+        var code = given.Trim();
         var now = Ids.Now();
         var otp = await guests.OtpAsync(phone);
         if (otp is null || otp.Expires < now) throw new DomainException("This code has expired. Request a new one.");
@@ -189,20 +212,9 @@ public sealed partial class GuestService(
             await tx.CommitAsync(); // keep the failed-attempt count even though the request fails
             throw new DomainException("That code is not correct.");
         }
-        var g = await guests.GuestByPhoneAsync(phone);
-        if (g is null)
-        {
-            if (!Values.Truthy(v["name"])) return (new JsonObject { ["needsName"] = true }, null);
-            if (!(v["acceptTerms"] is JsonValue accepted && accepted.TryGetValue(out bool yes) && yes))
-                throw new DomainException("Please accept the terms to create your account.");
-            g = new Guest { Id = Ids.Uid(), Phone = phone, Name = Values.Text(v["name"], 80), Created = (int)now, Terms = (int)now };
-            await guests.AddGuestAsync(g);
-        }
-        await guests.DeleteOtpAsync(phone);
-        var token = Sessions.NewToken();
-        await guests.AddSessionAsync(Ids.Digest(token), g.Id, now + EncoreOptions.GuestSessionDays * 86400);
-        return (new JsonObject { ["guest"] = Describe(g) }, Cookie(token));
     }
+
+    public Task ForgetCodeAsync(string phone) => guests.DeleteOtpAsync(phone);
 
     public Task SignOutAsync(string? token) => guests.EndSessionAsync(Ids.Digest(token ?? ""));
 

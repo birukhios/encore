@@ -112,29 +112,44 @@ public sealed class OrganizerTests(EncoreApp app) : ServerTest(app)
     public async Task Roles_invites_and_member_removal()
     {
         var (c, _, _, _) = await Staff();
-        var mail = Guid.NewGuid().ToString("N")[..8] + "@example.com";
-        var token = ((string)(await c.Call("invite", new { email = mail, role = "Service" })).Body["url"]!).Split("invite=")[1];
-        var svc = App.Admin();
-        var (status, body) = await svc.Call("signup", new { name = "Service Staff", email = mail, password = Password(), invite = token });
-        Assert.Equal(201, status);
+        var (svc, body, _, _) = await Join(c, "Service");
         Assert.Equal(401, await svc.Status("action", new { op = "settings", version = 0, data = new { } })); // Service may not change settings
         Assert.Equal(401, await svc.Status("team/remove", new { id = (string)body["user"]!["id"]! }));     // only the Owner removes members
-        Assert.Equal(401, await svc.Status("invite", new { email = "x@example.com", role = "Admin" }));   // only Owner/Admin invite
+        Assert.Equal(401, await svc.Status("invite", new { phone = NewPhone(), role = "Admin" }));   // only Owner/Admin invite
         Assert.Equal(401, await svc.Status("upload", new { data = Png }));                                  // only Owner/Admin upload
         Assert.Equal(200, await c.Status("team/remove", new { id = (string)body["user"]!["id"]! }));
         Assert.Equal(401, await svc.Status("me"));
-        // The invitation was used up.
-        Assert.Equal(400, await App.Admin().Status("signup", new { name = "Again", email = mail, password = Password(), invite = token }));
+    }
+
+    [Fact]
+    public async Task Phone_invitations_need_the_code_texted_to_that_phone()
+    {
+        var (c, _, _, _) = await Staff();
+        var phone = NewPhone();
+        var invited = (await c.Call("invite", new { phone, role = "Gate" })).Body;
+        Assert.True((bool)invited["texted"]!);
+        var token = ((string)invited["url"]!).Split("invite=")[1];
+        Assert.Contains(token, App.Sent().Last(m => m.Phone == (string)invited["phone"]!).Text); // the link is texted to the member
+        var m = App.Admin();
+        var join = new JsonObject { ["name"] = "Door", ["email"] = Guid.NewGuid().ToString("N")[..8] + "@example.com", ["password"] = Password(), ["invite"] = token };
+        Assert.Equal(400, await m.Status("signup", join));                           // the link alone is not enough
+        Assert.Equal(200, (await m.Call("invite/code", new { invite = token })).Status);
+        join["code"] = "000000";
+        Assert.Equal(400, await m.Status("signup", join));                           // wrong code
+        join["code"] = App.CodeFor((string)invited["phone"]!);
+        Assert.Equal(201, await m.Status("signup", join));
+        Assert.Equal(400, await App.Admin().Status("signup", join));                 // the invitation was used up
+        Assert.Equal(400, await c.Status("invite", new { phone, role = "Gate" }));   // one account per phone
+        // The member can sign in with the phone number as well as the email.
+        Assert.Equal(200, await App.Admin().Status("signin", new { email = phone, password = (string)join["password"]! }));
+        Assert.Equal(400, await App.Admin().Status("invite/code", new { invite = "nope" }));
     }
 
     [Fact]
     public async Task Gate_staff_can_only_check_guests_in()
     {
         var (c, _, _, _) = await Staff();
-        var mail = Guid.NewGuid().ToString("N")[..8] + "@example.com";
-        var token = ((string)(await c.Call("invite", new { email = mail, role = "Gate" })).Body["url"]!).Split("invite=")[1];
-        var gate = App.Admin();
-        Assert.Equal(201, await gate.Status("signup", new { name = "Door", email = mail, password = Password(), invite = token }));
+        var (gate, _, _, _) = await Join(c, "Gate");
         Assert.Equal(401, (await Act(gate, "settle", new { id = "x" })).Status);
         Assert.Equal(400, (await Act(gate, "checkin_ticket", new { code = "EN-NONE" })).Status); // allowed, but no such ticket
     }

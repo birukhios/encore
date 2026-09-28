@@ -63,6 +63,10 @@ public sealed class AdminController(StaffService staff, ActivityRepository activ
     [HttpPost("invite")]
     public async Task<IActionResult> Invite() => Reply(await staff.InviteAsync(await staff.CurrentUserAsync(Session), Body));
 
+    /// <summary>Anyone holding a phone invitation link; the code goes only to the invited phone.</summary>
+    [HttpPost("invite/code")]
+    public async Task<IActionResult> InviteCode() => Reply(await staff.InviteCodeAsync(Body, ClientIp));
+
     /// <summary>Owner, Admin.</summary>
     [HttpPost("team/access")]
     public async Task<IActionResult> MemberAccess() => Reply(await staff.MemberAccessAsync(await staff.CurrentUserAsync(Session), Body));

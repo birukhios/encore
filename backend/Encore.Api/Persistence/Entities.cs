@@ -26,6 +26,8 @@ public sealed class User
     public string Avatar { get; set; } = "";
     /// <summary>Pages this member may use, comma-separated; empty means everything their role allows.</summary>
     public string Pages { get; set; } = "";
+    /// <summary>Verified by an SMS code when the member joined through a phone invitation; empty for older accounts.</summary>
+    public string Phone { get; set; } = "";
 }
 
 public sealed class StaffSession
@@ -40,6 +42,8 @@ public sealed class Invite
     public string Token { get; set; } = "";
     public string TenantId { get; set; } = "";
     public string Email { get; set; } = "";
+    /// <summary>Invitations are sent to a phone; joining needs the code texted to it. Older invitations used an email.</summary>
+    public string Phone { get; set; } = "";
     public string Role { get; set; } = "";
     public string Pages { get; set; } = "";
     public int Expires { get; set; }
