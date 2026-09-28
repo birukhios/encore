@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { api, money as formatMoney } from '../shared/api';
 import { applyTheme } from '../shared/theme';
 import { LogoMark } from '../shared/Logo';
-import { ErrorState, Icon, Loading, ModeToggle, Modal, Skeleton, usePolling, useToast } from '../shared/ui';
+import { ErrorState, Icon, ModeToggle, Modal, Skeleton, usePolling, useToast } from '../shared/ui';
 import AfroPayCheckout from './AfroPayCheckout';
 import PhoneAuth from './PhoneAuth';
 import { Account, Bag, BookingSheet, Directory, EventsScreen, HelpScreen, LegalScreen, MenuScreen, NotificationsScreen, ReceiptModal, TableScan, TicketsScreen } from './screens';

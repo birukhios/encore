@@ -403,7 +403,7 @@ public static partial class Actions
         item["reorderLevel"] = Quantity(v.ContainsKey("reorderLevel") ? v["reorderLevel"] : 0);
         item["cost"] = Values.MoneyCents(v.ContainsKey("cost") ? v["cost"] : 0, 100_000_000, "Enter a valid cost per unit.");
         var name = Str(item["name"])!;
-        if (s.Inventory.Any(i => (Str(i["name"]) ?? "").ToLowerInvariant() == name.ToLowerInvariant() && Str(i["id"]) != Str(item["id"])))
+        if (s.Inventory.Any(i => string.Equals(Str(i["name"]), name, StringComparison.OrdinalIgnoreCase) && Str(i["id"]) != Str(item["id"])))
             throw new DomainException($"{name} is already in your store.");
         if (old is null)
         {
@@ -624,7 +624,7 @@ public static partial class Actions
     {
         var name = Values.Text(value, 60);
         return (s.Settings["menu"]!["categories"] as JsonArray ?? []).Select(Str)
-            .FirstOrDefault(c => c is not null && c.ToLowerInvariant() == name.ToLowerInvariant())
+            .FirstOrDefault(c => string.Equals(c, name, StringComparison.OrdinalIgnoreCase))
             ?? throw new DomainException("Choose a category from Settings → Menu categories.");
     }
 

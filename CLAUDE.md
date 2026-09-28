@@ -25,7 +25,7 @@ Read `README.md` for features, `PRODUCTION.md` before any release, and `Encore_D
 | SMS providers | `backend/Encore.Api/Services/SmsService.cs` |
 | Request pipeline, errors, static files, settings | `backend/Encore.Api/Web/*` |
 | Tests | `backend/Encore.Api.Tests/*` |
-| Organizer admin UI | `src/admin/*` |
+| Organizer admin UI (one file per page in `src/admin/pages/`) | `src/admin/*` |
 | Guest UI | `src/guest/*` |
 | Shared UI, API client, theme | `src/shared/*` |
 | Analytics (pure functions) | `src/admin/reportData.js` |

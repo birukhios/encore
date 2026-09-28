@@ -156,7 +156,7 @@ public static partial class SettingsRules
                 foreach (var entry in raw)
                 {
                     var name = Values.Text(entry, 60);
-                    if (categories.Any(c => c.ToLowerInvariant() == name.ToLowerInvariant())) throw new DomainException($"\"{name}\" is listed twice.");
+                    if (categories.Any(c => string.Equals(c, name, StringComparison.OrdinalIgnoreCase))) throw new DomainException($"\"{name}\" is listed twice.");
                     categories.Add(name);
                 }
                 var renamesNode = Values.Truthy(v["renames"]) ? v["renames"] : new JsonObject();

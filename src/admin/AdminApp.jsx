@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { api, money as formatMoney, timeAgo } from '../shared/api';
 import { applyTheme } from '../shared/theme';
 import { LogoMark } from '../shared/Logo';
-import { Avatar, ErrorState, Glyph, Icon, Loading, ModeToggle, Modal, Skeleton, SkeletonCards, Spinner, usePolling, useToast } from '../shared/ui';
+import { Avatar, Glyph, Icon, ModeToggle, Modal, Skeleton, SkeletonCards, Spinner, usePolling, useToast } from '../shared/ui';
 import Auth from './Auth';
 import { Bookings, CheckIns, Events, Menu, Orders, Overview, Profile, Tables, Team } from './pages';
 import Reports from './Reports';

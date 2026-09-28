@@ -175,7 +175,7 @@ public sealed class PlatformService(
             {
                 ["id"] = a.Id, ["tenant"] = a.TenantId, ["user"] = a.UserId, ["action"] = a.Action, ["created"] = a.Created,
                 ["tenantName"] = a.TenantId is not null && names.TryGetValue(a.TenantId, out var tn) ? tn : "—",
-                ["who"] = a.UserId is not null && people.TryGetValue(a.UserId, out var who) ? who : (a.UserId ?? "").StartsWith("guest:") ? "Guest" : "—",
+                ["who"] = a.UserId is not null && people.TryGetValue(a.UserId, out var who) ? who : (a.UserId ?? "").StartsWith("guest:", StringComparison.Ordinal) ? "Guest" : "—",
             })]),
             ["platformAudit"] = new JsonArray([.. platformAudit.Select(a => (JsonNode?)new JsonObject
             {

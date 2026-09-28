@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
@@ -194,7 +195,7 @@ public sealed partial class SmsService(IConfiguration config, IHttpClientFactory
     {
         var query = new List<(string, string)>(AfroMessageBase())
         {
-            ("to", phone), ("len", length.ToString()), ("ttl", ttl.ToString()),
+            ("to", phone), ("len", length.ToString(CultureInfo.InvariantCulture)), ("ttl", ttl.ToString(CultureInfo.InvariantCulture)),
             ("t", Env("AFROMESSAGE_CODE_TYPE") is { Length: > 0 } t ? t : "0"), ("sb", "1"), ("sa", "1"),
             ("pr", Env("AFROMESSAGE_PREFIX") is { Length: > 0 } pr ? pr : "Your Afropay code is"),
             ("ps", Env("AFROMESSAGE_POSTFIX") is { Length: > 0 } ps ? ps : ". It expires in 5 minutes. Never share this code."),
@@ -213,7 +214,7 @@ public sealed partial class SmsService(IConfiguration config, IHttpClientFactory
         JsonNode? data;
         try { data = JsonNode.Parse(body); }
         catch (JsonException) { throw new SmsDeliveryFailed($"unexpected reply from AfroMessage: {Cut(body, 200)}"); }
-        if (data is not JsonObject o || Scalar(o["acknowledge"]).ToLowerInvariant() != "success")
+        if (data is not JsonObject o || !string.Equals(Scalar(o["acknowledge"]), "success", StringComparison.OrdinalIgnoreCase))
         {
             var detail = data is JsonObject d ? (Truthy(d["response"]) ? d["response"]!.ToJsonString() : Scalar(d["message"])) : body;
             throw new SmsDeliveryFailed(Cut(detail, 200));

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Nodes;
@@ -132,7 +133,7 @@ public sealed partial class GuestService(
             throw new ApiException(429, $"Please wait {OtpResend - (now - last.Sent)} seconds before requesting another code.", "OTP_WAIT");
         if (await guests.CodesSentSinceAsync(phone, now - 3600) >= 5)
             throw new ApiException(429, "Too many codes were sent to this number. Try again in an hour.");
-        var code = RandomNumberGenerator.GetInt32(1_000_000).ToString("D6");
+        var code = RandomNumberGenerator.GetInt32(1_000_000).ToString("D6", CultureInfo.InvariantCulture);
         string verification;
         try
         {

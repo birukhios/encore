@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { copyText, Icon } from '../shared/ui';
-import { PageActions } from './pages';
+import { PageActions } from './pages/common';
 
 /*
  * "How to use Encore" for organizers and their staff.

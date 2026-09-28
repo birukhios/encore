@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { dateTime, shortDate } from '../shared/api';
 import { Empty, ErrorText, Field, Icon, Modal, Toggle } from '../shared/ui';
 import { DataTable, Kpi, pct } from './charts';
-import { PageActions } from './pages';
+import { PageActions } from './pages/common';
 import { downloadText, isoDay, isSale, slug, toCsv } from './reportData';
 
 /*

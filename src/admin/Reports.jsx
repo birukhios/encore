@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { dateTime, shortDate } from '../shared/api';
 import { Empty, ErrorText, Field, Icon } from '../shared/ui';
 import { Bars, DataTable, Delta, Donut, Heatmap, Insights, Kpi, TrendChart, hourLabel, pct } from './charts';
-import { PageActions } from './pages';
+import { PageActions } from './pages/common';
 import { exportPdf } from './pdf';
 import { buildReport, change, DAY_NAMES, downloadText, isoDay, paymentLabel, slug, toCsv } from './reportData';
 
